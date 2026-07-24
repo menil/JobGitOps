@@ -1,0 +1,38 @@
+# OS files
+.DS_Store
+Thumbs.db
+db.lock
+*.tmp
+*.bak
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Nix
+.direnv/
+result
+result-*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+env/
+venv/
+ENV/
+
+# Temp files
+pr.diff
+
+# Beads (issue tracking)
+.beads/

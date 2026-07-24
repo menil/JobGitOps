@@ -1,0 +1,53 @@
+#!/bin/sh
+
+MSG=$(cat "$1")
+
+# Reject empty commit messages
+if [ -z "$MSG" ]; then
+  printf 'ERROR: Commit message cannot be empty.\n'
+  exit 1
+fi
+
+TITLE=$(printf '%s\n' "$MSG" | head -n1)
+
+# Allow git rebase autosquash commits (fixup!, squash!, amend!)
+case "$TITLE" in
+fixup!* | squash!* | amend!*)
+  exit 0
+  ;;
+esac
+
+# Conventional commit regex
+# Format: type(scope): subject  or  type: subject
+# Groups: (1) type, (2) optional scope, (3) optional breaking change (!)
+# Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+CONV_REGEX='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._-]+\))?!?: .+'
+
+if ! printf '%s\n' "$TITLE" | grep -qE "$CONV_REGEX"; then
+  printf 'ERROR: Commit title must follow conventional commits format:\n'
+  printf '  Got: "%s"\n' "$TITLE"
+  printf '  Expected: type(scope): subject\n'
+  printf '  Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert\n'
+  exit 1
+fi
+
+# Title length
+TITLE_LEN=${#TITLE}
+if [ "$TITLE_LEN" -gt 72 ]; then
+  printf 'ERROR: Commit title must be 72 characters or less (%s)\n' "$TITLE_LEN"
+  exit 1
+fi
+
+# Body line length
+BODY=$(printf '%s\n' "$MSG" | tail -n +3)
+if [ -n "$BODY" ]; then
+  LINE_NUM=3
+  printf '%s\n' "$BODY" | while IFS= read -r line; do
+    LEN=${#line}
+    if [ "$LEN" -gt 72 ]; then
+      printf 'ERROR: Commit body line %s exceeds 72 characters (%s chars): "%s"\n' "$LINE_NUM" "$LEN" "$line"
+      exit 1
+    fi
+    LINE_NUM=$((LINE_NUM + 1))
+  done
+fi

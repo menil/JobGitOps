@@ -1,0 +1,25 @@
+name: Automated Code Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  review:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run PR Review Action
+        uses: menil/pr-code-review-action@main
+        with:
+          openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          openrouter_model: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}
+          openrouter_base_url: ${{ vars.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1/chat/completions' }}
+          openrouter_max_tokens: ${{ vars.OPENROUTER_MAX_TOKENS || '4096' }}
