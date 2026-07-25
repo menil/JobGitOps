@@ -1,4 +1,12 @@
 #!/bin/sh
 
 echo "Running repository validation..."
-nix-shell --run "just validate"
+
+# Check if we are already inside a Nix/Devenv shell environment to avoid startup latency
+if [ -n "$DEVENV_STATE" ] || [ -n "$IN_NIX_SHELL" ]; then
+    # Run validation directly since environment is already active
+    just validate
+else
+    # Run validation non-interactively inside the devenv wrapper
+    devenv shell just validate
+fi

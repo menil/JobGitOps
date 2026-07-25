@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jobgitops"
+version = "0.1.0"
+description = "GitOps-driven job application and tracking system"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "weasyprint",
+    "jinja2",
+    "pyyaml",
+    "python-jobspy",
+    "google-generativeai",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "PTH"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/jobgitops/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_also = [
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

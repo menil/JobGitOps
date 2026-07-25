@@ -1,52 +1,37 @@
-# Project Template
+# JobGitOps
 
-A generic, modern project template pre-configured with developer tooling, Nix integration, local git hook validation, and automated AI code reviews.
+A GitOps-driven job application and tracking system. This project automates resume compilation, job listing updates, and application tracking using a GitOps-based workflow.
 
 ## Features
 
-- 🤖 **Automated PR Reviews**: Integrated via `menil/pr-code-review-action` using OpenRouter (free tier by default).
-- ❄️ **Nix Shell**: Pre-configured `shell.nix` for consistent, reproducible developer environments.
-- 🛠️ **Local Task Runner (`Justfile`)**: Standardized commands for formatting, linting, and validating code.
-- 🛡️ **Git Hooks**: Pre-configured conventional commit title checks and automatic pre-commit quality checks.
-- ⚡ **Direnv Ready**: Automatically configures local git hooks upon entering the directory.
+- 📄 **Dynamic PDF Resumes**: Powered by WeasyPrint and Jinja2 templates, compiling HTML/CSS structures directly to PDFs.
+- ⚡ **Modern Python Environment**: Configured via Python 3.11, Nix, `devenv`, and `uv` for reproducible, isolated packages.
+- ❄️ **Hermetic Nix Environment**: Automated environment setup with all native WeasyPrint dependencies (`cairo`, `pango`, `glib`, `gdk-pixbuf`, `harfbuzz`, `libffi`) and font directories mapped cleanly inside the shell.
+- 🛠️ **Local Task Runner (`Justfile`)**: Standardized commands for formatting, linting, type-checking, and validating.
+- 🛡️ **Git Hooks**: Pre-configured pre-commit quality gate validations (`just validate`) and conventional commit title verification.
+- 🤖 **Automated PR Reviews**: Integrated via `menil/pr-code-review-action` using OpenRouter.
 
 ---
 
 ## Getting Started
 
-### 1. Create a Repository from this Template
+### 1. Developer Environment (devenv & direnv)
 
-Click the **"Use this template"** button on GitHub, or create it via the GitHub CLI:
-```bash
-gh repo create my-new-project --template menil/project-template --private --clone
-```
+This project uses `devenv` to manage system dependencies and the virtualenv. To get started:
 
-### 2. Configure GitHub Secrets
+1. Install [Nix](https://nixos.org/download) and [devenv](https://devenv.sh/getting-started/).
+2. Run `devenv shell` to enter the environment, or configure `direnv` with `direnv allow` to load the environment automatically upon entering the repository.
+3. Git hooks will be automatically registered on entering the devenv shell.
 
-For the automated PR code reviews to run successfully, navigate to your new repository's **Settings > Secrets and variables > Actions** and add:
+### 2. Task Runner (`Justfile`)
 
-* **`OPENROUTER_API_KEY`**: Your OpenRouter API Key.
+Tasks are managed via `just`:
+- `just`: List all available recipes.
+- `just format`: Format code and configurations using Ruff.
+- `just lint`: Lint codebase using Ruff.
+- `just validate`: Execute linting, formatting check, and the test suite with a 90% coverage threshold.
 
-*(Note: The template uses GitHub's Action Sharing to fetch `menil/pr-code-review-action` keylessly. Ensure you have configured the action repository under **Settings > Actions > General > Access** to be accessible from other repositories owned by your user account).*
+### 3. Git Hooks
 
----
-
-## Development Environment
-
-### Nix Shell
-Activate the Nix developer shell to load project tools:
-```bash
-nix-shell
-```
-
-### Task Runner (`Justfile`)
-The following tasks are available via `just`:
-- `just`: List all available tasks.
-- `just format`: Format code and configuration files.
-- `just lint`: Run code and markdown linters.
-- `just validate`: Execute all formatting, linting, and verification checks.
-
-### Git Hook Checks
-The project automatically configures local Git hooks:
-- **`commit-msg`**: Validates that all commit titles adhere to the [Conventional Commits](https://www.conventionalcommits.org/) standard (e.g. `feat: add database support`).
-- **`pre-commit`**: Automatically runs `just validate` before allowing a commit. If any check fails, the commit is aborted.
+- **`commit-msg`**: Validates commit titles follow the [Conventional Commits](https://www.conventionalcommits.org/) format.
+- **`pre-commit`**: Automatically runs `just validate` inside the hermetic devenv shell. If you are already within an active devenv shell, it executes directly to avoid startup latency.

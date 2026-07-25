@@ -6,13 +6,18 @@ default:
 
 # Format code and configuration files
 format:
-    @echo "No formatter configured yet. Customize this recipe in the Justfile!"
+    ruff format .
+
+# Check formatting
+format-check:
+    ruff format --check .
 
 # Run code and markdown linting checks
 lint:
-    @echo "No linter configured yet. Customize this recipe in the Justfile!"
+    ruff check .
 
 # Run all local checks (tests, format checks, lints)
 validate:
-    @echo "Running project validations..."
     just lint
+    just format-check
+    pytest --cov=jobgitops --cov-fail-under=90 tests/
