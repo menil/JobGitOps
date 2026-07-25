@@ -24,15 +24,29 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.coverage
 .ruff_cache/
 .mypy_cache/
 .venv/
 env/
 venv/
 ENV/
+*.egg-info/
+*.egg-info
 
 # Temp files
 pr.diff
 
 # Beads (issue tracking)
 .beads/
+
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+
+# Local environment / Secrets
+.env
+.env.local
+.env.*.local
+*.env
