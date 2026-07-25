@@ -64,7 +64,8 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
     *   To avoid rate limits and scraping throttles, it limits query generation to the top 3–5 most relevant skills listed under `skills`, combining them with the most recent position title (`work[0].position`) to form targeted search terms (e.g., `[Position] [Skill]`).
     *   Queries are run sequentially with a random delay (2–5 seconds) between requests.
     *   Job freshness is limited to the last 24 hours (`hours_old: 24`) to match the daily cron run.
-*   **Configuration:** User-specific search and evaluation preferences are stored in `config/settings.yaml` (e.g., remote vs. onsite preference, location, job type, target platforms, and `fit_threshold` which defaults to `4.0`).
+    *   **Custom Query Override:** If the user specifies a list of `custom_queries` in `config/settings.yaml`, the scraper will use these queries instead of generating them from the resume, allowing the user to search for roles in new tech stacks or specific domains.
+*   **Configuration:** User-specific search and evaluation preferences are stored in `config/settings.yaml` (e.g., remote vs. onsite preference, location, job type, target platforms, `fit_threshold` which defaults to `4.0`, and optional `custom_queries` to override auto-generated query strings).
 *   **Single-API-Call Deduplication Cache:** 
     *   To prevent hitting GitHub's Search API rate limits, the scraper makes **one API call** at startup to fetch the last 100 issues (both open and closed) from the repository.
     *   It parses the issue titles to extract existing company and role names.
@@ -100,7 +101,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
     *   Overwrites `resumes/resume.yaml` on the branch with the tailored content (enabling clean Git diff tracking against `main`).
     *   Generates a JSON version at `resumes/resume.json`.
     *   Compiles `resumes/resume.pdf` using WeasyPrint with Jinja2 rendering of `resumes/template.html` and `resumes/style.css`.
-    *   Commits and pushes the files to the application branch.
+    *   Commits and pushes the files to the application branch. The bot's commit messages must follow the Conventional Commits specification (e.g., `feat(application): tailor resume for [Company] - [Role]`).
 *   **Issue Comment & PDF Viewer Link:**
     *   Comments on the issue with fit scoring details and an application manual-link.
     *   Adds a direct link to the **GitHub blob view URL** of the PDF on the application branch: `https://github.com/<owner>/<repo>/blob/applications/<company>-<role>/resumes/resume.pdf` (viewable natively in browser if logged in).
@@ -164,13 +165,13 @@ Both workflows run inside our reproducible Nix/devenv environment, avoiding runn
 ### 4.1. `scrape-jobs.yml`
 *   **Trigger:** Daily cron schedule (`0 8 * * *`) or manual dispatch (`workflow_dispatch`). Manual runs support optional inputs (e.g., override location or custom search queries) for ad-hoc debugging and manual runs, defaulting to standard configuration files if left blank.
 *   **Jobs:**
-    1.  Sets up Nix and devenv using `cachix/install-nix-action` and `cachix/devenv-action`.
+    1.  Sets up Nix and devenv using `cachix/install-nix-action` and `cachix/devenv-action` with caching enabled (caching the Nix store and virtual environment dependencies).
     2.  Runs the scraper task: `devenv shell python src/scrape.py`.
 
 ### 4.2. `triage-issue.yml`
 *   **Trigger:** `issues` opened with `triage-pending` label.
 *   **Jobs:**
-    1.  Sets up Nix and devenv using `cachix/install-nix-action` and `cachix/devenv-action`.
+    1.  Sets up Nix and devenv using `cachix/install-nix-action` and `cachix/devenv-action` with caching enabled.
     2.  Runs triage: `devenv shell python src/triage.py` with `GEMINI_API_KEY` or `OPENROUTER_API_KEY`, and `GITHUB_TOKEN`.
 
 ---

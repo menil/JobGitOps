@@ -34,7 +34,7 @@ With this foundation established, the daily automated workflows of JobGitOps can
 
 ### 1. Automated Role Discovery (Scraping)
 Every morning, while Martin is brewing his first cup of coffee, a scheduled GitHub Actions cron job runs a Python script (`src/scrape.py`). 
-- Using his base resume (`resumes/resume.yaml`) to infer his core skills and latest title, the bot generates search queries and scrapes platforms like LinkedIn, Indeed, and ZipRecruiter.
+- Using his base resume (`resumes/resume.yaml`) to infer his core skills and latest title—or utilizing custom queries defined in `config/settings.yaml` if he wants to target a new stack or specific domain—the bot generates search queries and scrapes platforms like LinkedIn, Indeed, and ZipRecruiter.
 - To prevent duplicate work, it queries his own repository to deduplicate against roles he has already seen or applied to.
 - It automatically creates new candidates as **GitHub Issues**, labeling them `triage-pending` and filling the issue body with structured markdown containing the job description, company, salary range, and source.
 
@@ -49,7 +49,7 @@ For the high-scoring roles, Martin needs a tailored resume. Instead of manually 
 - The AI Engine spawns a dedicated Git branch for the application: `applications/company-role-hash`.
 - The engine rewrites `resumes/resume.yaml` on that branch, subtly adjusting his highlight bullets and skills to emphasize what the company is looking for.
 - It renders a beautiful, print-ready PDF using WeasyPrint from standard HTML/CSS templates on the branch.
-- The PDF and modified YAML are committed and pushed to the branch, leaving a clean Git diff that Martin can inspect to see exactly what changed.
+- The PDF and modified YAML are committed (adhering strictly to Conventional Commit standards to keep the repository log tidy) and pushed to the branch, leaving a clean Git diff that Martin can inspect to see exactly what changed.
 - The bot posts a comment on the GitHub Issue with a direct link to the compiled PDF on the branch.
 
 ### 4. Kanban Lifecycle Tracking
