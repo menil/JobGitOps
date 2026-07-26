@@ -42,12 +42,14 @@ fi
 BODY=$(printf '%s\n' "$MSG" | tail -n +3)
 if [ -n "$BODY" ]; then
   LINE_NUM=3
-  printf '%s\n' "$BODY" | while IFS= read -r line; do
+  while IFS= read -r line; do
     LEN=${#line}
     if [ "$LEN" -gt 72 ]; then
       printf 'ERROR: Commit body line %s exceeds 72 characters (%s chars): "%s"\n' "$LINE_NUM" "$LEN" "$line"
       exit 1
     fi
     LINE_NUM=$((LINE_NUM + 1))
-  done
+  done <<EOF
+$BODY
+EOF
 fi
