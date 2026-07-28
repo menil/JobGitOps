@@ -37,6 +37,7 @@ ENV/
 # Temp files
 pr.diff
 *.pdf
+resumes/resume.json
 
 # Beads (issue tracking)
 .beads/
