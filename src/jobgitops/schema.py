@@ -259,6 +259,17 @@ class Location:
             country_code=_parse_str("basics.location.country_code", country_val),
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert Location to dictionary conforming to JSON Resume schema."""
+        res: dict[str, Any] = {}
+        if self.city is not None:
+            res["city"] = self.city
+        if self.state is not None:
+            res["region"] = self.state
+        if self.country_code is not None:
+            res["countryCode"] = self.country_code
+        return res
+
 
 @dataclass
 class Profile:
@@ -297,6 +308,16 @@ class Profile:
             username=username,
             url=_parse_str("profile.url", data.get("url")),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert Profile to dictionary conforming to JSON Resume schema."""
+        res: dict[str, Any] = {
+            "network": self.network,
+            "username": self.username,
+        }
+        if self.url is not None:
+            res["url"] = self.url
+        return res
 
 
 @dataclass
@@ -355,6 +376,27 @@ class Basics:
             )
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Basics: {e}") from e
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert Basics to dictionary conforming to JSON Resume schema."""
+        res: dict[str, Any] = {
+            "name": self.name,
+        }
+        if self.label is not None:
+            res["label"] = self.label
+        if self.email is not None:
+            res["email"] = self.email
+        if self.phone is not None:
+            res["phone"] = self.phone
+        if self.url is not None:
+            res["url"] = self.url
+        if self.summary is not None:
+            res["summary"] = self.summary
+        if self.location is not None:
+            res["location"] = self.location.to_dict()
+        if self.profiles:
+            res["profiles"] = [p.to_dict() for p in self.profiles]
+        return res
 
 
 @dataclass
@@ -415,6 +457,24 @@ class Work:
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Work: {e}") from e
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert Work to dictionary conforming to JSON Resume schema."""
+        res: dict[str, Any] = {
+            "name": self.name,
+            "position": self.position,
+        }
+        if self.url is not None:
+            res["url"] = self.url
+        if self.start_date is not None:
+            res["startDate"] = self.start_date
+        if self.end_date is not None:
+            res["endDate"] = self.end_date
+        if self.summary is not None:
+            res["summary"] = self.summary
+        if self.highlights:
+            res["highlights"] = self.highlights
+        return res
+
 
 @dataclass
 class Education:
@@ -474,6 +534,27 @@ class Education:
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Education: {e}") from e
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert Education to dictionary conforming to JSON Resume schema."""
+        res: dict[str, Any] = {
+            "institution": self.institution,
+        }
+        if self.url is not None:
+            res["url"] = self.url
+        if self.area is not None:
+            res["area"] = self.area
+        if self.study_type is not None:
+            res["studyType"] = self.study_type
+        if self.start_date is not None:
+            res["startDate"] = self.start_date
+        if self.end_date is not None:
+            res["endDate"] = self.end_date
+        if self.score is not None:
+            res["score"] = self.score
+        if self.courses:
+            res["courses"] = self.courses
+        return res
+
 
 @dataclass
 class Skill:
@@ -515,6 +596,15 @@ class Skill:
             return cls(name=name, keywords=keywords)
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Skill: {e}") from e
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert Skill to dictionary conforming to JSON Resume schema."""
+        res: dict[str, Any] = {
+            "name": self.name,
+        }
+        if self.keywords:
+            res["keywords"] = self.keywords
+        return res
 
 
 @dataclass
@@ -579,6 +669,25 @@ class Project:
             )
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Project: {e}") from e
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert Project to dictionary conforming to JSON Resume schema."""
+        res: dict[str, Any] = {
+            "name": self.name,
+        }
+        if self.description is not None:
+            res["description"] = self.description
+        if self.highlights:
+            res["highlights"] = self.highlights
+        if self.keywords:
+            res["keywords"] = self.keywords
+        if self.start_date is not None:
+            res["startDate"] = self.start_date
+        if self.end_date is not None:
+            res["endDate"] = self.end_date
+        if self.url is not None:
+            res["url"] = self.url
+        return res
 
 
 @dataclass
@@ -652,3 +761,18 @@ class Resume:
             )
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Resume: {e}") from e
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert Resume to dictionary conforming to JSON Resume schema."""
+        res: dict[str, Any] = {
+            "basics": self.basics.to_dict(),
+        }
+        if self.work:
+            res["work"] = [w.to_dict() for w in self.work]
+        if self.education:
+            res["education"] = [e.to_dict() for e in self.education]
+        if self.skills:
+            res["skills"] = [s.to_dict() for s in self.skills]
+        if self.projects:
+            res["projects"] = [p.to_dict() for p in self.projects]
+        return res
