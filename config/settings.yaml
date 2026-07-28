@@ -1,0 +1,33 @@
+# JobGitOps System Configuration
+
+# Minimum fit score (1.0 to 5.0) required to tailor a resume and apply.
+# The AI Triage evaluates fit across tech stack, experience, location, salary, and domain.
+fit_threshold: 4.0
+
+# Search settings for the job scraper bot (scrape.py)
+search:
+  # Target location for job listings (e.g., "Remote", "Seattle, WA", "Sunnyvale, CA")
+  location: "Remote"
+
+  # Employment type: "fulltime", "contract", "parttime", "internship"
+  job_type: "fulltime"
+
+  # Job boards to search on
+  platforms:
+    - linkedin
+    - indeed
+    - zip_recruiter
+
+  # Search only for jobs posted within the last N hours
+  hours_old: 24
+
+  # Custom queries override resume-based query generation.
+  # If empty or commented out, queries are auto-generated from skills and recent position title in resume.yaml.
+  # custom_queries:
+  #   - "Senior Python Developer Remote"
+  #   - "DevOps Engineer GitOps"
+
+# Optional GitHub Projects V2 integration settings for automated status tracking.
+# projects_v2:
+#   project_id: "PVT_YOUR_PROJECT_ID"
+#   status_field_name: "Status"

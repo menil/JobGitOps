@@ -36,6 +36,7 @@ ENV/
 
 # Temp files
 pr.diff
+*.pdf
 
 # Beads (issue tracking)
 .beads/

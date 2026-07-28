@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ basics.name or 'Resume' }}</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="resume-container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="name">{{ basics.name }}</h1>
+            {% if basics.label %}
+            <div class="label">{{ basics.label }}</div>
+            {% endif %}
+            
+            <div class="contact-info">
+                {% if basics.email %}
+                <span><a href="mailto:{{ basics.email }}">{{ basics.email }}</a></span>
+                {% endif %}
+                {% if basics.phone %}
+                <span>{{ basics.phone }}</span>
+                {% endif %}
+                {% if basics.url %}
+                <span><a href="{{ basics.url }}">{{ basics.url | replace('https://', '') | replace('http://', '') }}</a></span>
+                {% endif %}
+                {% if basics.location %}
+                <span>
+                    {{ basics.location.city }}{% if basics.location.state %}, {{ basics.location.state }}{% endif %}{% if basics.location.country_code %} ({{ basics.location.country_code }}){% endif %}
+                </span>
+                {% endif %}
+                {% if basics.profiles %}
+                {% for profile in basics.profiles %}
+                <span>
+                    {% if profile.url %}
+                    <a href="{{ profile.url }}">{{ profile.username }}@{{ profile.network }}</a>
+                    {% else %}
+                    {{ profile.username }} ({{ profile.network }})
+                    {% endif %}
+                </span>
+                {% endfor %}
+                {% endif %}
+            </div>
+        </header>
+
+        <!-- Summary -->
+        {% if basics.summary %}
+        <section class="section summary-section">
+            <p>{{ basics.summary }}</p>
+        </section>
+        {% endif %}
+
+        <!-- Skills -->
+        {% if skills %}
+        <section class="section skills-section">
+            <h2 class="section-title">Skills</h2>
+            <div class="skills-grid">
+                {% for skill in skills %}
+                <div class="skill-category">
+                    <span class="category-name">{{ skill.name }}:</span>
+                    <span class="category-keywords">
+                        {{ skill.keywords | join(', ') }}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Work Experience -->
+        {% if work %}
+        <section class="section work-section">
+            <h2 class="section-title">Work Experience</h2>
+            {% for job in work %}
+            <div class="entry">
+                <div class="entry-header">
+                    <div>
+                        <span class="entry-title">{{ job.position }}</span>
+                        <span class="entry-separator">at</span>
+                        <span class="entry-company">
+                            {% if job.url %}<a href="{{ job.url }}">{{ job.name }}</a>{% else %}{{ job.name }}{% endif %}
+                        </span>
+                    </div>
+                    <div class="entry-date">
+                        {{ job.start_date | default('') }} &ndash; {{ job.end_date | default('Present', true) }}
+                    </div>
+                </div>
+                {% if job.summary %}
+                <p class="entry-summary">{{ job.summary }}</p>
+                {% endif %}
+                {% if job.highlights %}
+                <ul class="entry-highlights">
+                    {% for highlight in job.highlights %}
+                    <li>{{ highlight }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <!-- Projects -->
+        {% if projects %}
+        <section class="section projects-section">
+            <h2 class="section-title">Projects</h2>
+            {% for project in projects %}
+            <div class="entry">
+                <div class="entry-header">
+                    <div>
+                        <span class="entry-title">
+                            {% if project.url %}<a href="{{ project.url }}">{{ project.name }}</a>{% else %}{{ project.name }}{% endif %}
+                        </span>
+                        {% if project.keywords %}
+                        <span class="entry-keywords">({{ project.keywords | join(', ') }})</span>
+                        {% endif %}
+                    </div>
+                    <div class="entry-date">
+                        {{ project.start_date | default('') }}{% if project.end_date %} &ndash; {{ project.end_date }}{% endif %}
+                    </div>
+                </div>
+                {% if project.description %}
+                <p class="entry-summary">{{ project.description }}</p>
+                {% endif %}
+                {% if project.highlights %}
+                <ul class="entry-highlights">
+                    {% for highlight in project.highlights %}
+                    <li>{{ highlight }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <!-- Education -->
+        {% if education %}
+        <section class="section education-section">
+            <h2 class="section-title">Education</h2>
+            {% for edu in education %}
+            <div class="entry">
+                <div class="entry-header">
+                    <div>
+                        <span class="entry-title">{{ edu.study_type }}{% if edu.area %} in {{ edu.area }}{% endif %}</span>
+                        <span class="entry-separator">at</span>
+                        <span class="entry-company">
+                            {% if edu.url %}<a href="{{ edu.url }}">{{ edu.institution }}</a>{% else %}{{ edu.institution }}{% endif %}
+                        </span>
+                    </div>
+                    <div class="entry-date">
+                        {{ edu.start_date | default('') }} &ndash; {{ edu.end_date | default('Present', true) }}
+                    </div>
+                </div>
+                {% if edu.score %}
+                <div class="entry-meta">GPA: {{ edu.score }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+    </div>
+</body>
+</html>

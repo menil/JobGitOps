@@ -1,0 +1,654 @@
+"""Data schemas and dataclasses for JobGitOps."""
+
+import datetime
+from dataclasses import dataclass, field
+from typing import Any
+
+
+class ValidationError(ValueError):
+    """Raised when configuration or resume data validation fails."""
+
+    pass
+
+
+def _parse_str(field_name: str, val: Any) -> str | None:
+    """Parse a value into a string with ISO formatting for dates.
+
+    Args:
+        field_name: The name of the field being validated.
+        val: The value to validate.
+
+    Returns:
+        The string representation of the value, or None if input was None.
+
+    Raises:
+        ValidationError: If the value is a boolean or a collection.
+    """
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        raise ValidationError(f"{field_name} must be a string, not a boolean.")
+    if isinstance(val, (list, dict, set, tuple)):
+        raise ValidationError(f"{field_name} must be a string, not a collection.")
+    if isinstance(val, (datetime.date, datetime.datetime)):
+        return val.isoformat()
+    return str(val)
+
+
+@dataclass
+class SearchConfig:
+    """Job search scraper configuration."""
+
+    location: str = "Remote"
+    job_type: str = "fulltime"
+    platforms: list[str] = field(
+        default_factory=lambda: ["linkedin", "indeed", "zip_recruiter"]
+    )
+    hours_old: int = 24
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SearchConfig":
+        """Parse search configuration from dictionary.
+
+        Args:
+            data: Raw dictionary containing search config fields.
+
+        Returns:
+            A parsed SearchConfig instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("Search configuration must be a dictionary.")
+
+        try:
+            location = _parse_str("search.location", data.get("location")) or "Remote"
+            job_type = _parse_str("search.job_type", data.get("job_type")) or "fulltime"
+
+            platforms_raw = data.get("platforms")
+            if platforms_raw is None:
+                platforms = ["linkedin", "indeed", "zip_recruiter"]
+            else:
+                if not isinstance(platforms_raw, list) or not all(
+                    isinstance(p, str) and not isinstance(p, bool)
+                    for p in platforms_raw
+                ):
+                    raise ValidationError("search.platforms must be a list of strings.")
+                platforms = platforms_raw
+
+            hours_old_raw = data.get("hours_old")
+            if hours_old_raw is None:
+                hours_old = 24
+            else:
+                if isinstance(hours_old_raw, bool) or not isinstance(
+                    hours_old_raw, int
+                ):
+                    try:
+                        if isinstance(hours_old_raw, bool):
+                            raise TypeError()
+                        hours_old = int(hours_old_raw)
+                    except (ValueError, TypeError) as e:
+                        raise ValidationError(
+                            "search.hours_old must be an integer."
+                        ) from e
+                else:
+                    hours_old = hours_old_raw
+
+            if hours_old <= 0:
+                raise ValidationError("search.hours_old must be greater than zero.")
+
+            return cls(
+                location=location,
+                job_type=job_type,
+                platforms=platforms,
+                hours_old=hours_old,
+            )
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse SearchConfig: {e}") from e
+
+
+@dataclass
+class ProjectsV2Config:
+    """Optional GitHub Projects V2 automation configuration."""
+
+    project_id: str
+    status_field_name: str = "Status"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ProjectsV2Config":
+        """Parse Projects V2 configuration from dictionary.
+
+        Args:
+            data: Raw dictionary containing Projects V2 config.
+
+        Returns:
+            A parsed ProjectsV2Config instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("projects_v2 configuration must be a dictionary.")
+
+        try:
+            project_id = _parse_str("projects_v2.project_id", data.get("project_id"))
+            if not project_id:
+                raise ValidationError(
+                    "projects_v2.project_id must be a non-empty string."
+                )
+
+            status_field_name = (
+                _parse_str(
+                    "projects_v2.status_field_name", data.get("status_field_name")
+                )
+                or "Status"
+            )
+
+            return cls(project_id=project_id, status_field_name=status_field_name)
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse ProjectsV2Config: {e}") from e
+
+
+@dataclass
+class Settings:
+    """App-wide settings loaded from config/settings.yaml."""
+
+    fit_threshold: float = 4.0
+    search: SearchConfig = field(default_factory=SearchConfig)
+    custom_queries: list[str] | None = None
+    projects_v2: ProjectsV2Config | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Settings":
+        """Parse settings from dictionary with parsing validation.
+
+        Args:
+            data: Raw dictionary containing Settings fields.
+
+        Returns:
+            A parsed Settings instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("Settings data must be a dictionary.")
+
+        try:
+            fit_threshold_raw = data.get("fit_threshold", 4.0)
+            if isinstance(fit_threshold_raw, bool) or not isinstance(
+                fit_threshold_raw, (int, float)
+            ):
+                try:
+                    if isinstance(fit_threshold_raw, bool):
+                        raise TypeError()
+                    fit_threshold = float(fit_threshold_raw)
+                except (ValueError, TypeError) as e:
+                    raise ValidationError("fit_threshold must be a number.") from e
+            else:
+                fit_threshold = float(fit_threshold_raw)
+
+            if not (1.0 <= fit_threshold <= 5.0):
+                raise ValidationError("fit_threshold must be between 1.0 and 5.0.")
+
+            search_data = data.get("search") or {}
+            search = SearchConfig.from_dict(search_data)
+
+            custom_queries_raw = data.get("custom_queries")
+            if custom_queries_raw is None:
+                custom_queries = None
+            else:
+                if not isinstance(custom_queries_raw, list) or not all(
+                    isinstance(q, str) and not isinstance(q, bool)
+                    for q in custom_queries_raw
+                ):
+                    raise ValidationError("custom_queries must be a list of strings.")
+                custom_queries = custom_queries_raw
+
+            projects_v2_data = data.get("projects_v2")
+            projects_v2 = (
+                ProjectsV2Config.from_dict(projects_v2_data)
+                if projects_v2_data is not None
+                else None
+            )
+
+            return cls(
+                fit_threshold=fit_threshold,
+                search=search,
+                custom_queries=custom_queries,
+                projects_v2=projects_v2,
+            )
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse Settings: {e}") from e
+
+
+# --- JSON Resume Schema Dataclasses ---
+
+
+@dataclass
+class Location:
+    """Location information for JSON Resume."""
+
+    city: str | None = None
+    state: str | None = None
+    country_code: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Location":
+        """Parse location details from dictionary.
+
+        Args:
+            data: Raw dictionary containing Location fields.
+
+        Returns:
+            A parsed Location instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("basics.location must be a dictionary.")
+
+        state_val = data.get("state") or data.get("region")
+        country_val = data.get("countryCode") or data.get("country_code")
+
+        return cls(
+            city=_parse_str("basics.location.city", data.get("city")),
+            state=_parse_str("basics.location.state", state_val),
+            country_code=_parse_str("basics.location.country_code", country_val),
+        )
+
+
+@dataclass
+class Profile:
+    """Social profiles (GitHub, LinkedIn) for JSON Resume."""
+
+    network: str
+    username: str
+    url: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Profile":
+        """Parse social profile details from dictionary.
+
+        Args:
+            data: Raw dictionary containing Profile fields.
+
+        Returns:
+            A parsed Profile instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("profile details must be a dictionary.")
+
+        network = _parse_str("profile.network", data.get("network"))
+        if not network:
+            raise ValidationError("profile.network must be a non-empty string.")
+
+        username = _parse_str("profile.username", data.get("username"))
+        if not username:
+            raise ValidationError("profile.username must be a non-empty string.")
+
+        return cls(
+            network=network,
+            username=username,
+            url=_parse_str("profile.url", data.get("url")),
+        )
+
+
+@dataclass
+class Basics:
+    """Basic profile information for JSON Resume."""
+
+    name: str
+    label: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    url: str | None = None
+    summary: str | None = None
+    location: Location | None = None
+    profiles: list[Profile] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Basics":
+        """Parse basics section from dictionary.
+
+        Args:
+            data: Raw dictionary containing Basics fields.
+
+        Returns:
+            A parsed Basics instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("Resume basics must be a dictionary.")
+
+        try:
+            name = _parse_str("basics.name", data.get("name"))
+            if not name:
+                raise ValidationError("basics.name is required and must be a string.")
+
+            location_data = data.get("location")
+            location = Location.from_dict(location_data) if location_data else None
+
+            profiles_data = data.get("profiles")
+            if profiles_data is None:
+                profiles_data = []
+            if not isinstance(profiles_data, list):
+                raise ValidationError("basics.profiles must be a list.")
+            profiles = [Profile.from_dict(p) for p in profiles_data]
+
+            return cls(
+                name=name,
+                label=_parse_str("basics.label", data.get("label")),
+                email=_parse_str("basics.email", data.get("email")),
+                phone=_parse_str("basics.phone", data.get("phone")),
+                url=_parse_str("basics.url", data.get("url")),
+                summary=_parse_str("basics.summary", data.get("summary")),
+                location=location,
+                profiles=profiles,
+            )
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse Basics: {e}") from e
+
+
+@dataclass
+class Work:
+    """Professional work experience entry for JSON Resume."""
+
+    name: str
+    position: str
+    url: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    summary: str | None = None
+    highlights: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Work":
+        """Parse work experience entry from dictionary.
+
+        Args:
+            data: Raw dictionary containing Work fields.
+
+        Returns:
+            A parsed Work instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("work entry must be a dictionary.")
+
+        try:
+            name = _parse_str("work.name", data.get("name"))
+            if not name:
+                raise ValidationError("work.name is required and must be a string.")
+
+            position = _parse_str("work.position", data.get("position"))
+            if not position:
+                raise ValidationError("work.position is required and must be a string.")
+
+            highlights_raw = data.get("highlights")
+            if highlights_raw is None:
+                highlights_raw = []
+            if not isinstance(highlights_raw, list) or not all(
+                isinstance(h, str) and not isinstance(h, bool) for h in highlights_raw
+            ):
+                raise ValidationError("work.highlights must be a list of strings.")
+            highlights = highlights_raw
+
+            return cls(
+                name=name,
+                position=position,
+                url=_parse_str("work.url", data.get("url")),
+                start_date=_parse_str("work.start_date", data.get("startDate")),
+                end_date=_parse_str("work.end_date", data.get("endDate")),
+                summary=_parse_str("work.summary", data.get("summary")),
+                highlights=highlights,
+            )
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse Work: {e}") from e
+
+
+@dataclass
+class Education:
+    """Education history entry for JSON Resume."""
+
+    institution: str
+    url: str | None = None
+    area: str | None = None
+    study_type: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    score: str | None = None
+    courses: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Education":
+        """Parse education history entry from dictionary.
+
+        Args:
+            data: Raw dictionary containing Education fields.
+
+        Returns:
+            A parsed Education instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("education entry must be a dictionary.")
+
+        try:
+            institution = _parse_str("education.institution", data.get("institution"))
+            if not institution:
+                raise ValidationError(
+                    "education.institution is required and must be a string."
+                )
+
+            courses_raw = data.get("courses")
+            if courses_raw is None:
+                courses_raw = []
+            if not isinstance(courses_raw, list) or not all(
+                isinstance(c, str) and not isinstance(c, bool) for c in courses_raw
+            ):
+                raise ValidationError("education.courses must be a list of strings.")
+            courses = courses_raw
+
+            return cls(
+                institution=institution,
+                url=_parse_str("education.url", data.get("url")),
+                area=_parse_str("education.area", data.get("area")),
+                study_type=_parse_str("education.study_type", data.get("studyType")),
+                start_date=_parse_str("education.start_date", data.get("startDate")),
+                end_date=_parse_str("education.end_date", data.get("endDate")),
+                score=_parse_str("education.score", data.get("score")),
+                courses=courses,
+            )
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse Education: {e}") from e
+
+
+@dataclass
+class Skill:
+    """Professional skills entry for JSON Resume."""
+
+    name: str
+    keywords: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Skill":
+        """Parse skill entry from dictionary.
+
+        Args:
+            data: Raw dictionary containing Skill fields.
+
+        Returns:
+            A parsed Skill instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("skill entry must be a dictionary.")
+
+        try:
+            name = _parse_str("skill.name", data.get("name"))
+            if not name:
+                raise ValidationError("skill.name is required and must be a string.")
+
+            keywords_raw = data.get("keywords")
+            if keywords_raw is None:
+                keywords_raw = []
+            if not isinstance(keywords_raw, list) or not all(
+                isinstance(k, str) and not isinstance(k, bool) for k in keywords_raw
+            ):
+                raise ValidationError("skill.keywords must be a list of strings.")
+            keywords = keywords_raw
+
+            return cls(name=name, keywords=keywords)
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse Skill: {e}") from e
+
+
+@dataclass
+class Project:
+    """Personal or professional project entry for JSON Resume."""
+
+    name: str
+    description: str | None = None
+    highlights: list[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
+    start_date: str | None = None
+    end_date: str | None = None
+    url: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Project":
+        """Parse project entry from dictionary.
+
+        Args:
+            data: Raw dictionary containing Project fields.
+
+        Returns:
+            A parsed Project instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("project entry must be a dictionary.")
+
+        try:
+            name = _parse_str("project.name", data.get("name"))
+            if not name:
+                raise ValidationError("project.name is required and must be a string.")
+
+            highlights_raw = data.get("highlights")
+            if highlights_raw is None:
+                highlights_raw = []
+            if not isinstance(highlights_raw, list) or not all(
+                isinstance(h, str) and not isinstance(h, bool) for h in highlights_raw
+            ):
+                raise ValidationError("project.highlights must be a list of strings.")
+            highlights = highlights_raw
+
+            keywords_raw = data.get("keywords")
+            if keywords_raw is None:
+                keywords_raw = []
+            if not isinstance(keywords_raw, list) or not all(
+                isinstance(k, str) and not isinstance(k, bool) for k in keywords_raw
+            ):
+                raise ValidationError("project.keywords must be a list of strings.")
+            keywords = keywords_raw
+
+            return cls(
+                name=name,
+                description=_parse_str("project.description", data.get("description")),
+                highlights=highlights,
+                keywords=keywords,
+                start_date=_parse_str("project.start_date", data.get("startDate")),
+                end_date=_parse_str("project.end_date", data.get("endDate")),
+                url=_parse_str("project.url", data.get("url")),
+            )
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse Project: {e}") from e
+
+
+@dataclass
+class Resume:
+    """Full resume conforming to JSON Resume schema conventions."""
+
+    basics: Basics
+    work: list[Work] = field(default_factory=list)
+    education: list[Education] = field(default_factory=list)
+    skills: list[Skill] = field(default_factory=list)
+    projects: list[Project] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Resume":
+        """Parse full resume from dictionary with parsing validation.
+
+        Args:
+            data: Raw dictionary containing the full Resume.
+
+        Returns:
+            A parsed Resume instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("Resume data must be a dictionary.")
+
+        try:
+            basics_data = data.get("basics")
+            if basics_data is None:
+                raise ValidationError("basics section is required in resume.")
+            if not isinstance(basics_data, dict):
+                raise ValidationError("basics section must be a dictionary.")
+            basics = Basics.from_dict(basics_data)
+
+            work_data = data.get("work")
+            if work_data is None:
+                work_data = []
+            if not isinstance(work_data, list):
+                raise ValidationError("work section must be a list.")
+            work = [Work.from_dict(w) for w in work_data]
+
+            education_data = data.get("education")
+            if education_data is None:
+                education_data = []
+            if not isinstance(education_data, list):
+                raise ValidationError("education section must be a list.")
+            education = [Education.from_dict(e) for e in education_data]
+
+            skills_data = data.get("skills")
+            if skills_data is None:
+                skills_data = []
+            if not isinstance(skills_data, list):
+                raise ValidationError("skills section must be a list.")
+            skills = [Skill.from_dict(s) for s in skills_data]
+
+            projects_data = data.get("projects")
+            if projects_data is None:
+                projects_data = []
+            if not isinstance(projects_data, list):
+                raise ValidationError("projects section must be a list.")
+            projects = [Project.from_dict(p) for p in projects_data]
+
+            return cls(
+                basics=basics,
+                work=work,
+                education=education,
+                skills=skills,
+                projects=projects,
+            )
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse Resume: {e}") from e
