@@ -28,6 +28,15 @@ Within the Nix shell environment, you can run tests directly via `pytest` for ta
 - **Feature Branches**: Always develop and commit changes on a separate task/feature branch (e.g., `task/`, `feat/`, `fix/`) rather than committing directly to `main`.
 - **Pre-commit Validation**: Run `just validate` before committing code to ensure linting, formatting, and all tests pass.
 - **Conventional Commits**: Commit messages must follow standard Conventional Commit guidelines (e.g., `feat:`, `fix:`, `docs:`, `refactor:`). Keep both the commit title and all body lines strictly under 72 characters to prevent validation failures in the `commit-msg` git hook.
+- **Exclude Auto-Generated Agent Instructions**: Never stage, commit, or track IDE/agent-specific auto-generated directories and files (such as `.agents/`, `.codex/`, or `.claude/`).
+- **Commit Amending**: Prefer amending the existing commit (`git commit --amend --no-edit` and force pushing via `git push --force-with-lease` for safety, only on branches owned solely by you) when applying review feedback or bug fixes on task branches, to keep a single clean commit per PR.
+
+## Python Schema & Parsing Conventions
+
+- **Parse, Don't Validate**: When implementing loaders and data models (e.g., for YAML/JSON Resume data), follow the "parse, don't validate" pattern (see [Alexis King's design post](https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/) for details):
+  - Avoid writing hand-crafted type checks and validation raises for basic scalar attributes.
+  - Coerce inputs safely to their target types (such as converting scalars to strings and explicit `.isoformat()` serialization for `datetime.date`/`datetime.datetime` objects).
+  - Raise custom parsing/validation errors only for missing mandatory fields or structural collection mismatches (like non-list shapes where lists are expected).
 
 ---
 
