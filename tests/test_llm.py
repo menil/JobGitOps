@@ -204,7 +204,7 @@ def test_get_llm_client_default_gemini(mock_configure: MagicMock) -> None:
     client = get_llm_client()
     assert isinstance(client, GeminiClient)
     assert client.api_key == "fake-gemini-key"
-    assert client.model_name == "gemini-2.5-flash"
+    assert client.model_name == "gemini-1.5-flash"
     mock_configure.assert_called_once_with(api_key="fake-gemini-key")
 
 
@@ -214,7 +214,7 @@ def test_get_llm_client_default_openrouter() -> None:
     client = get_llm_client()
     assert isinstance(client, OpenRouterClient)
     assert client.api_key == "fake-or-key"
-    assert client.model_name == "google/gemini-2.5-flash"
+    assert client.model_name == "google/gemini-1.5-flash"
 
 
 @patch.dict(

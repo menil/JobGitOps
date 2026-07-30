@@ -170,7 +170,7 @@ class LLMClient(ABC):
 class GeminiClient(LLMClient):
     """LLM client implementation utilizing the official Google Generative AI SDK."""
 
-    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash") -> None:
+    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash") -> None:
         self.api_key = api_key
         self.model_name = model_name
 
@@ -228,7 +228,7 @@ class OpenRouterClient(LLMClient):
     """LLM client implementation utilizing standard HTTP requests."""
 
     def __init__(
-        self, api_key: str, model_name: str = "google/gemini-2.5-flash"
+        self, api_key: str, model_name: str = "google/gemini-1.5-flash"
     ) -> None:
         self.api_key = api_key
         self.model_name = model_name
@@ -306,7 +306,16 @@ def get_llm_client() -> LLMClient:
     gemini_key = os.environ.get("GEMINI_API_KEY")
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 
-    if not provider:
+    allowed_providers = {"gemini", "openrouter"}
+
+    if provider:
+        provider = provider.strip().lower()
+        if provider not in allowed_providers:
+            raise ValidationError(
+                f"Unknown LLM provider specified: '{provider}'. "
+                f"Allowed values are: {sorted(allowed_providers)}"
+            )
+    else:
         if gemini_key:
             provider = "gemini"
         elif openrouter_key:
@@ -317,16 +326,27 @@ def get_llm_client() -> LLMClient:
                 "OPENROUTER_API_KEY."
             )
 
-    provider = provider.lower()
     if provider == "gemini":
         if not gemini_key:
             raise ValidationError("GEMINI_API_KEY environment variable is missing.")
-        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash").strip()
+        if not (model_name.startswith("gemini-") or model_name.startswith("models/")):
+            raise ValidationError(
+                f"Invalid Gemini model name: '{model_name}'. "
+                "Must start with 'gemini-' or 'models/'"
+            )
         return GeminiClient(api_key=gemini_key, model_name=model_name)
     elif provider == "openrouter":
         if not openrouter_key:
             raise ValidationError("OPENROUTER_API_KEY environment variable is missing.")
-        model_name = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+        model_name = os.environ.get(
+            "OPENROUTER_MODEL", "google/gemini-1.5-flash"
+        ).strip()
+        if "/" not in model_name:
+            raise ValidationError(
+                f"Invalid OpenRouter model name: '{model_name}'. "
+                "Must specify provider prefix (e.g. 'google/gemini-1.5-flash')"
+            )
         return OpenRouterClient(api_key=openrouter_key, model_name=model_name)
     else:
         raise ValidationError(f"Unknown LLM provider specified: {provider}")

@@ -511,6 +511,7 @@ def test_run_scraper_overrides(
         job_type="contract",
         hours_old=48,
         results_wanted=15,
+        linkedin_fetch_description=True,
     )
 
 
