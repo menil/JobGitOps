@@ -227,6 +227,21 @@ class GitHubClient:
             raise GitHubClientError(f"Unexpected response format: {res}")
         return res
 
+    def get_issue(self, issue_number: int) -> dict[str, Any]:
+        """Get a single issue from the repository.
+
+        Args:
+            issue_number: The number of the issue.
+
+        Returns:
+            The issue details dictionary.
+        """
+        url = f"https://api.github.com/repos/{self.repo}/issues/{issue_number}"
+        res = self._request("GET", url)
+        if not isinstance(res, dict):
+            raise GitHubClientError(f"Unexpected response format: {res}")
+        return res
+
     def list_issues(
         self, state: str = "all", per_page: int = 100, page: int | None = None
     ) -> list[dict[str, Any]]:
