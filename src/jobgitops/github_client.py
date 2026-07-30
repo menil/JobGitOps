@@ -228,18 +228,21 @@ class GitHubClient:
         return res
 
     def list_issues(
-        self, state: str = "all", per_page: int = 100
+        self, state: str = "all", per_page: int = 100, page: int | None = None
     ) -> list[dict[str, Any]]:
         """List issues for the repository.
 
         Args:
             state: State of issues to list ('open', 'closed', or 'all').
             per_page: Number of issues to retrieve per page (max 100).
+            page: Optional page number for pagination.
 
         Returns:
             List of issues.
         """
         url = f"https://api.github.com/repos/{self.repo}/issues?state={state}&per_page={per_page}"
+        if page is not None:
+            url += f"&page={page}"
         res = self._request("GET", url)
         if not isinstance(res, list):
             raise GitHubClientError(f"Unexpected response format: {res}")
