@@ -453,6 +453,10 @@ def run_scraper(
             query,
         )
         try:
+            extra_kwargs: dict[str, Any] = {}
+            if "linkedin" in platforms:
+                extra_kwargs["linkedin_fetch_description"] = True
+
             jobs_df = scrape_fn(
                 site_name=platforms,
                 search_term=query,
@@ -461,6 +465,7 @@ def run_scraper(
                 job_type=job_type,
                 hours_old=hours_old,
                 results_wanted=15,
+                **extra_kwargs,
             )
 
             if jobs_df is None or jobs_df.empty:
