@@ -26,6 +26,7 @@ from jobgitops.renderer import (
     render_resume_to_html,
 )
 from jobgitops.schema import Resume, Settings, ValidationError
+from jobgitops.scraper import ScrapedJob, parse_job_row, run_scraper
 
 __all__ = [
     "TriageResult",
@@ -52,4 +53,7 @@ __all__ = [
     "compile_resume_pdf",
     "compile_resume_json",
     "render_resume_to_html",
+    "run_scraper",
+    "ScrapedJob",
+    "parse_job_row",
 ]

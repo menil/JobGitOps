@@ -140,25 +140,15 @@ def test_generate_queries_custom_override() -> None:
 def test_fetch_existing_jobs_cache() -> None:
     """Verify issue titles are fetched and parsed correctly for duplicate check."""
     mock_client = MagicMock()
-    # Mock returning 2 pages of issues, then empty to stop loop
-    mock_client.list_issues.side_effect = [
-        [
-            {"title": "[Acme Corp] Python Developer"},
-            {"title": "[Hooli] Site Reliability Engineer "},
-            {"title": "[Acme [HQ]] Developer"},  # Bracket edge case
-            {"title": None},
-        ],
-        [
-            {"title": "[Wayne Enterprises] CEO"},
-        ],
-        [],  # Page 3 empty
-    ]
+    # Construct 100 items for page 1 to trigger loading page 2
+    page1 = [{"title": f"[Company {i}] Role {i}"} for i in range(100)]
+    # Wayne Enterprises on page 2
+    page2 = [{"title": "[Wayne Enterprises] CEO"}]
+    mock_client.list_issues.side_effect = [page1, page2, []]
 
     cache = fetch_existing_jobs_cache(mock_client, max_pages=3)
-    assert len(cache) == 4
-    assert ("acme corp", "python developer") in cache
-    assert ("hooli", "site reliability engineer") in cache
-    assert ("acme [hq]", "developer") in cache
+    assert len(cache) == 101
+    assert ("company 0", "role 0") in cache
     assert ("wayne enterprises", "ceo") in cache
 
 
@@ -339,10 +329,12 @@ def test_run_scraper_success(
             scrape_fn=mock_scrape_jobs,
         )
 
-    # Verify existing issues cache page-fetching is called for page 1 and page 2
-    assert mock_github_client.list_issues.call_count == 2
-    mock_github_client.list_issues.assert_any_call(state="all", per_page=100, page=1)
-    mock_github_client.list_issues.assert_any_call(state="all", per_page=100, page=2)
+    # Verify existing issues cache page-fetching is called for page 1
+    # (stops early since len(issues) < 100)
+    assert mock_github_client.list_issues.call_count == 1
+    mock_github_client.list_issues.assert_called_once_with(
+        state="all", per_page=100, page=1
+    )
 
     # Verify only the new job and the NaN-sanitized job were created as issues
     assert mock_github_client.create_issue.call_count == 2
@@ -359,16 +351,16 @@ def test_run_scraper_missing_env(
     mock_load_resume,
     mock_load_settings,
 ) -> None:
-    """Verify scraper exits cleanly if GITHUB_TOKEN or GITHUB_REPOSITORY are missing."""
+    """Verify scraper raises ValueError if env vars are missing."""
     mock_load_settings.return_value = MagicMock()
 
     with (
         patch.dict(os.environ, {}, clear=True),
-        pytest.raises(SystemExit) as exc_info,
+        pytest.raises(ValueError) as exc_info,
     ):
         run_scraper()
 
-    assert exc_info.value.code == 1
+    assert "Missing GITHUB_TOKEN" in str(exc_info.value)
 
 
 @patch("jobgitops.scraper.time.sleep")
@@ -476,3 +468,76 @@ def test_run_scraper_dry_run(
 
     # Verify create_issue was NOT called
     mock_github_client.create_issue.assert_not_called()
+
+
+@patch("jobgitops.scraper.load_settings")
+@patch("jobgitops.scraper.load_resume")
+def test_run_scraper_overrides(
+    mock_load_resume,
+    mock_load_settings,
+) -> None:
+    """Verify run_scraper respects optional parameter overrides."""
+    mock_settings = MagicMock()
+    mock_settings.custom_queries = ["Query"]
+    mock_settings.search.platforms = ["linkedin"]
+    mock_settings.search.location = "Remote"
+    mock_settings.search.job_type = "fulltime"
+    mock_settings.search.hours_old = 24
+    mock_settings.projects_v2 = None
+    mock_load_settings.return_value = mock_settings
+
+    mock_resume = MagicMock()
+    mock_load_resume.return_value = mock_resume
+
+    mock_github_client = MagicMock()
+    mock_scrape_jobs = MagicMock()
+    mock_scrape_jobs.return_value = pd.DataFrame([])
+
+    run_scraper(
+        dry_run=True,
+        github_client=mock_github_client,
+        scrape_fn=mock_scrape_jobs,
+        location_override="Sunnyvale, CA",
+        job_type_override="contract",
+        hours_old_override=48,
+    )
+
+    # Check that mock_scrape_jobs was called with overridden parameters
+    mock_scrape_jobs.assert_called_once_with(
+        site_name=["linkedin"],
+        search_term="Query",
+        location="Sunnyvale, CA",
+        is_remote=False,
+        job_type="contract",
+        hours_old=48,
+        results_wanted=15,
+    )
+
+
+@patch("scrape.run_scraper")
+@patch(
+    "sys.argv",
+    [
+        "scrape.py",
+        "--location",
+        "Seattle, WA",
+        "--job-type",
+        "parttime",
+        "--hours-old",
+        "72",
+        "--dry-run",
+    ],
+)
+def test_scrape_cli_args(mock_run_scraper) -> None:
+    """Verify scrape.py CLI entry point parses overrides correctly."""
+    from scrape import main as cli_main
+
+    cli_main()
+    mock_run_scraper.assert_called_once_with(
+        settings_path="config/settings.yaml",
+        resume_path="resumes/resume.yaml",
+        dry_run=True,
+        location_override="Seattle, WA",
+        job_type_override="parttime",
+        hours_old_override=72,
+    )

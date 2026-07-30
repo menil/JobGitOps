@@ -9,7 +9,6 @@ import math
 import os
 import random
 import re
-import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -155,12 +154,12 @@ def build_issue_body(
 
 
 def generate_queries(
-    resume: Resume, settings_custom_queries: list[str] | None
+    resume: Resume | None, settings_custom_queries: list[str] | None
 ) -> list[str]:
     """Generate job search queries using custom override or base resume data.
 
     Args:
-        resume: Parsed Resume model.
+        resume: Parsed Resume model (can be None if custom queries are set).
         settings_custom_queries: Optional list of custom queries override.
 
     Returns:
@@ -173,6 +172,11 @@ def generate_queries(
             settings_custom_queries,
         )
         return settings_custom_queries
+
+    if not resume:
+        raise ValueError(
+            "Resume configuration is required when custom_queries are not set."
+        )
 
     # 2. Resume-Driven Query Generation
     # Prefer applicant's most recent job title, falling back to summary label
@@ -225,7 +229,7 @@ def fetch_existing_jobs_cache(
     # with deduplication freshness.
     logger.info("Fetching deduplication cache of recent issues...")
     existing = set()
-    title_pattern = re.compile(r"^\[(.*)\]\s+(.*)$")
+    title_pattern = re.compile(r"^\[([^\]]+)\]\s+(.*)$")
 
     for page in range(1, max_pages + 1):
         try:
@@ -247,6 +251,9 @@ def fetch_existing_jobs_cache(
                 company = match.group(1).strip().lower()
                 role = match.group(2).strip().lower()
                 existing.add((company, role))
+
+        if len(issues) < 100:
+            break
 
     logger.info("Successfully cached %d existing jobs.", len(existing))
     return existing
@@ -353,6 +360,9 @@ def run_scraper(
     dry_run: bool = False,
     github_client: GitHubClient | None = None,
     scrape_fn: Callable | None = None,
+    location_override: str | None = None,
+    job_type_override: str | None = None,
+    hours_old_override: int | None = None,
 ) -> None:
     """Main execution function for the job scraper bot.
 
@@ -362,9 +372,13 @@ def run_scraper(
         dry_run: If True, skip all remote GitHub write/read operations.
         github_client: Optional injected GitHubClient instance.
         scrape_fn: Optional injected scraping function to override jobspy.
+        location_override: Optional location override to ignore settings.
+        job_type_override: Optional job type override to ignore settings.
+        hours_old_override: Optional hours old override to ignore settings.
     """
     logger.info("Loading settings from: %s", settings_path)
     settings = load_settings(settings_path)
+    resume = load_resume(resume_path) if not settings.custom_queries else None
 
     # 1. Resolve GitHub client (with dependency injection fallback)
     if github_client is None:
@@ -378,10 +392,9 @@ def run_scraper(
             token = token or "dummy_token"
             repo = repo or "dummy/repo"
         elif not token or not repo:
-            logger.error(
+            raise ValueError(
                 "Missing GITHUB_TOKEN or GITHUB_REPOSITORY environment variables."
             )
-            sys.exit(1)
 
         project_id = None
         status_field = "Status"
@@ -406,15 +419,22 @@ def run_scraper(
     existing_jobs = set() if dry_run else fetch_existing_jobs_cache(github_client)
 
     # 4. Generate queries by passing the loaded Resume object
-    resume = load_resume(resume_path)
     queries = generate_queries(resume, settings.custom_queries)
 
     # 5. Extract scraper settings
     platforms = settings.search.platforms
-    location = settings.search.location
+    location = (
+        location_override if location_override is not None else settings.search.location
+    )
     is_remote = (location or "").lower() == "remote"
-    job_type = settings.search.job_type
-    hours_old = settings.search.hours_old
+    job_type = (
+        job_type_override if job_type_override is not None else settings.search.job_type
+    )
+    hours_old = (
+        hours_old_override
+        if hours_old_override is not None
+        else settings.search.hours_old
+    )
 
     logger.info(
         "Scraper config: platforms=%s, location='%s', job_type=%s, hours_old=%d",

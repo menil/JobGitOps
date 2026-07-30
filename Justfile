@@ -20,4 +20,4 @@ lint:
 validate:
     just lint
     just format-check
-    pytest --cov=jobgitops --cov-fail-under=90 tests/
+    pytest --cov=src --cov-fail-under=90 tests/
