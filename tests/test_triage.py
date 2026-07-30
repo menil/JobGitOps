@@ -458,6 +458,7 @@ def test_main_event_path(
                 {
                     "GITHUB_TOKEN": "event-token",
                 },
+                clear=True,
             ),
         ):
             main()
