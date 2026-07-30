@@ -30,6 +30,7 @@ Within the Nix shell environment, you can run tests directly via `pytest` for ta
 - **Conventional Commits**: Commit messages must follow standard Conventional Commit guidelines (e.g., `feat:`, `fix:`, `docs:`, `refactor:`). Keep both the commit title and all body lines strictly under 72 characters to prevent validation failures in the `commit-msg` git hook.
 - **Exclude Auto-Generated Agent Instructions**: Never stage, commit, or track IDE/agent-specific auto-generated directories and files (such as `.agents/`, `.codex/`, or `.claude/`).
 - **Commit Amending**: Prefer amending the existing commit (`git commit --amend --no-edit` and force pushing via `git push --force-with-lease` for safety, only on branches owned solely by you) when applying review feedback or bug fixes on task branches, to keep a single clean commit per PR.
+- **Upstream Sync**: Always fetch (`git fetch origin`) and rebase (`git rebase origin/main`) your task branches on the latest target branch before creating or updating a Pull Request. This prevents carrying outdated or duplicate commits from merged dependency PRs.
 
 ## Python Schema & Parsing Conventions
 
@@ -37,6 +38,13 @@ Within the Nix shell environment, you can run tests directly via `pytest` for ta
   - Avoid writing hand-crafted type checks and validation raises for basic scalar attributes.
   - Coerce inputs safely to their target types (such as converting scalars to strings and explicit `.isoformat()` serialization for `datetime.date`/`datetime.datetime` objects).
   - Raise custom parsing/validation errors only for missing mandatory fields or structural collection mismatches (like non-list shapes where lists are expected).
+- **Pandas DataFrame Sanitization**:
+  - Always clean Pandas DataFrame cells against `NaN` / `float('nan')` values using `pd.isna()` or `math.isnan()`. Do not rely on `is not None` or standard string coercion `str()`, as python-coerced `nan` values evaluate to truthy strings.
+  - Guard against duplicate column names returning `pd.Series` from `.get()` or row indexing by checking `isinstance(val, pd.Series)` and extracting the scalar value.
+
+## Cache & Deduplication Resilience
+
+- **Conditional Cache Addition**: Never update deduplication caches (e.g., calling `existing_jobs.add()`) outside of try-except blocks. Cache updates must be placed strictly inside successful execution scopes of write API calls to prevent failing requests from polluting the cache.
 
 ---
 
