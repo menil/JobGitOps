@@ -13,6 +13,12 @@ import yaml
 from jobgitops.schema import Resume, ValidationError
 
 
+class QuotaExceededError(Exception):
+    """Raised when the LLM API quota or rate limit is exceeded."""
+
+    pass
+
+
 @dataclass
 class TriageResult:
     """Evaluation result from the job description triage stage."""
@@ -196,6 +202,8 @@ class GeminiClient(LLMClient):
             clean_text = clean_json_string(response.text)
             data = json.loads(clean_text)
             return TriageResult.from_dict(data)
+        except google.api_core.exceptions.ResourceExhausted as e:
+            raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
         except (
             json.JSONDecodeError,
             ValidationError,
@@ -218,6 +226,8 @@ class GeminiClient(LLMClient):
             clean_text = clean_json_string(response.text)
             data = json.loads(clean_text)
             return Resume.from_dict(data)
+        except google.api_core.exceptions.ResourceExhausted as e:
+            raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
         except (
             json.JSONDecodeError,
             ValidationError,
@@ -263,6 +273,10 @@ class OpenRouterClient(LLMClient):
                 error_body = e.read().decode("utf-8")
             except Exception:
                 error_body = ""
+            if e.code == 429:
+                raise QuotaExceededError(
+                    f"OpenRouter rate limit exceeded: {e.reason}. Body: {error_body}"
+                ) from e
             raise ValidationError(
                 f"OpenRouter HTTP Error {e.code}: {e.reason}. Body: {error_body}"
             ) from e
