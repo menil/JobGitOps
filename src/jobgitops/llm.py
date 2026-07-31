@@ -300,6 +300,12 @@ class OpenRouterClient(LLMClient):
             raise ValidationError(f"OpenRouter resume tailoring failed: {e}") from e
 
 
+def _get_model_name(env_var: str, default_val: str) -> str:
+    """Retrieve and clean a model name from environment variables."""
+    val = os.environ.get(env_var)
+    return default_val if not val else val.strip()
+
+
 def get_llm_client() -> LLMClient:
     """Instantiate pluggable LLM client based on environment variables."""
     provider = os.environ.get("LLM_PROVIDER")
@@ -329,23 +335,23 @@ def get_llm_client() -> LLMClient:
     if provider == "gemini":
         if not gemini_key:
             raise ValidationError("GEMINI_API_KEY environment variable is missing.")
-        model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash").strip()
+        model_name = _get_model_name("GEMINI_MODEL", "gemini-1.5-flash")
         if not (model_name.startswith("gemini-") or model_name.startswith("models/")):
             raise ValidationError(
                 f"Invalid Gemini model name: '{model_name}'. "
-                "Must start with 'gemini-' or 'models/'"
+                "Gemini model names must start with 'gemini-' or 'models/' "
+                "(e.g., 'gemini-1.5-flash')."
             )
         return GeminiClient(api_key=gemini_key, model_name=model_name)
     elif provider == "openrouter":
         if not openrouter_key:
             raise ValidationError("OPENROUTER_API_KEY environment variable is missing.")
-        model_name = os.environ.get(
-            "OPENROUTER_MODEL", "google/gemini-1.5-flash"
-        ).strip()
+        model_name = _get_model_name("OPENROUTER_MODEL", "google/gemini-1.5-flash")
         if "/" not in model_name:
             raise ValidationError(
                 f"Invalid OpenRouter model name: '{model_name}'. "
-                "Must specify provider prefix (e.g. 'google/gemini-1.5-flash')"
+                "OpenRouter model names must specify a provider prefix "
+                "(e.g., 'google/gemini-1.5-flash' or 'anthropic/claude-3')."
             )
         return OpenRouterClient(api_key=openrouter_key, model_name=model_name)
     else:
