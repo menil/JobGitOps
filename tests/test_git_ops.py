@@ -248,7 +248,7 @@ def test_create_or_checkout_branch_new_with_base(mock_run: mock.MagicMock) -> No
                 text=True,
             ),
             mock.call(
-                ["git", "checkout", "-b", "my-branch", "--", "main"],
+                ["git", "checkout", "-b", "my-branch", "main", "--"],
                 cwd=repo,
                 capture_output=True,
                 text=True,
@@ -287,7 +287,7 @@ def test_create_or_checkout_branch_new_no_base(mock_run: mock.MagicMock) -> None
                 text=True,
             ),
             mock.call(
-                ["git", "checkout", "-b", "my-branch"],
+                ["git", "checkout", "-b", "my-branch", "--"],
                 cwd=repo,
                 capture_output=True,
                 text=True,
@@ -314,7 +314,7 @@ def test_commit_changes_success(mock_run: mock.MagicMock) -> None:
     mock_run.assert_has_calls(
         [
             mock.call(
-                ["git", "add", "--", "file1", "file2"],
+                ["git", "add", "--force", "--", "file1", "file2"],
                 cwd=repo,
                 capture_output=True,
                 text=True,

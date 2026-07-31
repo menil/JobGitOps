@@ -192,12 +192,10 @@ def create_or_checkout_branch(
             text=True,
         )
         if base_res.returncode == 0:
-            # Terminate options via '--' to prevent branch name command option
-            # injection.
-            run_git(["checkout", "-b", branch_name, "--", base_branch], cwd=repo_path)
+            run_git(["checkout", "-b", branch_name, base_branch, "--"], cwd=repo_path)
         else:
             # Fallback to checkout from current HEAD if base_branch is not resolved.
-            run_git(["checkout", "-b", branch_name], cwd=repo_path)
+            run_git(["checkout", "-b", branch_name, "--"], cwd=repo_path)
 
 
 def commit_changes(
@@ -220,8 +218,9 @@ def commit_changes(
     if not files:
         return
 
-    # Batch file staging into a single call to minimize OS process spawning.
-    run_git(["add", "--"] + [str(file) for file in files], cwd=repo_path)
+    # Batch file staging into a single call. We use --force to override any
+    # .gitignore rules for these generated/tailored files.
+    run_git(["add", "--force", "--"] + [str(file) for file in files], cwd=repo_path)
 
     # Perform a dry-run check to prevent empty commits which raise git errors.
     diff_res = subprocess.run(
