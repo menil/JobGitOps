@@ -337,6 +337,7 @@ def test_commit_changes_success(mock_run: mock.MagicMock) -> None:
                 [
                     "git",
                     "commit",
+                    "--no-verify",
                     "-m",
                     "feat(application): tailor resume for Google - Engineer",
                 ],
