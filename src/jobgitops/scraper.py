@@ -259,6 +259,50 @@ def fetch_existing_jobs_cache(
     return existing
 
 
+def is_strictly_local_role(location: str, description: str) -> bool:
+    """Helper to detect if a role requires local physical presence (hybrid/onsite)
+    when location configuration is set to Remote.
+    """
+    loc_lower = location.lower()
+    desc_lower = description.lower()
+
+    # If location is explicitly "remote", it's probably remote
+    if "remote" in loc_lower:
+        return False
+
+    # Standard indicators of mandatory onsite or hybrid presence
+    local_indicators = [
+        "hybrid schedule",
+        "hybrid model",
+        "hybrid role",
+        "hybrid position",
+        "hybrid work",
+        "hybrid setup",
+        "hybrid format",
+        "hybrid environment",
+        "onsite required",
+        "on-site required",
+        "must be onsite",
+        "must be on-site",
+        "required to be onsite",
+        "required to be on-site",
+        "not a remote position",
+        "not a remote role",
+        "not remote",
+        "no remote option",
+        "3 days/week in office",
+        "3 days a week in office",
+        "2 days/week in office",
+        "2 days a week in office",
+        "4 days/week in office",
+        "4 days a week in office",
+        "days/week in office",
+        "days a week in office",
+    ]
+
+    return any(indicator in desc_lower for indicator in local_indicators)
+
+
 def parse_job_row(row: Any) -> ScrapedJob:
     """Extracts and sanitizes a ScrapedJob DTO from a pandas Series or dictionary.
 
@@ -486,6 +530,18 @@ def run_scraper(
                             "Skipping duplicate role: [%s] %s",
                             job.company,
                             job.title,
+                        )
+                        continue
+
+                    # Filter out hybrid/onsite roles when targeting remote
+                    if is_remote and is_strictly_local_role(
+                        job.location, job.description
+                    ):
+                        logger.info(
+                            "Skipping hybrid/onsite role: [%s] %s - Location: %s",
+                            job.company,
+                            job.title,
+                            job.location,
                         )
                         continue
 
