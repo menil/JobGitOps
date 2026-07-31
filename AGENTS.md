@@ -26,6 +26,7 @@ Within the Nix shell environment, you can run tests directly via `pytest` for ta
 ## Git & Commit Guidelines
 
 - **Feature Branches**: Always develop and commit changes on a separate task/feature branch (e.g., `task/`, `feat/`, `fix/`) rather than committing directly to `main`.
+- **Branch Creation Ref**: When creating a branch from a base branch, use `git checkout -b <new-branch> <base-branch>` without using `--` before the base branch (which incorrectly marks it as a file path).
 - **Pre-commit Validation**: Run `just validate` before committing code to ensure linting, formatting, and all tests pass.
 - **Conventional Commits**: Commit messages must follow standard Conventional Commit guidelines (e.g., `feat:`, `fix:`, `docs:`, `refactor:`). Keep both the commit title and all body lines strictly under 72 characters to prevent validation failures in the `commit-msg` git hook.
 - **Exclude Auto-Generated Agent Instructions**: Never stage, commit, or track IDE/agent-specific auto-generated directories and files (such as `.agents/`, `.codex/`, or `.claude/`).
@@ -34,6 +35,7 @@ Within the Nix shell environment, you can run tests directly via `pytest` for ta
 
 ## Python Schema & Parsing Conventions
 
+- **Gemini SDK Model Prefixing**: When using the `google-generativeai` SDK, always use the fully qualified model name with the `models/` prefix (e.g., `models/gemini-2.0-flash` or `models/gemini-2.5-flash`) to prevent format errors on new models not recognized as shorthands by older SDK versions.
 - **Parse, Don't Validate**: When implementing loaders and data models (e.g., for YAML/JSON Resume data), follow the "parse, don't validate" pattern (see [Alexis King's design post](https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/) for details):
   - Avoid writing hand-crafted type checks and validation raises for basic scalar attributes.
   - Coerce inputs safely to their target types (such as converting scalars to strings and explicit `.isoformat()` serialization for `datetime.date`/`datetime.datetime` objects).
