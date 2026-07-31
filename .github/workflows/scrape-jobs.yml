@@ -24,8 +24,9 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write
   issues: write
+  pull-requests: write
 
 jobs:
   scrape:
@@ -71,3 +72,24 @@ jobs:
             fi
           fi
           devenv shell python src/scrape.py "${ARGS[@]}"
+
+      - name: Run Triage on Pending Issues
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          ISSUES=$(gh issue list --label "triage-pending" --json number --jq '.[].number')
+          if [ -z "$ISSUES" ]; then
+            echo "No pending issues to triage."
+          else
+            for issue in $ISSUES; do
+              echo "Automatically triaging issue #$issue..."
+              devenv shell python src/triage.py --issue "$issue"
+            done
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
