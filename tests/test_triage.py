@@ -1,6 +1,7 @@
 """Unit tests for the triage and tailoring coordinator (triage.py)."""
 
 import json
+import os
 import pathlib
 import sys
 from unittest import mock
@@ -389,6 +390,7 @@ def test_main_cli_args(
             },
         ),
     ):
+        os.environ.pop("GITHUB_EVENT_PATH", None)
         main()
 
     mock_gh_class.assert_called_once_with(
@@ -541,6 +543,7 @@ def test_main_issue_number_env(
             },
         ),
     ):
+        os.environ.pop("GITHUB_EVENT_PATH", None)
         main()
 
     mock_run_triage.assert_called_once_with(
