@@ -542,3 +542,80 @@ def test_scrape_cli_args(mock_run_scraper) -> None:
         job_type_override="parttime",
         hours_old_override=72,
     )
+
+
+def test_is_strictly_local_role() -> None:
+    """Verify is_strictly_local_role matches hybrid/onsite indicator keywords."""
+    from jobgitops.scraper import is_strictly_local_role
+
+    # Remote location or mentions "remote" should NOT be strictly local
+    assert not is_strictly_local_role("Remote", "This is hybrid")
+    assert not is_strictly_local_role("San Francisco (Remote)", "hybrid work")
+
+    # City location with hybrid description should be detected as strictly local
+    assert is_strictly_local_role("San Francisco, CA", "This is a hybrid model role.")
+    assert is_strictly_local_role("Seattle, WA", "Requires 3 days/week in office.")
+    assert is_strictly_local_role("Dallas, TX", "This is an onsite required position.")
+
+    # City location with purely remote description should NOT be strictly local
+    assert not is_strictly_local_role(
+        "New York, NY", "This is a fully remote position."
+    )
+
+
+@patch("jobgitops.scraper.load_settings")
+@patch("jobgitops.scraper.load_resume")
+def test_run_scraper_skips_hybrid(
+    mock_load_resume,
+    mock_load_settings,
+) -> None:
+    """Verify run_scraper filters out hybrid/onsite listings when location is Remote."""
+    mock_settings = MagicMock()
+    mock_settings.custom_queries = ["Query"]
+    mock_settings.search.platforms = ["linkedin"]
+    mock_settings.search.location = "Remote"
+    mock_settings.search.job_type = "fulltime"
+    mock_settings.search.hours_old = 24
+    mock_settings.projects_v2 = None
+    mock_load_settings.return_value = mock_settings
+
+    mock_resume = MagicMock()
+    mock_load_resume.return_value = mock_resume
+
+    mock_github_client = MagicMock()
+    mock_scrape_jobs = MagicMock()
+    # Return two jobs: one fully remote, one hybrid
+    mock_scrape_jobs.return_value = pd.DataFrame(
+        [
+            {
+                "company": "Remote Co",
+                "title": "Remote Engineer",
+                "location": "San Francisco, CA",  # City name but description is remote
+                "description": "This is a fully remote role.",
+                "job_url": "https://remote.com",
+                "site": "linkedin",
+            },
+            {
+                "company": "Hybrid Co",
+                "title": "Hybrid Engineer",
+                "location": "San Francisco, CA",
+                "description": "Requires 3 days/week in office.",
+                "job_url": "https://hybrid.com",
+                "site": "linkedin",
+            },
+        ]
+    )
+
+    environ_mock = {"GITHUB_TOKEN": "test_token", "GITHUB_REPOSITORY": "owner/repo"}
+    with patch.dict(os.environ, environ_mock):
+        run_scraper(
+            dry_run=False,
+            github_client=mock_github_client,
+            scrape_fn=mock_scrape_jobs,
+        )
+
+    # Only Remote Engineer should be published, Hybrid Engineer should be skipped
+    assert mock_github_client.create_issue.call_count == 1
+    _, kwargs = mock_github_client.create_issue.call_args
+    assert "Remote Co" in kwargs["title"]
+    assert "Remote Engineer" in kwargs["title"]
