@@ -1,5 +1,6 @@
 """Unit tests for the triage and tailoring coordinator (triage.py)."""
 
+import hashlib
 import json
 import os
 import pathlib
@@ -268,6 +269,17 @@ def test_run_triage_match_approved(
     assert "Perfect alignment" in comment_arg
     assert "applications/google-senior-py-dev-" in comment_arg
     assert "https://github.com/my-owner/my-repo/blob/applications/" in comment_arg
+    assert "https://github.com/my-owner/my-repo/tree/applications/" in comment_arg
+    assert (
+        "https://github.com/my-owner/my-repo/compare/main...applications/"
+        in comment_arg
+    )
+    expected_yaml_hash = hashlib.sha256(b"resumes/resume.yaml").hexdigest()
+    assert f"#diff-{expected_yaml_hash}" in comment_arg
+    assert (
+        '<a href="https://google.com/apply" '
+        'target="_blank">Link to Posting</a>' in comment_arg
+    )
 
     mock_gh_client.remove_label.assert_called_once_with(15, "triage-pending")
     mock_gh_client.add_labels.assert_called_once_with(15, ["grade-A", "ready-to-apply"])
