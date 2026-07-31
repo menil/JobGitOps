@@ -33,6 +33,7 @@ Within the Nix shell environment, you can run tests directly via `pytest` for ta
 - **Exclude Auto-Generated Agent Instructions**: Never stage, commit, or track IDE/agent-specific auto-generated directories and files (such as `.agents/`, `.codex/`, or `.claude/`).
 - **Git Checkout double-dash Syntax**: When creating a new branch off a base starting point (e.g. `main`), do not place the double-dash `--` separator before the starting point (e.g., avoid `git checkout -b <new-branch> -- main`). This causes Git to parse the base commit as a pathspec/file, leading to resolution failures. If option-termination is needed, place the `--` at the end (e.g., `git checkout -b <new-branch> main --`).
 - **Commit Amending**: Prefer amending the existing commit (`git commit --amend --no-edit` and force pushing via `git push --force-with-lease` for safety, only on branches owned solely by you) when applying review feedback or bug fixes on task branches, to keep a single clean commit per PR.
+- **Do Not Merge Pull Requests**: Under no circumstances should you merge a Pull Request (via `gh pr merge` or any other tool/API call). Pull Requests must always be left open for the human developer to review, approve, and merge.
 - **Upstream Sync**: Always fetch (`git fetch origin`) and rebase (`git rebase origin/main`) your task branches on the latest target branch before creating or updating a Pull Request. This prevents carrying outdated or duplicate commits from merged dependency PRs.
 
 ## Python Schema & Parsing Conventions
