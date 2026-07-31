@@ -8,6 +8,7 @@ This project uses `devenv` to manage system and virtual environment dependencies
 - **Enter Environment**: Run `devenv shell` (or use `direnv allow` to automatically load it).
 - **Native dependencies**: WeasyPrint dependencies (`cairo`, `pango`, `glib`, `gdk-pixbuf`, etc.) are mapped cleanly inside the Nix shell.
 - **Shell Recommendation**: To avoid Nix startup latency and environment issues, always enter the Nix shell once (via `devenv shell`) and run your commands inside that active shell session. Running development commands directly on the host system will fail due to missing dependencies.
+- **Sandbox Execution**: When running devenv/Nix development commands in sandboxed environments (such as Antigravity run_command), set `BypassSandbox: true` so the process can dynamically load Cairo, Pango, and other shared libraries from the Nix store path (`/nix/store/...`).
 
 ## Quality Gates & Tasks (`Justfile`)
 
@@ -29,6 +30,7 @@ Within the Nix shell environment, you can run tests directly via `pytest` for ta
 - **Pre-commit Validation**: Run `just validate` before committing code to ensure linting, formatting, and all tests pass.
 - **Conventional Commits**: Commit messages must follow standard Conventional Commit guidelines (e.g., `feat:`, `fix:`, `docs:`, `refactor:`). Keep both the commit title and all body lines strictly under 72 characters to prevent validation failures in the `commit-msg` git hook.
 - **Exclude Auto-Generated Agent Instructions**: Never stage, commit, or track IDE/agent-specific auto-generated directories and files (such as `.agents/`, `.codex/`, or `.claude/`).
+- **Git Checkout double-dash Syntax**: When creating a new branch off a base starting point (e.g. `main`), do not place the double-dash `--` separator before the starting point (e.g., avoid `git checkout -b <new-branch> -- main`). This causes Git to parse the base commit as a pathspec/file, leading to resolution failures. If option-termination is needed, place the `--` at the end (e.g., `git checkout -b <new-branch> main --`).
 - **Commit Amending**: Prefer amending the existing commit (`git commit --amend --no-edit` and force pushing via `git push --force-with-lease` for safety, only on branches owned solely by you) when applying review feedback or bug fixes on task branches, to keep a single clean commit per PR.
 - **Upstream Sync**: Always fetch (`git fetch origin`) and rebase (`git rebase origin/main`) your task branches on the latest target branch before creating or updating a Pull Request. This prevents carrying outdated or duplicate commits from merged dependency PRs.
 
