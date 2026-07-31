@@ -5,6 +5,7 @@ and either rejects/closes the issue or tailors the resume on a Git branch.
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -291,6 +292,8 @@ def _handle_approved_match(
         pdf_blob_url = (
             f"https://github.com/{gh_client.repo}/blob/{branch_name}/resumes/resume.pdf"
         )
+        yaml_path = "resumes/resume.yaml"
+        yaml_hash = hashlib.sha256(yaml_path.encode("utf-8")).hexdigest()
         comment_body = (
             f"### AI Triage: Match Approved! "
             f"(Fit Score: {triage_res.fit_score:.1f}/{settings.fit_threshold:.1f})\n\n"
@@ -305,9 +308,14 @@ def _handle_approved_match(
             f"{triage_res.industry_fit:.1f}/5.0\n\n"
             f"---\n\n"
             f"### Resume Tailored Successfully\n"
-            f"- **Application Branch:** `{branch_name}`\n"
+            f"- **Application Branch:** [{branch_name}]"
+            f"(https://github.com/{gh_client.repo}/tree/{branch_name})\n"
+            f"- **Resume YAML Diff:** [Compare Changes]"
+            f"(https://github.com/{gh_client.repo}/compare/main...{branch_name}"
+            f"#diff-{yaml_hash})\n"
             f"- **Tailored Resume PDF:** [View/Download PDF]({pdf_blob_url})\n"
-            f"- **Apply URL:** [Link to Posting]({job_details['apply_url']})\n"
+            f'- **Apply URL:** <a href="{job_details["apply_url"]}" '
+            f'target="_blank">Link to Posting</a>\n'
         )
         gh_client.post_comment(issue_number, comment_body)
 

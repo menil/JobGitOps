@@ -126,7 +126,9 @@ TRIAGE_PROMPT = (
     '  "salary_fit": float,\n'
     '  "industry_fit": float,\n'
     '  "reasoning": "A concise, developer-focused explanation of the '
-    'evaluation and any gaps."\n'
+    "evaluation and any gaps. Address the candidate directly in the "
+    "second person (e.g., use 'you' and 'your' instead of "
+    "'the candidate' or 'their') to keep it personal.\"\n"
     "}}\n\n"
     "Do not return any other text, markdown formatting, or preamble. "
     "Return ONLY the JSON object.\n"
