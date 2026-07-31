@@ -23,11 +23,14 @@ from jobgitops.git_ops import (
     run_git,
 )
 from jobgitops.github_client import GitHubClient
-from jobgitops.llm import LLMClient, TriageResult, get_llm_client
+from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings
 from jobgitops.renderer import compile_resume
 
 logger = logging.getLogger("jobgitops.triage")
+
+# POSIX exit code for temporary quota/rate-limit failure (EX_TEMPFAIL)
+EXIT_QUOTA_EXCEEDED = 75
 
 # Pre-compiled regex patterns for robust job detail parsing
 COMPANY_REGEX = re.compile(r"\*\*[Cc]ompany:?\*\*:?\s*(.*)")
@@ -547,6 +550,9 @@ def main() -> None:
             resume=resume,
             llm_client=llm_client,
         )
+    except QuotaExceededError as e:
+        logger.warning("LLM API quota exceeded: %s", e)
+        sys.exit(EXIT_QUOTA_EXCEEDED)
     except Exception as e:
         logger.exception("Triage coordinator failed: %s", e)
         sys.exit(1)

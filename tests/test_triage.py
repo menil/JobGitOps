@@ -8,9 +8,9 @@ from unittest import mock
 import pytest
 
 from jobgitops.github_client import GitHubClient
-from jobgitops.llm import LLMClient, TriageResult
+from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
 from jobgitops.schema import Resume, Settings
-from triage import main, parse_job_details, run_triage
+from triage import EXIT_QUOTA_EXCEEDED, main, parse_job_details, run_triage
 
 
 @pytest.fixture
@@ -555,3 +555,51 @@ def test_main_issue_number_env(
         resume=mock_resume,
         llm_client=mock.ANY,
     )
+
+
+@mock.patch("triage.get_llm_client")
+@mock.patch("triage.load_settings")
+@mock.patch("triage.load_resume")
+@mock.patch("triage.GitHubClient")
+@mock.patch("triage.run_triage")
+def test_main_quota_exceeded(
+    mock_run_triage: mock.MagicMock,
+    mock_gh_class: mock.MagicMock,
+    mock_load_resume: mock.MagicMock,
+    mock_load_settings: mock.MagicMock,
+    mock_get_llm: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test main exits with sys.exit(429) when QuotaExceededError is raised."""
+    mock_load_settings.return_value = mock_settings
+    mock_load_resume.return_value = mock_resume
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_get_llm.return_value = mock_llm_client
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.get_issue.return_value = {
+        "title": "Title",
+        "body": "Body",
+        "node_id": "node",
+        "labels": [],
+    }
+    mock_gh_class.return_value = mock_gh_client
+
+    mock_run_triage.side_effect = QuotaExceededError("API quota hit")
+    test_args = ["triage.py", "-i", "10"]
+
+    with (
+        mock.patch.object(sys, "argv", test_args),
+        mock.patch.dict(
+            "os.environ",
+            {
+                "GITHUB_TOKEN": "token",
+                "GITHUB_REPOSITORY": "owner/repo",
+            },
+        ),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        main()
+
+    assert exc_info.value.code == EXIT_QUOTA_EXCEEDED

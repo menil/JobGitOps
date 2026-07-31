@@ -12,6 +12,7 @@ import pytest
 from jobgitops.llm import (
     GeminiClient,
     OpenRouterClient,
+    QuotaExceededError,
     TriageResult,
     clean_json_string,
     get_llm_client,
@@ -462,3 +463,45 @@ def test_openrouter_client_malformed_json_response(
 
     with pytest.raises(ValidationError, match="OpenRouter resume tailoring failed"):
         client.tailor_resume("Python role", sample_resume)
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_client_quota_exceeded_handling(
+    mock_configure: MagicMock, mock_model_cls: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify GeminiClient ResourceExhausted is raised as QuotaExceededError."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.side_effect = (
+        google.api_core.exceptions.ResourceExhausted("Quota exceeded")
+    )
+
+    client = GeminiClient(api_key="key")
+
+    with pytest.raises(QuotaExceededError, match="Gemini API quota exceeded"):
+        client.triage_job("Python role", sample_resume)
+
+    with pytest.raises(QuotaExceededError, match="Gemini API quota exceeded"):
+        client.tailor_resume("Python role", sample_resume)
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_client_quota_exceeded_handling(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify OpenRouter client HTTP 429 raises QuotaExceededError."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"Rate limit hit"
+    http_error = urllib.error.HTTPError(
+        url="https://openrouter.ai",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=None,  # type: ignore
+        fp=mock_response,
+    )
+    mock_urlopen.side_effect = http_error
+
+    client = OpenRouterClient(api_key="key")
+
+    with pytest.raises(QuotaExceededError, match="OpenRouter rate limit exceeded"):
+        client.triage_job("Python role", sample_resume)
