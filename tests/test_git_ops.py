@@ -300,19 +300,28 @@ def test_create_or_checkout_branch_new_no_base(mock_run: mock.MagicMock) -> None
 @mock.patch("subprocess.run")
 def test_commit_changes_success(mock_run: mock.MagicMock) -> None:
     """Test successful commit workflow with changes staged."""
-    # 1. git add -- file1 file2 (returns 0)
-    # 2. git diff --cached --quiet (staged changes exist; returns 1)
-    # 3. git commit -m msg (returns 0)
+    # 1. git config user.name (returns 0)
+    # 2. git add --force -- file1 file2 (returns 0)
+    # 3. git diff --cached --quiet (staged changes exist; returns 1)
+    # 4. git commit -m msg (returns 0)
+    mock_config = mock.MagicMock(returncode=0, stdout="my-user")
     mock_add = mock.MagicMock(returncode=0, stdout="")
     mock_diff = mock.MagicMock(returncode=1)  # 1 indicates differences exist
     mock_commit = mock.MagicMock(returncode=0, stdout="")
-    mock_run.side_effect = [mock_add, mock_diff, mock_commit]
+    mock_run.side_effect = [mock_config, mock_add, mock_diff, mock_commit]
 
     repo = pathlib.Path("/repo")
     commit_changes(repo, ["file1", "file2"], "Google", "Engineer")
 
     mock_run.assert_has_calls(
         [
+            mock.call(
+                ["git", "config", "user.name"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ),
             mock.call(
                 ["git", "add", "--force", "--", "file1", "file2"],
                 cwd=repo,
@@ -351,17 +360,19 @@ def test_commit_changes_no_files(mock_run: mock.MagicMock) -> None:
 @mock.patch("subprocess.run")
 def test_commit_changes_no_staged_changes(mock_run: mock.MagicMock) -> None:
     """Test commit_changes returns early if no staged changes exist (diff returns 0)."""
-    # 1. git add -- file1 file2 (returns 0)
-    # 2. git diff --cached --quiet (no changes; returns 0)
+    # 1. git config user.name (returns 0)
+    # 2. git add --force -- file1 file2 (returns 0)
+    # 3. git diff --cached --quiet (no changes; returns 0)
+    mock_config = mock.MagicMock(returncode=0, stdout="my-user")
     mock_add = mock.MagicMock(returncode=0, stdout="")
     mock_diff = mock.MagicMock(returncode=0)
-    mock_run.side_effect = [mock_add, mock_diff]
+    mock_run.side_effect = [mock_config, mock_add, mock_diff]
 
     repo = pathlib.Path("/repo")
     commit_changes(repo, ["file1"], "Google", "Engineer")
 
     # Verify commit is not invoked
-    assert mock_run.call_count == 2
+    assert mock_run.call_count == 3
     last_call = mock_run.call_args_list[-1]
     assert last_call[0][0] == ["git", "diff", "--cached", "--quiet"]
 

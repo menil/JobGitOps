@@ -218,6 +218,20 @@ def commit_changes(
     if not files:
         return
 
+    # Ensure git user name and email are configured (e.g., in CI environments)
+    try:
+        run_git(["config", "user.name"], cwd=repo_path)
+    except GitOpsError:
+        run_git(["config", "user.name", "github-actions[bot]"], cwd=repo_path)
+        run_git(
+            [
+                "config",
+                "user.email",
+                "github-actions[bot]@users.noreply.github.com",
+            ],
+            cwd=repo_path,
+        )
+
     # Batch file staging into a single call. We use --force to override any
     # .gitignore rules for these generated/tailored files.
     run_git(["add", "--force", "--"] + [str(file) for file in files], cwd=repo_path)
