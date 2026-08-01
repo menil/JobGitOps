@@ -2,7 +2,7 @@
 
 # Minimum fit score (1.0 to 5.0) required to tailor a resume and apply.
 # The AI Triage evaluates fit across tech stack, experience, location, salary, and domain.
-fit_threshold: 4.0
+fit_threshold: 3.5
 
 # Search settings for the job scraper bot (scrape.py)
 search:

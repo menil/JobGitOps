@@ -65,7 +65,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
     *   Queries are run sequentially with a random delay (2–5 seconds) between requests.
     *   Job freshness is limited to the last 24 hours (`hours_old: 24`) to match the daily cron run.
     *   **Custom Query Override:** If the user specifies a list of `custom_queries` in `config/settings.yaml`, the scraper will use these queries instead of generating them from the resume, allowing the user to search for roles in new tech stacks or specific domains.
-*   **Configuration:** User-specific search and evaluation preferences are stored in `config/settings.yaml` (e.g., remote vs. onsite preference, location, job type, target platforms, `fit_threshold` which defaults to `4.0`, and optional `custom_queries` to override auto-generated query strings).
+*   **Configuration:** User-specific search and evaluation preferences are stored in `config/settings.yaml` (e.g., remote vs. onsite preference, location, job type, target platforms, `fit_threshold` which defaults to `3.5`, and optional `custom_queries` to override auto-generated query strings).
 *   **Single-API-Call Deduplication Cache:** 
     *   To prevent hitting GitHub's Search API rate limits, the scraper makes **one API call** at startup to fetch the last 100 issues (both open and closed) from the repository.
     *   It parses the issue titles to extract existing company and role names.
@@ -92,7 +92,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
         4. *Salary Alignment*
         5. *Industry Domain Familiarity*
     *   The LLM output is parsed and validated using a structured JSON schema.
-    *   **Pass 2 (Tailor):** If the fit score is greater than or equal to the configured threshold (specified by `fit_threshold` in `config/settings.yaml`, defaulting to `4.0`), the engine proceeds to the tailoring stage. Otherwise, the bot comments on the issue with the mismatch details, removes `triage-pending`, adds `triage-mismatched`, and closes the issue.
+    *   **Pass 2 (Tailor):** If the fit score is greater than or equal to the configured threshold (specified by `fit_threshold` in `config/settings.yaml`, defaulting to `3.5`), the engine proceeds to the tailoring stage. Otherwise, the bot comments on the issue with the mismatch details, removes `triage-pending`, adds `triage-mismatched`, and closes the issue.
 *   **Branch Naming & Sanitization:** 
     *   Spawns a clean git branch: `applications/<slugified-company>-<slugified-role>-<short-hash>`.
     *   Titles/companies are sanitized into lower-case URL-friendly slugs using strict regex to avoid invalid Git ref errors.
@@ -105,7 +105,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 *   **Issue Comment & PDF Viewer Link:**
     *   Comments on the issue with fit scoring details and an application manual-link.
     *   Adds a direct link to the **GitHub blob view URL** of the PDF on the application branch: `https://github.com/<owner>/<repo>/blob/applications/<company>-<role>/resumes/resume.pdf` (viewable natively in browser if logged in).
-    *   Updates labels to `grade-A` and `ready-to-apply`.
+    *   Updates labels to a fit tier label (`fit:A+` for scores above `4.5`, `fit:A` for scores between `4.0` and `4.5`, `fit:B` for scores between `3.5` and `4.0`) and `ready-to-apply`.
 
 ### 2.3. GitHub Projects & Lifecycle Automation
 *   **Kanban Board Integration:**

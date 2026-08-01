@@ -11,6 +11,10 @@ A GitOps-driven job application and tracking system. This project automates resu
 - 🛡️ **Git Hooks**: Pre-configured pre-commit quality gate validations (`just validate`) and conventional commit title verification.
 - 🤖 **Automated PR Reviews**: Integrated via `menil/pr-code-review-action` using OpenRouter.
 
+## Issue Labels
+
+Labels (names, colors, descriptions) are managed as code in `.github/labels.yml` and applied automatically by the `.github/workflows/sync-labels.yml` workflow on every push to `main`. Keep both files together when forking or vendoring this repo — the triage engine adds labels that must already exist in the repository.
+
 ---
 
 ## Getting Started

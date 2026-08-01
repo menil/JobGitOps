@@ -4,6 +4,8 @@ import datetime
 from dataclasses import dataclass, field
 from typing import Any
 
+from jobgitops.fit_grades import FIT_GRADE_B_MIN
+
 
 class ValidationError(ValueError):
     """Raised when configuration or resume data validation fails."""
@@ -142,7 +144,7 @@ class ProjectsV2Config:
                 _parse_str(
                     "projects_v2.status_field_name", data.get("status_field_name")
                 )
-                or "Status"
+                or cls.status_field_name
             )
 
             return cls(project_id=project_id, status_field_name=status_field_name)
@@ -154,7 +156,7 @@ class ProjectsV2Config:
 class Settings:
     """App-wide settings loaded from config/settings.yaml."""
 
-    fit_threshold: float = 4.0
+    fit_threshold: float = FIT_GRADE_B_MIN
     search: SearchConfig = field(default_factory=SearchConfig)
     custom_queries: list[str] | None = None
     projects_v2: ProjectsV2Config | None = None
@@ -176,7 +178,7 @@ class Settings:
             raise ValidationError("Settings data must be a dictionary.")
 
         try:
-            fit_threshold_raw = data.get("fit_threshold", 4.0)
+            fit_threshold_raw = data.get("fit_threshold", cls.fit_threshold)
             if isinstance(fit_threshold_raw, bool) or not isinstance(
                 fit_threshold_raw, (int, float)
             ):

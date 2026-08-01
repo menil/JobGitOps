@@ -12,7 +12,7 @@ from jobgitops.schema import Basics, Resume, Settings, ValidationError
 def test_default_settings() -> None:
     """Test that Settings returns proper defaults when created or empty."""
     settings = Settings()
-    assert settings.fit_threshold == 4.0
+    assert settings.fit_threshold == 3.5
     assert settings.search.location == "Remote"
     assert settings.search.job_type == "fulltime"
     assert "linkedin" in settings.search.platforms
@@ -431,7 +431,7 @@ def test_load_settings(tmp_path: pathlib.Path) -> None:
     # Test file doesn't exist
     non_existent = tmp_path / "non_existent.yaml"
     settings = load_settings(non_existent)
-    assert settings.fit_threshold == 4.0
+    assert settings.fit_threshold == 3.5
 
     # Test valid yaml file
     valid_file = tmp_path / "settings.yaml"
@@ -445,7 +445,7 @@ def test_load_settings(tmp_path: pathlib.Path) -> None:
     empty_file = tmp_path / "empty.yaml"
     empty_file.write_text("", encoding="utf-8")
     settings = load_settings(empty_file)
-    assert settings.fit_threshold == 4.0
+    assert settings.fit_threshold == 3.5
 
     # Test malformed yaml file
     bad_file = tmp_path / "bad.yaml"
@@ -568,7 +568,7 @@ def test_repo_defaults_integration() -> None:
     """Test actual committed repository config and resume files."""
     # Load and assert repository default settings
     settings = load_settings("config/settings.yaml")
-    assert settings.fit_threshold == 4.0
+    assert settings.fit_threshold == 3.5
     assert settings.search.location == "Remote"
     assert settings.search.job_type == "fulltime"
     assert "linkedin" in settings.search.platforms
