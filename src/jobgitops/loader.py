@@ -55,3 +55,20 @@ def load_resume(path: str | pathlib.Path) -> Resume:
         raise ValidationError("Resume YAML content must represent a dictionary.")
 
     return Resume.from_dict(data)
+
+
+def render_resume_yaml(resume: Resume) -> str:
+    """Serialize a Resume to canonical YAML for resumes/resume.yaml.
+
+    Single source of truth for the on-disk resume format so that the base
+    file and tailored output stay byte-identical in style, keeping diffs
+    limited to actual content changes.
+    """
+    return yaml.safe_dump(resume.to_dict(), allow_unicode=True, sort_keys=False)
+
+
+def resume_yaml_is_canonical(path: str | pathlib.Path) -> bool:
+    """Return True if the resume YAML file at ``path`` is in canonical form."""
+    file_path = pathlib.Path(path)
+    canonical = render_resume_yaml(load_resume(file_path))
+    return file_path.read_text(encoding="utf-8") == canonical
