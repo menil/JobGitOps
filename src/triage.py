@@ -14,8 +14,6 @@ import re
 import sys
 from typing import Any
 
-import yaml
-
 from jobgitops.git_ops import (
     commit_changes,
     create_or_checkout_branch,
@@ -25,7 +23,7 @@ from jobgitops.git_ops import (
 )
 from jobgitops.github_client import GitHubClient
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
-from jobgitops.loader import load_resume, load_settings
+from jobgitops.loader import load_resume, load_settings, render_resume_yaml
 from jobgitops.renderer import compile_resume
 
 logger = logging.getLogger("jobgitops.triage")
@@ -214,9 +212,7 @@ def _create_tailored_application_branch(
         resumes_dir.mkdir(parents=True, exist_ok=True)
 
         # 1. Overwrite resume.yaml
-        yaml_content = yaml.safe_dump(
-            tailored_resume.to_dict(), allow_unicode=True, sort_keys=False
-        )
+        yaml_content = render_resume_yaml(tailored_resume)
         with (resumes_dir / "resume.yaml").open("w", encoding="utf-8") as f:
             f.write(yaml_content)
 
