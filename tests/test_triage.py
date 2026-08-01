@@ -14,6 +14,8 @@ from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
 from jobgitops.schema import Resume, Settings
 from triage import (
     EXIT_QUOTA_EXCEEDED,
+    FIT_CATEGORY_MISMATCH_LABELS,
+    get_category_mismatch_labels,
     get_fit_grade_label,
     main,
     parse_job_details,
@@ -148,6 +150,67 @@ def test_get_fit_grade_label(fit_score: float, expected: str) -> None:
     assert get_fit_grade_label(fit_score) == expected
 
 
+@pytest.mark.parametrize(
+    ("scores", "expected"),
+    [
+        (
+            (2.0, 3.0, 4.0, 5.0, 3.5),
+            ["tech-stack-mismatch"],
+        ),
+        (
+            (3.0, 4.0, 5.0, 2.0, 3.5),
+            ["salary-mismatch"],
+        ),
+        (
+            (2.5, 4.0, 2.0, 2.9, 3.0),
+            ["location-mismatch", "salary-mismatch", "tech-stack-mismatch"],
+        ),
+        (
+            (5.0, 5.0, 5.0, 5.0, 5.0),
+            [],
+        ),
+        (
+            (3.0, 3.0, 3.0, 3.0, 3.0),
+            [],
+        ),
+        (
+            (1.0, 1.0, 1.0, 1.0, 1.0),
+            [
+                "experience-mismatch",
+                "industry-mismatch",
+                "location-mismatch",
+                "salary-mismatch",
+                "tech-stack-mismatch",
+            ],
+        ),
+    ],
+)
+def test_get_category_mismatch_labels(
+    scores: tuple[float, float, float, float, float], expected: list[str]
+) -> None:
+    """Test mismatch reason labels for categories scored below the threshold."""
+    triage_res = TriageResult(
+        fit_score=sum(scores) / len(scores),
+        tech_stack_fit=scores[0],
+        experience_fit=scores[1],
+        location_fit=scores[2],
+        salary_fit=scores[3],
+        industry_fit=scores[4],
+        reasoning="Low scores across several dimensions.",
+    )
+    assert get_category_mismatch_labels(triage_res) == expected
+
+
+def test_fit_category_mismatch_labels_keys_match_triage_result_fields() -> None:
+    """Test every category label key maps to a real TriageResult field.
+
+    Guards against a mistyped key silently breaking the dynamic attribute
+    lookup inside get_category_mismatch_labels at runtime.
+    """
+    valid_fields = TriageResult.__dataclass_fields__
+    assert set(FIT_CATEGORY_MISMATCH_LABELS).issubset(valid_fields)
+
+
 def test_run_triage_mismatch(
     mock_resume: Resume,
     mock_settings: Settings,
@@ -158,7 +221,7 @@ def test_run_triage_mismatch(
         fit_score=3.4,
         tech_stack_fit=3.0,
         experience_fit=4.0,
-        location_fit=5.0,
+        location_fit=2.5,
         salary_fit=2.0,
         industry_fit=3.5,
         reasoning="Insufficient Python experience.",
@@ -202,13 +265,68 @@ def test_run_triage_mismatch(
     assert "Mismatch Detected" in comment_arg
     assert "Insufficient Python experience" in comment_arg
     assert "3.4/3.5" in comment_arg
+    assert "**Labels Added:** `location-mismatch`, `salary-mismatch`" in comment_arg
 
     mock_gh_client.remove_label.assert_called_once_with(12, "triage-pending")
-    mock_gh_client.add_labels.assert_called_once_with(12, ["triage-mismatched"])
+    mock_gh_client.add_labels.assert_called_once_with(
+        12, ["triage-mismatched", "location-mismatch", "salary-mismatch"]
+    )
     mock_gh_client.close_issue.assert_called_once_with(12)
     mock_gh_client.update_project_status.assert_called_once_with(
         "node_abc", "Mismatched/Closed"
     )
+
+
+def test_run_triage_mismatch_no_reason_labels(
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test mismatch path when no category is scored below the threshold.
+
+    An overall fit score below threshold with every dimension at or above 3.0
+    should still add triage-mismatched, without any reason labels.
+    """
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=3.4,
+        tech_stack_fit=3.0,
+        experience_fit=4.0,
+        location_fit=3.2,
+        salary_fit=3.1,
+        industry_fit=3.5,
+        reasoning="Experience scope does not align.",
+    )
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "owner/repo"
+    mock_gh_client.project_id = None
+
+    body = (
+        "**Company:** Acme\n"
+        "**Role:** Python Dev\n"
+        "**Apply URL:** https://acme.com\n"
+        "## Job Description\n"
+        "Need 10 years of Python."
+    )
+
+    run_triage(
+        issue_number=13,
+        issue_title="[Acme] Python Dev",
+        issue_body=body,
+        issue_node_id="node_abc",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path(),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    comment_arg = mock_gh_client.post_comment.call_args[0][1]
+    assert "**Labels Added:**" not in comment_arg
+    mock_gh_client.add_labels.assert_called_once_with(13, ["triage-mismatched"])
+    mock_gh_client.close_issue.assert_called_once_with(13)
+    mock_gh_client.update_project_status.assert_not_called()
 
 
 @mock.patch("triage.compile_resume")
