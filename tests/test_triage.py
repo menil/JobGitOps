@@ -12,7 +12,13 @@ import pytest
 from jobgitops.github_client import GitHubClient
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
 from jobgitops.schema import Resume, Settings
-from triage import EXIT_QUOTA_EXCEEDED, main, parse_job_details, run_triage
+from triage import (
+    EXIT_QUOTA_EXCEEDED,
+    get_fit_grade_label,
+    main,
+    parse_job_details,
+    run_triage,
+)
 
 
 @pytest.fixture
@@ -42,7 +48,7 @@ def mock_resume() -> Resume:
 @pytest.fixture
 def mock_settings() -> Settings:
     """Mock Settings object for tests."""
-    return Settings(fit_threshold=4.0)
+    return Settings(fit_threshold=3.5)
 
 
 def test_parse_job_details_standard() -> None:
@@ -125,6 +131,23 @@ def test_parse_job_details_fallbacks() -> None:
     assert details3["role"] == "General Role"
 
 
+@pytest.mark.parametrize(
+    ("fit_score", "expected"),
+    [
+        (4.6, "fit:A+"),
+        (5.0, "fit:A+"),
+        (4.5, "fit:A"),
+        (4.1, "fit:A"),
+        (4.0, "fit:B"),
+        (3.6, "fit:B"),
+        (3.5, "fit:B"),
+    ],
+)
+def test_get_fit_grade_label(fit_score: float, expected: str) -> None:
+    """Test fit score to tier label mapping at all boundaries."""
+    assert get_fit_grade_label(fit_score) == expected
+
+
 def test_run_triage_mismatch(
     mock_resume: Resume,
     mock_settings: Settings,
@@ -132,7 +155,7 @@ def test_run_triage_mismatch(
     """Test run_triage mismatch path (fit score below threshold)."""
     mock_llm_client = mock.MagicMock(spec=LLMClient)
     mock_llm_client.triage_job.return_value = TriageResult(
-        fit_score=3.5,
+        fit_score=3.4,
         tech_stack_fit=3.0,
         experience_fit=4.0,
         location_fit=5.0,
@@ -178,7 +201,7 @@ def test_run_triage_mismatch(
     comment_arg = mock_gh_client.post_comment.call_args[0][1]
     assert "Mismatch Detected" in comment_arg
     assert "Insufficient Python experience" in comment_arg
-    assert "3.5/4.0" in comment_arg
+    assert "3.4/3.5" in comment_arg
 
     mock_gh_client.remove_label.assert_called_once_with(12, "triage-pending")
     mock_gh_client.add_labels.assert_called_once_with(12, ["triage-mismatched"])
@@ -193,20 +216,30 @@ def test_run_triage_mismatch(
 @mock.patch("triage.push_branch")
 @mock.patch("triage.create_or_checkout_branch")
 @mock.patch("triage.run_git")
+@pytest.mark.parametrize(
+    ("fit_score", "expected_label"),
+    [
+        (4.8, "fit:A+"),
+        (4.2, "fit:A"),
+        (3.8, "fit:B"),
+    ],
+)
 def test_run_triage_match_approved(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
     mock_push_branch: mock.MagicMock,
     mock_commit: mock.MagicMock,
     mock_compile: mock.MagicMock,
+    fit_score: float,
+    expected_label: str,
     mock_resume: Resume,
     mock_settings: Settings,
     tmp_path: pathlib.Path,
 ) -> None:
-    """Test run_triage match path (fit score >= threshold)."""
+    """Test run_triage match path (fit score >= threshold) across all fit tiers."""
     mock_llm_client = mock.MagicMock(spec=LLMClient)
     mock_llm_client.triage_job.return_value = TriageResult(
-        fit_score=4.8,
+        fit_score=fit_score,
         tech_stack_fit=5.0,
         experience_fit=5.0,
         location_fit=4.0,
@@ -266,6 +299,7 @@ def test_run_triage_match_approved(
     mock_gh_client.post_comment.assert_called_once()
     comment_arg = mock_gh_client.post_comment.call_args[0][1]
     assert "Match Approved!" in comment_arg
+    assert f"Grade: {expected_label}" in comment_arg
     assert "Perfect alignment" in comment_arg
     assert "applications/google-senior-py-dev-" in comment_arg
     assert "https://github.com/my-owner/my-repo/blob/applications/" in comment_arg
@@ -282,7 +316,9 @@ def test_run_triage_match_approved(
     )
 
     mock_gh_client.remove_label.assert_called_once_with(15, "triage-pending")
-    mock_gh_client.add_labels.assert_called_once_with(15, ["grade-A", "ready-to-apply"])
+    mock_gh_client.add_labels.assert_called_once_with(
+        15, [expected_label, "ready-to-apply"]
+    )
     mock_gh_client.update_project_status.assert_called_once_with(
         "node_xyz", "Ready to Apply"
     )

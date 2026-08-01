@@ -14,6 +14,7 @@ import re
 import sys
 from typing import Any
 
+from jobgitops.fit_grades import FIT_GRADE_A_MIN, FIT_GRADE_A_PLUS_MIN, FIT_GRADE_B_MIN
 from jobgitops.git_ops import (
     commit_changes,
     create_or_checkout_branch,
@@ -252,6 +253,26 @@ def _create_tailored_application_branch(
                 )
 
 
+def get_fit_grade_label(fit_score: float) -> str:
+    """Map a fit score to its tier label for approved matches.
+
+    Tiers (scores are on a 1.0-5.0 scale):
+        - fit:A+ when score > 4.5
+        - fit:A   when 4.0 < score <= 4.5
+        - fit:B   when 3.5 <= score <= 4.0
+    """
+    if fit_score > FIT_GRADE_A_PLUS_MIN:
+        return "fit:A+"
+    if fit_score > FIT_GRADE_A_MIN:
+        return "fit:A"
+    if fit_score >= FIT_GRADE_B_MIN:
+        return "fit:B"
+    raise ValueError(
+        f"fit score {fit_score} is below the minimum applicable tier "
+        f"({FIT_GRADE_B_MIN})."
+    )
+
+
 def _handle_approved_match(
     issue_number: int,
     issue_node_id: str | None,
@@ -292,7 +313,8 @@ def _handle_approved_match(
         yaml_hash = hashlib.sha256(yaml_path.encode("utf-8")).hexdigest()
         comment_body = (
             f"### AI Triage: Match Approved! "
-            f"(Fit Score: {triage_res.fit_score:.1f}/{settings.fit_threshold:.1f})\n\n"
+            f"(Fit Score: {triage_res.fit_score:.1f}/{settings.fit_threshold:.1f}, "
+            f"Grade: {get_fit_grade_label(triage_res.fit_score)})\n\n"
             f"**Reasoning:**\n{triage_res.reasoning}\n\n"
             f"#### Score Breakdown:\n"
             f"- **Tech Stack Match:** {triage_res.tech_stack_fit:.1f}/5.0\n"
@@ -318,7 +340,10 @@ def _handle_approved_match(
         # Update labels
         if "triage-pending" in issue_labels:
             gh_client.remove_label(issue_number, "triage-pending")
-        gh_client.add_labels(issue_number, ["grade-A", "ready-to-apply"])
+        gh_client.add_labels(
+            issue_number,
+            [get_fit_grade_label(triage_res.fit_score), "ready-to-apply"],
+        )
 
         # Update Projects V2 status
         if issue_node_id and gh_client.project_id:
