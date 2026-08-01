@@ -19,10 +19,10 @@ search:
   # Search only for jobs posted within the last N hours
   hours_old: 24
 
-  # Custom queries override resume-based query generation.
-  # If empty or commented out, queries are auto-generated from skills and recent position title in resume.yaml.
-  custom_queries:
-    - "Senior Python Developer Remote"
+# Custom queries override resume-based query generation.
+# If empty or commented out, queries are auto-generated from skills and recent position title in resume.yaml.
+custom_queries:
+  - "Senior Python Developer Remote"
 
 # Optional GitHub Projects V2 integration settings for automated status tracking.
 # projects_v2:
