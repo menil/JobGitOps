@@ -62,7 +62,7 @@ JobGitOps is designed to run entirely "out-of-the-box" on GitHub's free executio
 ### The Daily Flow
 
 1. **Discovery** — The cron scrapes job boards, dedupes against the ~500 most recent roles already in your repo, and opens new candidates as issues labeled `triage-pending`.
-2. **Triage** — The LLM scores each job against your base resume. Below `fit_threshold` → the issue is labeled `triage-mismatched`, a mismatch breakdown is commented, and the issue is closed.
+2. **Triage** — The LLM scores each job against your base resume. Below `fit_threshold` → the issue is labeled `triage-mismatched` plus a red reason label for each dimension scored below 3 (e.g. `salary-mismatch`, `location-mismatch`), a mismatch breakdown is commented, and the issue is closed.
 3. **Tailoring** — Above threshold → a dedicated branch `applications/<company>-<role>-<hash>` is created. `resumes/resume.yaml` is subtly tailored, a JSON version is generated, and a print-ready PDF is compiled. All three files are committed and pushed, and a comment links the fit score and the browser-viewable PDF.
 4. **Apply & Track** — Review the diff, submit the PDF, then label the issue `applied` to move the card to `Applied` on your board. Track `interviewing` / `rejected` from there.
 
@@ -171,7 +171,7 @@ The scrape, triage, applied-transition, and test workflows run inside the reprod
 
 Labels (names, colors, descriptions) are managed as code in `.github/labels.yml` and applied automatically by `.github/workflows/sync-labels.yml` on every push to `main`. Keep both files together when forking or vendoring this repo — the triage engine adds labels that must already exist. Label lifecycle:
 
-- `triage-pending` → `triage-mismatched` (below threshold, closed)
+- `triage-pending` → `triage-mismatched` + category reason labels (below threshold, closed)
 - `triage-pending` → `fit:A+` / `fit:A` / `fit:B` + `ready-to-apply` (above threshold)
 - `ready-to-apply` → `applied` → `interviewing` / `rejected` (manual, as you progress)
 

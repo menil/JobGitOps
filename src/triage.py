@@ -32,6 +32,18 @@ logger = logging.getLogger("jobgitops.triage")
 # POSIX exit code for temporary quota/rate-limit failure (EX_TEMPFAIL)
 EXIT_QUOTA_EXCEEDED = 75
 
+# Sub-scores below this threshold are flagged with a category mismatch label.
+CATEGORY_MISMATCH_THRESHOLD = 3.0
+
+# Maps each triage fit dimension to the label applied when its score is too low.
+FIT_CATEGORY_MISMATCH_LABELS: dict[str, str] = {
+    "tech_stack_fit": "tech-stack-mismatch",
+    "experience_fit": "experience-mismatch",
+    "location_fit": "location-mismatch",
+    "salary_fit": "salary-mismatch",
+    "industry_fit": "industry-mismatch",
+}
+
 # Pre-compiled regex patterns for robust job detail parsing
 COMPANY_REGEX = re.compile(r"\*\*[Cc]ompany:?\*\*:?\s*(.*)")
 ROLE_REGEX = re.compile(r"\*\*[Rr]ole:?\*\*:?\s*(.*)")
@@ -145,6 +157,26 @@ def parse_job_details(body: str | None, title: str | None = "") -> dict[str, str
     }
 
 
+def get_category_mismatch_labels(triage_res: TriageResult) -> list[str]:
+    """Return labels for fit dimensions scored below the mismatch threshold.
+
+    Each dimension of the triage result whose score is below
+    ``CATEGORY_MISMATCH_THRESHOLD`` maps to a corresponding reason label, so a
+    rejected issue can carry multiple reason labels at once.
+
+    Args:
+        triage_res: The evaluated triage result.
+
+    Returns:
+        Sorted list of mismatch reason label names.
+    """
+    return sorted(
+        label
+        for attr, label in FIT_CATEGORY_MISMATCH_LABELS.items()
+        if getattr(triage_res, attr) < CATEGORY_MISMATCH_THRESHOLD
+    )
+
+
 def _handle_mismatch(
     issue_number: int,
     issue_node_id: str | None,
@@ -156,7 +188,10 @@ def _handle_mismatch(
     """Handle the mismatch workflow path (fit score below threshold)."""
     logger.info("Fit score below threshold. Rejecting job.")
 
+    mismatch_labels = get_category_mismatch_labels(triage_res)
+
     # Post comment with mismatch reason
+    labels_added = ", ".join(f"`{label}`" for label in mismatch_labels)
     comment_body = (
         f"### AI Triage: Mismatch Detected "
         f"(Fit Score: {triage_res.fit_score:.1f}/{fit_threshold:.1f})\n\n"
@@ -169,12 +204,14 @@ def _handle_mismatch(
         f"- **Salary Alignment:** {triage_res.salary_fit:.1f}/5.0\n"
         f"- **Industry Domain Familiarity:** {triage_res.industry_fit:.1f}/5.0\n"
     )
+    if labels_added:
+        comment_body += f"\n**Labels Added:** {labels_added}\n"
     gh_client.post_comment(issue_number, comment_body)
 
     # Update labels
     if "triage-pending" in issue_labels:
         gh_client.remove_label(issue_number, "triage-pending")
-    gh_client.add_labels(issue_number, ["triage-mismatched"])
+    gh_client.add_labels(issue_number, ["triage-mismatched"] + mismatch_labels)
 
     # Close issue
     gh_client.close_issue(issue_number)

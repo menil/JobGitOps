@@ -92,7 +92,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
         4. *Salary Alignment*
         5. *Industry Domain Familiarity*
     *   The LLM output is parsed and validated using a structured JSON schema.
-    *   **Pass 2 (Tailor):** If the fit score is greater than or equal to the configured threshold (specified by `fit_threshold` in `config/settings.yaml`, defaulting to `3.5`), the engine proceeds to the tailoring stage. Otherwise, the bot comments on the issue with the mismatch details, removes `triage-pending`, adds `triage-mismatched`, and closes the issue.
+    *   **Pass 2 (Tailor):** If the fit score is greater than or equal to the configured threshold (specified by `fit_threshold` in `config/settings.yaml`, defaulting to `3.5`), the engine proceeds to the tailoring stage. Otherwise, the bot comments on the issue with the mismatch details, removes `triage-pending`, adds `triage-mismatched` plus one red reason label for every fit dimension scored below `3.0` (e.g. `salary-mismatch`, `location-mismatch`, `tech-stack-mismatch`, `experience-mismatch`, `industry-mismatch`; an issue may carry several), and closes the issue.
 *   **Branch Naming & Sanitization:** 
     *   Spawns a clean git branch: `applications/<slugified-company>-<slugified-role>-<short-hash>`.
     *   Titles/companies are sanitized into lower-case URL-friendly slugs using strict regex to avoid invalid Git ref errors.
