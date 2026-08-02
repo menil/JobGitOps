@@ -10,9 +10,11 @@ import google.api_core.exceptions
 import pytest
 
 from jobgitops.llm import (
+    ChatMessage,
     GeminiClient,
     OpenRouterClient,
     QuotaExceededError,
+    ToolCall,
     TriageResult,
     clean_json_string,
     get_llm_client,
@@ -45,6 +47,69 @@ def sample_resume() -> Resume:
             "skills": [{"name": "Languages", "keywords": ["Python", "Go", "SQL"]}],
         }
     )
+
+
+def _gemini_response_with_text(text: str) -> MagicMock:
+    """Build a fake Gemini response whose candidate holds a single text part."""
+    part = MagicMock()
+    part.function_call = None
+    part.text = text
+    content = MagicMock()
+    content.parts = [part]
+    candidate = MagicMock()
+    candidate.content = content
+    response = MagicMock()
+    response.candidates = [candidate]
+    return response
+
+
+def _gemini_response_with_function_call(name: str, args: dict) -> MagicMock:
+    """Build a fake Gemini response whose candidate holds a function_call part."""
+    call = MagicMock()
+    call.name = name
+    call.args.items.return_value = list(args.items())
+    part = MagicMock()
+    part.function_call = call
+    part.text = ""
+    content = MagicMock()
+    content.parts = [part]
+    candidate = MagicMock()
+    candidate.content = content
+    response = MagicMock()
+    response.candidates = [candidate]
+    return response
+
+
+def _gemini_response_with_text_and_function_call(
+    text: str, name: str, args: dict
+) -> MagicMock:
+    """Build a fake Gemini response holding both a text and function_call part."""
+    call = MagicMock()
+    call.name = name
+    call.args.items.return_value = list(args.items())
+    text_part = MagicMock()
+    text_part.function_call = None
+    text_part.text = text
+    call_part = MagicMock()
+    call_part.function_call = call
+    call_part.text = ""
+    content = MagicMock()
+    content.parts = [text_part, call_part]
+    candidate = MagicMock()
+    candidate.content = content
+    response = MagicMock()
+    response.candidates = [candidate]
+    return response
+
+
+def _gemini_response_empty(block_reason: str | None = None) -> MagicMock:
+    """Build a fake Gemini response with no candidates or generation content."""
+    feedback = MagicMock()
+    feedback.block_reason = block_reason
+    response = MagicMock()
+    response.candidates = []
+    response.prompt_feedback = feedback
+    return response
 
 
 def test_triage_result_from_dict_success() -> None:
@@ -505,3 +570,483 @@ def test_openrouter_client_quota_exceeded_handling(
 
     with pytest.raises(QuotaExceededError, match="OpenRouter rate limit exceeded"):
         client.triage_job("Python role", sample_resume)
+
+
+WEB_SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "web_search",
+        "description": "Search the web",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+}
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_chat_plain_text(
+    mock_configure: MagicMock, mock_model_cls: MagicMock
+) -> None:
+    """Verify GeminiClient.chat returns plain assistant text without tools."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.return_value = _gemini_response_with_text("Hello!")
+
+    client = GeminiClient(api_key="key")
+    result = client.chat([ChatMessage(role="user", content="hi")])
+
+    assert result.role == "assistant"
+    assert result.content == "Hello!"
+    assert result.tool_calls is None
+    mock_model.generate_content.assert_called_once()
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_chat_empty_response_raises(
+    mock_configure: MagicMock, mock_model_cls: MagicMock
+) -> None:
+    """Verify Gemini chat rejects responses with no text or tool calls."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.return_value = _gemini_response_empty(
+        block_reason="SAFETY"
+    )
+
+    client = GeminiClient(api_key="key")
+
+    msg = "Gemini chat returned an empty response.*SAFETY"
+    with pytest.raises(ValidationError, match=msg):
+        client.chat([ChatMessage(role="user", content="hi")])
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_chat_mixed_text_and_tool_call(
+    mock_configure: MagicMock, mock_model_cls: MagicMock
+) -> None:
+    """Verify a response with both text and a function_call keeps both."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.return_value = (
+        _gemini_response_with_text_and_function_call(
+            "Thinking...", "web_search", {"query": "Acme"}
+        )
+    )
+
+    client = GeminiClient(api_key="key")
+    result = client.chat(
+        [ChatMessage(role="user", content="hi")], tools=[WEB_SEARCH_TOOL]
+    )
+
+    assert result.content == "Thinking..."
+    assert result.tool_calls == [
+        ToolCall(name="web_search", arguments={"query": "Acme"})
+    ]
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_chat_tool_call_round_trip(
+    mock_configure: MagicMock, mock_model_cls: MagicMock
+) -> None:
+    """Verify Gemini chat emits tool calls and feeds results back as protos."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.return_value = _gemini_response_with_function_call(
+        "web_search", {"query": "Acme profitability"}
+    )
+
+    client = GeminiClient(api_key="key")
+    first = client.chat(
+        [ChatMessage(role="user", content="Is Acme profitable?")],
+        tools=[WEB_SEARCH_TOOL],
+    )
+
+    assert first.role == "assistant"
+    assert first.content == ""
+    assert first.tool_calls == [
+        ToolCall(name="web_search", arguments={"query": "Acme profitability"})
+    ]
+
+    request_kwargs = mock_model.generate_content.call_args.kwargs
+    assert request_kwargs["tools"] == [
+        {
+            "function_declarations": [
+                {
+                    "name": "web_search",
+                    "description": "Search the web",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                    },
+                }
+            ]
+        }
+    ]
+    assert request_kwargs["tool_config"] == {
+        "function_calling_config": {"mode": "AUTO"}
+    }
+
+    # Feed the tool result back; the request must carry it as a user Content
+    # with a FunctionResponse part, and the prior call as a model Content.
+    mock_model.generate_content.return_value = _gemini_response_with_text("done")
+    client.chat(
+        [
+            ChatMessage(role="user", content="Is Acme profitable?"),
+            ChatMessage(
+                role="assistant",
+                content="Let me search.",
+                tool_calls=[
+                    ToolCall(
+                        name="web_search",
+                        arguments={"query": "Acme profitability"},
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool", tool_call_id="web_search", content="Acme is private."
+            ),
+        ],
+        tools=[WEB_SEARCH_TOOL],
+    )
+
+    contents = mock_model.generate_content.call_args.kwargs["contents"]
+    model_turn = next(c for c in contents if c.role == "model")
+    assert model_turn.parts[0].text == "Let me search."
+    assert model_turn.parts[1].function_call.name == "web_search"
+    tool_turn = next(
+        c
+        for c in contents
+        if c.role == "user" and c.parts and c.parts[0].function_response
+    )
+    assert tool_turn.parts[0].function_response.name == "web_search"
+    assert dict(tool_turn.parts[0].function_response.response) == {
+        "result": "Acme is private."
+    }
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_chat_tool_dict_result(
+    mock_configure: MagicMock, mock_model_cls: MagicMock
+) -> None:
+    """Verify dict-shaped tool results pass through unchanged to Gemini."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.return_value = _gemini_response_with_text("done")
+
+    client = GeminiClient(api_key="key")
+    client.chat(
+        [
+            ChatMessage(
+                role="assistant",
+                tool_calls=[ToolCall(name="web_search", arguments={"query": "x"})],
+            ),
+            ChatMessage(
+                role="tool",
+                tool_call_id="web_search",
+                content={"title": "Acme", "url": "https://acme.com"},
+            ),
+        ]
+    )
+
+    contents = mock_model.generate_content.call_args.kwargs["contents"]
+    tool_turn = next(
+        c
+        for c in contents
+        if c.role == "user" and c.parts and c.parts[0].function_response
+    )
+    assert dict(tool_turn.parts[0].function_response.response) == {
+        "title": "Acme",
+        "url": "https://acme.com",
+    }
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_chat_system_instruction(
+    mock_configure: MagicMock, mock_model_cls: MagicMock
+) -> None:
+    """Verify system messages become a per-call GenerativeModel instruction."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.return_value = _gemini_response_with_text("OK")
+
+    client = GeminiClient(api_key="key")
+    client.chat(
+        [
+            ChatMessage(role="system", content="Be brief."),
+            ChatMessage(role="user", content="hi"),
+        ]
+    )
+
+    assert mock_model_cls.call_count == 2
+    _, call_kwargs = mock_model_cls.call_args
+    assert call_kwargs["system_instruction"] == "Be brief."
+    contents = mock_model.generate_content.call_args.kwargs["contents"]
+    assert [c.role for c in contents] == ["user"]
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_chat_quota_exceeded(
+    mock_configure: MagicMock, mock_model_cls: MagicMock
+) -> None:
+    """Verify Gemini chat maps ResourceExhausted to QuotaExceededError."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.side_effect = (
+        google.api_core.exceptions.ResourceExhausted("Quota exceeded")
+    )
+
+    client = GeminiClient(api_key="key")
+
+    with pytest.raises(QuotaExceededError, match="Gemini API quota exceeded"):
+        client.chat([ChatMessage(role="user", content="hi")])
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_chat_api_error(
+    mock_configure: MagicMock, mock_model_cls: MagicMock
+) -> None:
+    """Verify Gemini chat wraps GoogleAPICallError in ValidationError."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.side_effect = (
+        google.api_core.exceptions.InternalServerError("boom")
+    )
+
+    client = GeminiClient(api_key="key")
+
+    with pytest.raises(ValidationError, match="Gemini chat failed"):
+        client.chat([ChatMessage(role="user", content="hi")])
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_chat_plain_text(mock_urlopen: MagicMock) -> None:
+    """Verify OpenRouter chat serializes system/user turns and returns text."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"choices": [{"message": {"role": "assistant", "content": "Hello!"}}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+    result = client.chat(
+        [
+            ChatMessage(role="system", content="Be concise."),
+            ChatMessage(role="user", content="hi"),
+            ChatMessage(role="assistant", content="Hello there"),
+            ChatMessage(role="user", content="again"),
+        ]
+    )
+
+    assert result.content == "Hello!"
+    assert result.tool_calls is None
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["model"] == "google/gemini-2.5-flash"
+    assert body["messages"] == [
+        {"role": "system", "content": "Be concise."},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "Hello there"},
+        {"role": "user", "content": "again"},
+    ]
+    assert "tools" not in body
+    assert "tool_choice" not in body
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_chat_tool_call_round_trip(mock_urlopen: MagicMock) -> None:
+    """Verify OpenRouter chat maps model tool_calls to ToolCall objects."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_abc",
+                                "type": "function",
+                                "function": {
+                                    "name": "web_search",
+                                    "arguments": '{"query": "Acme"}',
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+    result = client.chat(
+        [ChatMessage(role="user", content="Research Acme")],
+        tools=[WEB_SEARCH_TOOL],
+    )
+
+    assert result.role == "assistant"
+    assert result.content == ""
+    assert result.tool_calls == [
+        ToolCall(name="web_search", arguments={"query": "Acme"}, id="call_abc")
+    ]
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["tool_choice"] == "auto"
+    assert body["tools"] == [WEB_SEARCH_TOOL]
+    assert body["messages"] == [
+        {"role": "user", "content": "Research Acme"},
+    ]
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_chat_tool_result_feedback(mock_urlopen: MagicMock) -> None:
+    """Verify assistant tool calls and tool results serialize in order."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"choices": [{"message": {"role": "assistant", "content": "Acme is private."}}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+    client.chat(
+        [
+            ChatMessage(role="system", content="Be concise."),
+            ChatMessage(role="user", content="Research Acme"),
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    ToolCall(name="web_search", arguments={"query": "x"}, id="call_1")
+                ],
+            ),
+            ChatMessage(
+                role="tool", tool_call_id="call_1", content='{"title": "Acme"}'
+            ),
+        ]
+    )
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["messages"] == [
+        {"role": "system", "content": "Be concise."},
+        {"role": "user", "content": "Research Acme"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "web_search",
+                        "arguments": '{"query": "x"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "content": '{"title": "Acme"}',
+            "tool_call_id": "call_1",
+        },
+    ]
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_chat_tool_call_without_id_raises(mock_urlopen: MagicMock) -> None:
+    """Verify assistant tool calls without an id fail fast with ValidationError."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"choices": [{"message": {"role": "assistant", "content": "done"}}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+
+    msg = "OpenRouter chat tool call 'web_search' is missing an id"
+    with pytest.raises(ValidationError, match=msg):
+        client.chat(
+            [
+                ChatMessage(
+                    role="assistant",
+                    tool_calls=[ToolCall(name="web_search", arguments={"query": "x"})],
+                )
+            ]
+        )
+
+    mock_urlopen.assert_not_called()
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_chat_quota_exceeded(mock_urlopen: MagicMock) -> None:
+    """Verify OpenRouter chat maps HTTP 429 to QuotaExceededError."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"Rate limit hit"
+    http_error = urllib.error.HTTPError(
+        url="https://openrouter.ai",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=None,  # type: ignore
+        fp=mock_response,
+    )
+    mock_urlopen.side_effect = http_error
+
+    client = OpenRouterClient(api_key="key")
+
+    with pytest.raises(QuotaExceededError, match="OpenRouter rate limit exceeded"):
+        client.chat([ChatMessage(role="user", content="hi")])
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_chat_malformed_tool_call_args(mock_urlopen: MagicMock) -> None:
+    """Verify unparseable tool call arguments raise ValidationError."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "web_search",
+                                    "arguments": "{not json",
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+
+    msg = "OpenRouter chat returned malformed tool call arguments"
+    with pytest.raises(ValidationError, match=msg):
+        client.chat([ChatMessage(role="user", content="hi")])
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_chat_invalid_response_format(mock_urlopen: MagicMock) -> None:
+    """Verify OpenRouter chat rejects responses without choices."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps({"status": "ok"}).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+
+    msg = "Invalid response format from OpenRouter"
+    with pytest.raises(ValidationError, match=msg):
+        client.chat([ChatMessage(role="user", content="hi")])
