@@ -157,7 +157,7 @@ Add the following under **Settings > Secrets and variables > Actions** in your f
 | `pr-review.yml` | PR opened, reopened, or marked ready for review (dependabot skipped) | Automated code review via OpenRouter |
 | `sync-labels.yml` | Push to `main` | Applies issue labels from `.github/labels.yml` |
 
-The scrape, triage, applied-transition, and test workflows run inside the reproducible Nix/devenv environment, avoiding runner `apt-get` library-install delays.
+The scrape, triage, status-transition, and test workflows run inside the reproducible Nix/devenv environment, avoiding runner `apt-get` library-install delays.
 
 ## Troubleshooting
 

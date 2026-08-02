@@ -2,7 +2,11 @@ name: Triage and Tailor Issue
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, labeled]
+
+concurrency:
+  group: triage
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -11,7 +15,7 @@ permissions:
 
 jobs:
   triage:
-    if: github.event.label.name == 'triage-pending'
+    if: contains(github.event.issue.labels.*.name, 'triage-pending')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
