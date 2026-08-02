@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from jobgitops.loader import load_resume, load_settings
-from jobgitops.schema import Basics, Resume, Settings, ValidationError
+from jobgitops.schema import Basics, ResearchConfig, Resume, Settings, ValidationError
 
 
 def test_default_settings() -> None:
@@ -18,6 +18,19 @@ def test_default_settings() -> None:
     assert "linkedin" in settings.search.platforms
     assert settings.custom_queries is None
     assert settings.projects_v2 is None
+    assert settings.research.search_provider == "duckduckgo"
+    assert settings.research.max_results == 5
+    assert settings.research.max_iterations == 6
+    assert settings.research.max_context_comments == 10
+    assert settings.research.timeout_seconds == 15
+    assert settings.research.total_timeout_seconds == 30
+    assert settings.research.max_redirects == 5
+    assert settings.research.max_content_bytes == 262144
+    assert settings.research.request_delay == 1.0
+    assert settings.research.use_jina_reader is True
+    assert settings.research.max_jina_calls == 5
+    assert settings.research.block_private_ips is True
+    assert settings.research.model == ""
 
 
 def test_valid_settings_parsing() -> None:
@@ -32,6 +45,21 @@ def test_valid_settings_parsing() -> None:
         },
         "custom_queries": ["Python Developer"],
         "projects_v2": {"project_id": "PVT_123", "status_field_name": "Job Status"},
+        "research": {
+            "search_provider": "tavily",
+            "max_results": 3,
+            "max_iterations": 4,
+            "max_context_comments": 8,
+            "timeout_seconds": 10,
+            "total_timeout_seconds": 20,
+            "max_redirects": 3,
+            "max_content_bytes": 1024,
+            "request_delay": 0.5,
+            "use_jina_reader": False,
+            "max_jina_calls": 2,
+            "block_private_ips": False,
+            "model": "models/gemini-2.5-flash",
+        },
     }
     settings = Settings.from_dict(data)
     assert settings.fit_threshold == 3.5
@@ -43,6 +71,19 @@ def test_valid_settings_parsing() -> None:
     assert settings.projects_v2 is not None
     assert settings.projects_v2.project_id == "PVT_123"
     assert settings.projects_v2.status_field_name == "Job Status"
+    assert settings.research.search_provider == "tavily"
+    assert settings.research.max_results == 3
+    assert settings.research.max_iterations == 4
+    assert settings.research.max_context_comments == 8
+    assert settings.research.timeout_seconds == 10
+    assert settings.research.total_timeout_seconds == 20
+    assert settings.research.max_redirects == 3
+    assert settings.research.max_content_bytes == 1024
+    assert settings.research.request_delay == 0.5
+    assert settings.research.use_jina_reader is False
+    assert settings.research.max_jina_calls == 2
+    assert settings.research.block_private_ips is False
+    assert settings.research.model == "models/gemini-2.5-flash"
 
 
 def test_invalid_settings_types() -> None:
@@ -124,6 +165,101 @@ def test_invalid_settings_types() -> None:
         Settings.from_dict(
             {"projects_v2": {"project_id": "PVT_123", "status_field_name": []}}
         )
+
+
+def test_invalid_research_types() -> None:
+    """Test validation errors for invalid research setting types and bounds."""
+    msg = "research.search_provider must be a string, not a boolean"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"search_provider": True}})
+
+    msg = "research.model must be a string, not a boolean"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"model": False}})
+
+    msg = "research.max_results must be an integer"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_results": "not-an-int"}})
+
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_results": True}})
+
+    msg = "research.max_results must be greater than zero"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_results": 0}})
+
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_results": -5}})
+
+    msg = "research.max_iterations must be greater than zero"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_iterations": 0}})
+
+    msg = "research.max_context_comments must be greater than zero"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_context_comments": 0}})
+
+    msg = "research.timeout_seconds must be greater than zero"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"timeout_seconds": 0}})
+
+    msg = "research.total_timeout_seconds must be greater than zero"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"total_timeout_seconds": 0}})
+
+    msg = "research.max_redirects must be greater than zero"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_redirects": 0}})
+
+    msg = "research.max_content_bytes must be greater than zero"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_content_bytes": 0}})
+
+    msg = "research.request_delay must be a number"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"request_delay": "slow"}})
+
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"request_delay": True}})
+
+    msg = "research.request_delay must not be negative"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"request_delay": -1}})
+
+    msg = "research.use_jina_reader must be a boolean"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"use_jina_reader": "yes"}})
+
+    msg = "research.max_jina_calls must be greater than zero"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"max_jina_calls": 0}})
+
+    msg = "research.block_private_ips must be a boolean"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": {"block_private_ips": "yes"}})
+
+    msg = "Research configuration must be a dictionary"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"research": "not-a-dict"})  # type: ignore
+
+
+def test_research_section_defaults_when_empty() -> None:
+    """Test that a null or empty research section parses to defaults."""
+    for research in (None, {}):
+        settings = Settings.from_dict({"research": research})  # type: ignore
+        assert settings.research.search_provider == "duckduckgo"
+        assert settings.research.max_results == 5
+        assert settings.research.max_iterations == 6
+        assert settings.research.max_context_comments == 10
+        assert settings.research.timeout_seconds == 15
+        assert settings.research.total_timeout_seconds == 30
+        assert settings.research.max_redirects == 5
+        assert settings.research.max_content_bytes == 262144
+        assert settings.research.request_delay == 1.0
+        assert settings.research.use_jina_reader is True
+        assert settings.research.max_jina_calls == 5
+        assert settings.research.block_private_ips is True
+        assert settings.research.model == ""
 
 
 def test_valid_resume_parsing() -> None:
@@ -542,6 +678,16 @@ def test_more_validation_errors() -> None:
     with pytest.raises(ValidationError, match=msg):
         Settings.from_dict({"search": "not-a-dict"})  # type: ignore
 
+    # ResearchConfig not a dict
+    msg = "Research configuration must be a dictionary"
+    with pytest.raises(ValidationError, match=msg):
+        ResearchConfig.from_dict("not-a-dict")  # type: ignore
+
+    # ResearchConfig nested wrapper surfaces the offending field
+    msg = "Failed to parse ResearchConfig"
+    with pytest.raises(ValidationError, match=msg):
+        ResearchConfig.from_dict({"max_redirects": True})
+
 
 def test_loader_exceptions(tmp_path: pathlib.Path) -> None:
     """Test loader exceptions when files cannot be read."""
@@ -572,6 +718,19 @@ def test_repo_defaults_integration() -> None:
     assert settings.search.location == "Remote"
     assert settings.search.job_type == "fulltime"
     assert "linkedin" in settings.search.platforms
+    assert settings.research.search_provider == "duckduckgo"
+    assert settings.research.max_results == 5
+    assert settings.research.max_iterations == 6
+    assert settings.research.max_context_comments == 10
+    assert settings.research.timeout_seconds == 15
+    assert settings.research.total_timeout_seconds == 30
+    assert settings.research.max_redirects == 5
+    assert settings.research.max_content_bytes == 262144
+    assert settings.research.request_delay == 1.0
+    assert settings.research.use_jina_reader is True
+    assert settings.research.max_jina_calls == 5
+    assert settings.research.block_private_ips is True
+    assert settings.research.model == ""
 
     # Load and assert repository default resume
     resume = load_resume("resumes/resume.yaml")

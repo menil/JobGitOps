@@ -28,3 +28,47 @@ custom_queries:
 # projects_v2:
 #   project_id: "PVT_YOUR_PROJECT_ID"
 #   status_field_name: "Status"
+
+# Research settings for the Issue Assistant agent (respond.py web tools).
+research:
+  # Search provider: duckduckgo (default, no key) | tavily (TAVILY_API_KEY) | brave (BRAVE_API_KEY)
+  search_provider: duckduckgo
+
+  # Top-N results returned by web_search
+  max_results: 5
+
+  # Agent tool-loop iteration cap
+  max_iterations: 6
+
+  # Recent comments fed to the model as issue context
+  max_context_comments: 10
+
+  # Per-request fetch timeout (seconds)
+  timeout_seconds: 15
+
+  # Total request budget including redirects (seconds)
+  total_timeout_seconds: 30
+
+  # Maximum redirects followed per fetch
+  max_redirects: 5
+
+  # Maximum response body size (256 KiB)
+  max_content_bytes: 262144
+
+  # Politeness delay between DuckDuckGo requests (seconds)
+  request_delay: 1.0
+
+  # Use the Jina Reader fallback (r.jina.ai) for JS-heavy / blocked pages
+  use_jina_reader: true
+
+  # Jina fallback fetches allowed per agent run
+  max_jina_calls: 5
+
+  # Reject localhost, loopback, private (RFC1918) and link-local addresses
+  block_private_ips: true
+
+  # Optional model override for the responder agent only. Empty (default) uses
+  # the provider default (models/gemini-2.5-flash for Gemini,
+  # google/gemini-2.5-flash for OpenRouter); triage/tailor keep using
+  # GEMINI_MODEL / OPENROUTER_MODEL regardless.
+  model: ""
