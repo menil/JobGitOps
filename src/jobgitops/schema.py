@@ -37,6 +37,95 @@ def _parse_str(field_name: str, val: Any) -> str | None:
     return str(val)
 
 
+def _parse_int(field_name: str, val: Any, default: int) -> int:
+    """Parse a value into an int, rejecting booleans.
+
+    Args:
+        field_name: The name of the field being validated.
+        val: The value to validate, or None to use the default.
+        default: Default value when val is None.
+
+    Returns:
+        The integer value.
+
+    Raises:
+        ValidationError: If the value cannot be coerced to an int.
+    """
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        raise ValidationError(f"{field_name} must be an integer.")
+    try:
+        return int(val)
+    except (ValueError, TypeError) as e:
+        raise ValidationError(f"{field_name} must be an integer.") from e
+
+
+def _parse_positive_int(field_name: str, val: Any, default: int) -> int:
+    """Parse a value into a positive int.
+
+    Args:
+        field_name: The name of the field being validated.
+        val: The value to validate, or None to use the default.
+        default: Default value when val is None.
+
+    Returns:
+        The positive integer value.
+
+    Raises:
+        ValidationError: If the value is not a positive int.
+    """
+    parsed = _parse_int(field_name, val, default)
+    if parsed <= 0:
+        raise ValidationError(f"{field_name} must be greater than zero.")
+    return parsed
+
+
+def _parse_float(field_name: str, val: Any, default: float) -> float:
+    """Parse a value into a float, rejecting booleans.
+
+    Args:
+        field_name: The name of the field being validated.
+        val: The value to validate, or None to use the default.
+        default: Default value when val is None.
+
+    Returns:
+        The float value.
+
+    Raises:
+        ValidationError: If the value cannot be coerced to a float.
+    """
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        raise ValidationError(f"{field_name} must be a number.")
+    try:
+        return float(val)
+    except (ValueError, TypeError) as e:
+        raise ValidationError(f"{field_name} must be a number.") from e
+
+
+def _parse_bool(field_name: str, val: Any, default: bool) -> bool:
+    """Parse a value into a bool, requiring an actual boolean.
+
+    Args:
+        field_name: The name of the field being validated.
+        val: The value to validate, or None to use the default.
+        default: Default value when val is None.
+
+    Returns:
+        The boolean value.
+
+    Raises:
+        ValidationError: If the value is not a boolean.
+    """
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    raise ValidationError(f"{field_name} must be a boolean.")
+
+
 @dataclass
 class SearchConfig:
     """Job search scraper configuration."""
@@ -152,6 +241,90 @@ class ProjectsV2Config:
             raise ValidationError(f"Failed to parse ProjectsV2Config: {e}") from e
 
 
+# Maximum response body accepted from a fetched page (256 KiB).
+MAX_CONTENT_BYTES = 262144
+
+# Positive-int research fields parsed with the same shared helper.
+_RESEARCH_INT_FIELDS: tuple[str, ...] = (
+    "max_results",
+    "max_iterations",
+    "max_context_comments",
+    "timeout_seconds",
+    "total_timeout_seconds",
+    "max_redirects",
+    "max_content_bytes",
+    "max_jina_calls",
+)
+
+# Boolean research fields parsed with the same shared helper.
+_RESEARCH_BOOL_FIELDS: tuple[str, ...] = ("use_jina_reader", "block_private_ips")
+
+
+@dataclass
+class ResearchConfig:
+    """Issue Assistant research / web-tool configuration."""
+
+    search_provider: str = "duckduckgo"
+    max_results: int = 5
+    max_iterations: int = 6
+    max_context_comments: int = 10
+    timeout_seconds: int = 15
+    total_timeout_seconds: int = 30
+    max_redirects: int = 5
+    max_content_bytes: int = MAX_CONTENT_BYTES
+    request_delay: float = 1.0
+    use_jina_reader: bool = True
+    max_jina_calls: int = 5
+    block_private_ips: bool = True
+    # Optional responder model override; empty = provider default.
+    model: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ResearchConfig":
+        """Parse research configuration from dictionary.
+
+        Args:
+            data: Raw dictionary containing research config fields.
+
+        Returns:
+            A parsed ResearchConfig instance.
+
+        Raises:
+            ValidationError: If parsing fails.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("Research configuration must be a dictionary.")
+
+        try:
+            request_delay = _parse_float(
+                "research.request_delay", data.get("request_delay"), cls.request_delay
+            )
+            if request_delay < 0:
+                raise ValidationError("research.request_delay must not be negative.")
+
+            values: dict[str, Any] = {}
+            for name in _RESEARCH_INT_FIELDS:
+                values[name] = _parse_positive_int(
+                    f"research.{name}", data.get(name), getattr(cls, name)
+                )
+            for name in _RESEARCH_BOOL_FIELDS:
+                values[name] = _parse_bool(
+                    f"research.{name}", data.get(name), getattr(cls, name)
+                )
+
+            return cls(
+                search_provider=(
+                    _parse_str("research.search_provider", data.get("search_provider"))
+                    or cls.search_provider
+                ),
+                request_delay=request_delay,
+                model=_parse_str("research.model", data.get("model")) or cls.model,
+                **values,
+            )
+        except (ValueError, TypeError, ValidationError) as e:
+            raise ValidationError(f"Failed to parse ResearchConfig: {e}") from e
+
+
 @dataclass
 class Settings:
     """App-wide settings loaded from config/settings.yaml."""
@@ -160,6 +333,7 @@ class Settings:
     search: SearchConfig = field(default_factory=SearchConfig)
     custom_queries: list[str] | None = None
     projects_v2: ProjectsV2Config | None = None
+    research: ResearchConfig = field(default_factory=ResearchConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Settings":
@@ -215,11 +389,15 @@ class Settings:
                 else None
             )
 
+            research_data = data.get("research") or {}
+            research = ResearchConfig.from_dict(research_data)
+
             return cls(
                 fit_threshold=fit_threshold,
                 search=search,
                 custom_queries=custom_queries,
                 projects_v2=projects_v2,
+                research=research,
             )
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Settings: {e}") from e
