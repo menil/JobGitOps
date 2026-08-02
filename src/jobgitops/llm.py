@@ -20,6 +20,41 @@ class QuotaExceededError(Exception):
 
 
 @dataclass
+class ToolCall:
+    """A tool/function invocation requested by the model.
+
+    Args:
+        name: The tool name to invoke.
+        arguments: The parsed arguments for the tool.
+        id: Provider-specific call id (OpenRouter/OpenAI); None for Gemini,
+            which correlates tool results by function name.
+    """
+
+    name: str
+    arguments: dict[str, Any]
+    id: str | None = None
+
+
+@dataclass
+class ChatMessage:
+    """A single message in a multi-turn chat conversation.
+
+    Args:
+        role: One of "system", "user", "assistant", or "tool".
+        content: The message text (empty for tool-call assistant turns).
+        tool_calls: Tool calls emitted by the model on an assistant turn.
+        tool_call_id: For "tool" messages, the id/name of the tool call
+            being answered (OpenRouter uses the OpenAI call id; Gemini uses
+            the function name).
+    """
+
+    role: str
+    content: str = ""
+    tool_calls: list[ToolCall] | None = None
+    tool_call_id: str | None = None
+
+
+@dataclass
 class TriageResult:
     """Evaluation result from the job description triage stage."""
 
@@ -174,6 +209,175 @@ class LLMClient(ABC):
         """Subtly adjust resume highlights/skills for the job description."""
         pass
 
+    @abstractmethod
+    def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: list[dict] | None = None,
+    ) -> ChatMessage:
+        """Run a multi-turn chat, optionally with tool calling.
+
+        Args:
+            messages: The conversation so far, including any prior assistant
+                tool calls and their "tool" role results.
+            tools: Optional OpenAI-style tool schemas:
+                ``[{"type": "function", "function": {name, description,
+                parameters}}]``. Rendered to provider-native form internally.
+
+        Returns:
+            The assistant's reply as a ChatMessage; ``tool_calls`` is set when
+            the model requests tool invocations instead of a final answer.
+        """
+        pass
+
+
+def _openai_tools_to_gemini(tools: list[dict]) -> dict:
+    """Convert OpenAI-style tool schemas to a Gemini tools payload.
+
+    Each tool must follow the OpenAI schema
+    ``{"type": "function", "function": {name, description, parameters}}``.
+    """
+    declarations = []
+    for tool in tools:
+        function = tool.get("function")
+        if not isinstance(function, dict):
+            raise ValidationError(
+                f"Tool must follow the OpenAI schema with a 'function' object: {tool}"
+            )
+        declarations.append(
+            {
+                "name": function.get("name"),
+                "description": function.get("description", ""),
+                "parameters": function.get("parameters", {}),
+            }
+        )
+    return {"function_declarations": declarations}
+
+
+def _message_to_gemini_content(message: ChatMessage, protos: Any) -> Any:
+    """Convert a ChatMessage to a Gemini ``protos.Content`` turn."""
+    if message.role == "assistant":
+        parts = []
+        if message.content:
+            parts.append(protos.Part(text=message.content))
+        for call in message.tool_calls or []:
+            parts.append(
+                protos.Part(
+                    function_call=protos.FunctionCall(
+                        name=call.name, args=call.arguments
+                    )
+                )
+            )
+        return protos.Content(role="model", parts=parts)
+    if message.role == "tool":
+        response = message.content
+        if isinstance(response, str):
+            response = {"result": response}
+        return protos.Content(
+            role="user",
+            parts=[
+                protos.Part(
+                    function_response=protos.FunctionResponse(
+                        name=message.tool_call_id or "", response=response
+                    )
+                )
+            ],
+        )
+    return protos.Content(role="user", parts=[protos.Part(text=message.content)])
+
+
+def _gemini_response_to_chat_message(response: Any, protos: Any) -> ChatMessage:
+    """Parse a Gemini ``GenerateContentResponse`` into a ChatMessage.
+
+    Raises ValidationError when the response carries neither text nor tool
+    calls (e.g. a blocked/empty generation), so callers never mistake a
+    failed reply for a blank assistant message.
+    """
+    content = ""
+    tool_calls: list[ToolCall] = []
+    parts = response.candidates[0].content.parts if response.candidates else []
+    for part in parts:
+        if part.function_call:
+            tool_calls.append(
+                ToolCall(
+                    name=part.function_call.name,
+                    arguments=dict(part.function_call.args.items()),
+                )
+            )
+        elif part.text:
+            content += part.text
+    if not content and not tool_calls:
+        feedback = getattr(response, "prompt_feedback", None)
+        block_reason = getattr(feedback, "block_reason", None)
+        detail = f"; blocked: {block_reason}" if block_reason else ""
+        raise ValidationError(
+            f"Gemini chat returned an empty response (no text or tool calls){detail}"
+        )
+    return ChatMessage(role="assistant", content=content, tool_calls=tool_calls or None)
+
+
+def _messages_to_openai(messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    """Convert ChatMessages to the OpenAI chat-completion format."""
+    converted: list[dict[str, Any]] = []
+    for message in messages:
+        if message.role == "assistant":
+            item: dict[str, Any] = {
+                "role": "assistant",
+                "content": message.content or None,
+            }
+            if message.tool_calls:
+                serialized_calls = []
+                for call in message.tool_calls:
+                    if not call.id:
+                        raise ValidationError(
+                            f"OpenRouter chat tool call '{call.name}' is missing "
+                            "an id; tool results cannot reference it"
+                        )
+                    serialized_calls.append(
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": json.dumps(call.arguments),
+                            },
+                        }
+                    )
+                item["tool_calls"] = serialized_calls
+            converted.append(item)
+        elif message.role == "tool":
+            converted.append(
+                {
+                    "role": "tool",
+                    "content": message.content,
+                    "tool_call_id": message.tool_call_id or "",
+                }
+            )
+        else:
+            converted.append({"role": message.role, "content": message.content})
+    return converted
+
+
+def _openai_message_to_chat_message(message: dict[str, Any]) -> ChatMessage:
+    """Convert an OpenAI chat-completion response message to a ChatMessage."""
+    content = message.get("content") or ""
+    tool_calls: list[ToolCall] = []
+    for call in message.get("tool_calls") or []:
+        try:
+            arguments = json.loads(call["function"]["arguments"] or "{}")
+        except json.JSONDecodeError as e:
+            raise ValidationError(
+                f"OpenRouter chat returned malformed tool call arguments: {e}"
+            ) from e
+        tool_calls.append(
+            ToolCall(
+                name=call["function"]["name"],
+                arguments=arguments,
+                id=call.get("id"),
+            )
+        )
+    return ChatMessage(role="assistant", content=content, tool_calls=tool_calls or None)
+
 
 class GeminiClient(LLMClient):
     """LLM client implementation utilizing the official Google Generative AI SDK."""
@@ -237,6 +441,43 @@ class GeminiClient(LLMClient):
         ) as e:
             raise ValidationError(f"Gemini resume tailoring failed: {e}") from e
 
+    def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: list[dict] | None = None,
+    ) -> ChatMessage:
+        import google.api_core.exceptions
+        import google.generativeai as genai
+        from google.generativeai import protos
+
+        system_instruction = (
+            "\n".join(m.content for m in messages if m.role == "system" and m.content)
+            or None
+        )
+        contents = [
+            _message_to_gemini_content(m, protos)
+            for m in messages
+            if m.role != "system"
+        ]
+        model = self.model
+        if system_instruction:
+            model = genai.GenerativeModel(
+                self.model_name, system_instruction=system_instruction
+            )
+        request_kwargs: dict[str, Any] = {"contents": contents}
+        if tools:
+            request_kwargs["tools"] = [_openai_tools_to_gemini(tools)]
+            request_kwargs["tool_config"] = {
+                "function_calling_config": {"mode": "AUTO"}
+            }
+        try:
+            response = model.generate_content(**request_kwargs)
+        except google.api_core.exceptions.ResourceExhausted as e:
+            raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
+        except google.api_core.exceptions.GoogleAPICallError as e:
+            raise ValidationError(f"Gemini chat failed: {e}") from e
+        return _gemini_response_to_chat_message(response, protos)
+
 
 class OpenRouterClient(LLMClient):
     """LLM client implementation utilizing standard HTTP requests."""
@@ -247,12 +488,12 @@ class OpenRouterClient(LLMClient):
         self.api_key = api_key
         self.model_name = model_name
 
-    def _call_openrouter(self, prompt: str) -> str:
-        payload = {
-            "model": self.model_name,
-            "messages": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"},
-        }
+    def _request_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a chat-completion payload to OpenRouter.
+
+        Returns the parsed JSON response after validating that at least one
+        choice is present. Error mapping matches the single-shot methods.
+        """
         req = urllib.request.Request(
             "https://openrouter.ai/api/v1/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -269,7 +510,7 @@ class OpenRouterClient(LLMClient):
                     raise ValidationError(
                         f"Invalid response format from OpenRouter: {res_data}"
                     )
-                return res_data["choices"][0]["message"]["content"]
+                return res_data
         except urllib.error.HTTPError as e:
             try:
                 error_body = e.read().decode("utf-8")
@@ -290,6 +531,30 @@ class OpenRouterClient(LLMClient):
             raise ValidationError(f"OpenRouter Invalid JSON Response: {e}") from e
         except ValidationError:
             raise
+
+    def _call_openrouter(self, prompt: str) -> str:
+        payload = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "response_format": {"type": "json_object"},
+        }
+        res_data = self._request_chat(payload)
+        return res_data["choices"][0]["message"]["content"]
+
+    def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: list[dict] | None = None,
+    ) -> ChatMessage:
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": _messages_to_openai(messages),
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        res_data = self._request_chat(payload)
+        return _openai_message_to_chat_message(res_data["choices"][0]["message"])
 
     def triage_job(self, job_description: str, resume: Resume) -> TriageResult:
         resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
