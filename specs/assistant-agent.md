@@ -209,9 +209,10 @@ Pure orchestration (no I/O beyond injected clients) for testability.
 
 **Tool loop** (`run_agent`):
 
-1. Build the system prompt (§6.1) and an initial `user` message (the latest
-   human comment).
-2. Repeat up to `research.max_iterations` (default **6**):
+1. Build the system prompt (§6.1) and an initial `user` message: the
+   caller-supplied triggering comment (`trigger_text`), decided by the
+   responder from the webhook event — not inferred from the comment list.
+2. Repeat up to `research.max_iterations` (default **6**) tool-calling rounds:
    - Call `LLMClient.chat(messages, tools)`.
    - If the model returns tool calls, execute each against `WebClient`
      (in-memory memoization of identical calls within this run — §9.4), append
@@ -219,10 +220,13 @@ Pure orchestration (no I/O beyond injected clients) for testability.
    - If the model returns a plain message, attempt to parse it as the action
      JSON (§7). On parse failure, feed a corrective instruction and continue
      (one retry).
-3. Return the parsed action or a "reply with an error note" fallback.
+3. If a tool call consumed the final round, grant the model one last
+   plain-answer chance instead of wasting the round (§9.4). Tool rounds stay
+   capped at `max_iterations`; only one extra `chat` call can occur.
+4. Return the parsed action or a "reply with an error note" fallback.
 
-The loop is capped by both iteration count and a token budget passed through
-the provider's `max_output_tokens` setting.
+The loop is capped by both the tool-round count and a token budget passed
+through the provider's `max_output_tokens` setting.
 
 ### 5.3. `src/jobgitops/llm.py` — tool-calling support
 
@@ -542,7 +546,9 @@ preserved and reused by the canonical-body builder.
 ### 9.4. Cost & rate-limit controls
 
 - Tool-loop iteration cap (`max_iterations`, default 6) and provider
-  `max_output_tokens` cap.
+  `max_output_tokens` cap. The cap bounds the number of tool-calling rounds; a
+  tool call on the final round still gets one last answer chance (one extra
+  `chat` call) so the answer is never skipped.
 - **In-memory memoization**: identical `web_search` / `fetch_url` calls within
   one agent run are executed once (per §2 non-goal, no cross-run cache).
 - `QuotaExceededError` → exit `75` (matches the scraper's stop-triage-today
