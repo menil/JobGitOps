@@ -14,6 +14,12 @@ dependencies = [
     "pyyaml",
     "python-jobspy",
     "google-generativeai",
+    # ddgs is an unofficial DDG client that tracks DDG's site structure and can
+    # break unannounced when DDG changes markup. Keep a floor (not an exact pin)
+    # so upgrades can pick up fixes quickly. uv.lock still pins the exact
+    # resolved version.
+    "ddgs>=9.14.4",
+    "trafilatura>=2.2.0",
 ]
 
 [dependency-groups]
