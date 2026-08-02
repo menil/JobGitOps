@@ -152,7 +152,7 @@ Add the following under **Settings > Secrets and variables > Actions** in your f
 | --- | --- | --- |
 | `scrape-jobs.yml` | Daily cron (`0 0 * * *`) or `workflow_dispatch` | Scrapes job boards, dedupes, opens `triage-pending` issues, then auto-triages any pending issues |
 | `triage-issue.yml` | Issue labeled `triage-pending` | Runs the two-pass LLM triage/tailor pipeline |
-| `applied-transition.yml` | Issue labeled `applied` | Moves the issue card to the `Applied` column |
+| `status-transition.yml` | Issue labeled `applied`, `interviewing`, or `rejected` | Moves the issue card to the matching Projects V2 column |
 | `test.yml` | Push/PR to `main` | Runs `just validate` (lint + format + 90% coverage tests) in the devenv shell |
 | `pr-review.yml` | PR opened, reopened, or marked ready for review (dependabot skipped) | Automated code review via OpenRouter |
 | `sync-labels.yml` | Push to `main` | Applies issue labels from `.github/labels.yml` |
