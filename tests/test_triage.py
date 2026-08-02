@@ -11,12 +11,17 @@ import pytest
 
 from jobgitops.github_client import GitHubClient
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
-from jobgitops.schema import Resume, Settings
+from jobgitops.schema import Resume, Settings, ValidationError
+from jobgitops.web import PageContent
 from triage import (
     EXIT_QUOTA_EXCEEDED,
     FIT_CATEGORY_MISMATCH_LABELS,
+    JobFetchError,
+    build_canonical_body,
+    extract_job_from_url,
     get_category_mismatch_labels,
     get_fit_grade_label,
+    infer_job_details_from_page,
     main,
     parse_job_details,
     run_triage,
@@ -131,6 +136,170 @@ def test_parse_job_details_fallbacks() -> None:
     details3 = parse_job_details(body_empty, "General Role")
     assert details3["company"] == "Unknown Company"
     assert details3["role"] == "General Role"
+
+
+def test_parse_job_details_bare_url_body() -> None:
+    """Test a bare-URL body is treated as the apply URL (spec 5.5)."""
+    body = "https://jobs.acme.com/postings/123"
+    details = parse_job_details(body, "Some Title")
+    assert details["apply_url"] == "https://jobs.acme.com/postings/123"
+
+
+def test_parse_job_details_bare_url_markdown_injection() -> None:
+    """Test a bare-URL body that looks like a link-injection payload is dropped."""
+    body = "https://acme.com) [Click Here](https://malicious.com"
+    details = parse_job_details(body)
+    assert details["apply_url"] == ""
+
+
+def test_build_canonical_body_defaults_and_layout() -> None:
+    """Test the canonical body builder renders defaults and the template layout."""
+    body = build_canonical_body(
+        company="Acme Corp",
+        role="Senior Engineer",
+        location="",
+        salary="",
+        url="https://acme.com/jobs/123",
+        description="We need a Python engineer.",
+    )
+    assert body == (
+        "**Company:** Acme Corp\n"
+        "**Role:** Senior Engineer\n"
+        "**Location:** Remote\n"
+        "**Salary:** Not specified\n"
+        "**Source:** manual\n"
+        "**Apply URL:** https://acme.com/jobs/123\n"
+        "\n## Job Description\n"
+        "We need a Python engineer."
+    )
+    # The canonical body is directly parseable by the existing parser.
+    details = parse_job_details(body)
+    assert details["company"] == "Acme Corp"
+    assert details["role"] == "Senior Engineer"
+    assert details["salary"] == "Not specified"
+    assert details["apply_url"] == "https://acme.com/jobs/123"
+    assert details["description"] == "We need a Python engineer."
+
+
+def test_build_canonical_body_sanitizes_unsafe_url() -> None:
+    """Test markdown-injection apply URLs are dropped from the canonical body."""
+    body = build_canonical_body(
+        company="Acme",
+        role="Engineer",
+        location="Remote",
+        salary="100k",
+        url="https://acme.com) [Click Here](https://malicious.com",
+        description="A description.",
+    )
+    assert "**Apply URL:** \n" in body
+    assert "malicious" not in body
+    details = parse_job_details(body)
+    assert details["apply_url"] == ""
+
+
+def test_build_canonical_body_preserves_literal_braces() -> None:
+    """Test fetched text with braces (code/JSON) renders without format errors."""
+    body = build_canonical_body(
+        company="Acme {Corp}",
+        role="Engineer",
+        location="Remote",
+        salary="100k",
+        url="https://acme.com/jobs/123",
+        description='Python {3.10} required; JSON {"key": 1}.',
+    )
+    assert "**Company:** Acme {Corp}\n" in body
+    assert "**Apply URL:** https://acme.com/jobs/123\n" in body
+    # The description text is preserved verbatim, not interpreted as a template.
+    assert body.endswith('Python {3.10} required; JSON {"key": 1}.')
+    details = parse_job_details(body)
+    assert details["description"] == 'Python {3.10} required; JSON {"key": 1}.'
+    assert details["company"] == "Acme {Corp}"
+
+
+def test_extract_job_from_url_returns_text() -> None:
+    """Test extract_job_from_url returns the fetched posting text."""
+    web_client = mock.MagicMock()
+    web_client.fetch_url.return_value = PageContent(
+        url="https://acme.com/jobs/123",
+        title="Acme - Senior Engineer",
+        text="We need a senior Python engineer.",
+        source="direct",
+    )
+    assert (
+        extract_job_from_url("https://acme.com/jobs/123", web_client)
+        == "We need a senior Python engineer."
+    )
+
+
+def test_extract_job_from_url_fetch_failure_raises() -> None:
+    """Test extract_job_from_url raises JobFetchError when the fetch fails."""
+    web_client = mock.MagicMock()
+    web_client.fetch_url.return_value = {"error": "Blocked by SSRF guard"}
+    with pytest.raises(JobFetchError, match="Blocked by SSRF guard"):
+        extract_job_from_url("https://acme.com/jobs/123", web_client)
+
+
+def test_infer_job_details_from_page_llm_success() -> None:
+    """Test LLM-extracted company/role are used when the extraction succeeds."""
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.extract_job_details.return_value = {
+        "company": "Acme Corp",
+        "role": "Senior Engineer",
+        "location": "Tel Aviv",
+        "salary": "$200k",
+    }
+    details = infer_job_details_from_page(
+        page_text="Fetched text",
+        page_title="Ignore Me",
+        url="https://acme.com/jobs/123",
+        llm_client=mock_llm_client,
+    )
+    assert details["company"] == "Acme Corp"
+    assert details["role"] == "Senior Engineer"
+    assert details["location"] == "Tel Aviv"
+    assert details["salary"] == "$200k"
+    assert details["description"] == "Fetched text"
+    mock_llm_client.extract_job_details.assert_called_once_with(
+        "Fetched text", "Ignore Me", "https://acme.com/jobs/123"
+    )
+
+
+def test_infer_job_details_from_page_llm_failure_title_fallback() -> None:
+    """Test extraction failure falls back to a best-effort title parse."""
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.extract_job_details.side_effect = ValidationError("bad JSON")
+
+    details = infer_job_details_from_page(
+        page_text="Fetched text",
+        page_title="Senior Python Engineer at Acme Corp",
+        url="https://acme.com/jobs/123",
+        llm_client=mock_llm_client,
+    )
+    assert details["company"] == "Acme Corp"
+    assert details["role"] == "Senior Python Engineer"
+    assert details["location"] == "Remote"
+    assert details["salary"] == "Not specified"
+    assert details["description"] == "Fetched text"
+
+
+def test_infer_job_details_from_page_partial_extraction_merges_title() -> None:
+    """Test a missing company from extraction is backfilled from the title."""
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.extract_job_details.return_value = {
+        "company": "",
+        "role": "DevOps Engineer",
+        "location": "Remote",
+        "salary": "",
+    }
+    details = infer_job_details_from_page(
+        page_text="text",
+        page_title="Acme Corp - Careers",
+        url="https://acme.com",
+        llm_client=mock_llm_client,
+    )
+    assert details["company"] == "Acme Corp"
+    assert details["role"] == "DevOps Engineer"
+    assert details["salary"] == "Not specified"
 
 
 @pytest.mark.parametrize(
@@ -509,6 +678,240 @@ def test_run_triage_tailoring_failure(
     mock_run_git.assert_any_call(["checkout", "-f", "main-branch"], cwd=tmp_path)
 
 
+@mock.patch("triage.compile_resume")
+@mock.patch("triage.commit_changes")
+@mock.patch("triage.push_branch")
+@mock.patch("triage.create_or_checkout_branch")
+@mock.patch("triage.run_git")
+def test_run_triage_bare_url_body_fetches_and_substitutes(
+    mock_run_git: mock.MagicMock,
+    mock_checkout_branch: mock.MagicMock,
+    mock_push_branch: mock.MagicMock,
+    mock_commit: mock.MagicMock,
+    mock_compile: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test run_triage fetches a bare-URL body and substitutes the description.
+
+    A body with no job-description section but an apply_url should be fetched,
+    enriched via LLM extraction, and evaluated against the fetched text.
+    """
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.extract_job_details.return_value = {
+        "company": "Acme Corp",
+        "role": "Senior Engineer",
+        "location": "Remote",
+        "salary": "Not specified",
+    }
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=4.8,
+        tech_stack_fit=5.0,
+        experience_fit=5.0,
+        location_fit=5.0,
+        salary_fit=5.0,
+        industry_fit=5.0,
+        reasoning="Perfect match.",
+    )
+    tailored_res = Resume.from_dict(mock_resume.to_dict())
+    mock_llm_client.tailor_resume.return_value = tailored_res
+
+    web_client = mock.MagicMock()
+    web_client.research.max_content_bytes = 4096
+    web_client.fetch_url.return_value = PageContent(
+        url="https://acme.com/jobs/123",
+        title="Senior Engineer at Acme Corp",
+        text="We need a senior Python engineer with 5+ years of experience.",
+        source="direct",
+    )
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "my-owner/my-repo"
+    mock_gh_client.project_id = "proj_123"
+
+    mock_run_git.return_value = "main-branch"
+
+    with mock.patch("pathlib.Path.open", mock.mock_open()):
+        run_triage(
+            issue_number=30,
+            issue_title="Acme job posting",
+            issue_body="https://acme.com/jobs/123",
+            issue_node_id="node_abc",
+            issue_labels=["triage-pending"],
+            repo_path=pathlib.Path(),
+            gh_client=mock_gh_client,
+            settings=mock_settings,
+            resume=mock_resume,
+            llm_client=mock_llm_client,
+            web_client=web_client,
+        )
+
+    # The bare URL was parsed as the apply URL and fetched exactly once.
+    web_client.fetch_url.assert_called_once_with("https://acme.com/jobs/123")
+    mock_llm_client.extract_job_details.assert_called_once_with(
+        "We need a senior Python engineer with 5+ years of experience.",
+        "Senior Engineer at Acme Corp",
+        "https://acme.com/jobs/123",
+    )
+    mock_llm_client.triage_job.assert_called_once_with(
+        "We need a senior Python engineer with 5+ years of experience.",
+        mock_resume,
+    )
+
+    # The approved-match comment uses the LLM-inferred company/role.
+    comment_arg = mock_gh_client.post_comment.call_args[0][1]
+    assert "applications/acme-corp-senior-engineer-" in comment_arg
+
+
+def test_run_triage_fetch_failure_no_close(
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test fetch failure posts an explanatory comment and never closes.
+
+    The issue must be left open and unlabeled rather than auto-closed, so a
+    human can fix the URL or paste the description.
+    """
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    web_client = mock.MagicMock()
+    web_client.fetch_url.return_value = {"error": "Blocked: private address"}
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "my-owner/my-repo"
+
+    run_triage(
+        issue_number=31,
+        issue_title="Acme job posting",
+        issue_body=(
+            "**Company:** Acme\n"
+            "**Role:** Engineer\n"
+            "**Apply URL:** https://acme.com/jobs/123\n"
+        ),
+        issue_node_id="node_abc",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path(),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+        web_client=web_client,
+    )
+
+    # Clear explanatory comment posted with the failure reason.
+    mock_gh_client.post_comment.assert_called_once()
+    comment_arg = mock_gh_client.post_comment.call_args[0][1]
+    assert "Could Not Fetch Job Posting" in comment_arg
+    assert "https://acme.com/jobs/123" in comment_arg
+    assert "Blocked: private address" in comment_arg
+
+    # Issue stays open and unlabeled: no close, no label changes, no triage.
+    mock_gh_client.close_issue.assert_not_called()
+    mock_gh_client.add_labels.assert_not_called()
+    mock_gh_client.remove_label.assert_not_called()
+    mock_gh_client.update_project_status.assert_not_called()
+    mock_llm_client.triage_job.assert_not_called()
+    mock_llm_client.extract_job_details.assert_not_called()
+
+
+def test_run_triage_bare_url_without_web_client_skips_fetch(
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test a bare-URL body is triaged raw when no web client is available.
+
+    Without a ``web_client`` the fetch step is skipped entirely (backward
+    compatibility): the raw body is treated as the description.
+    """
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=3.4,
+        tech_stack_fit=3.0,
+        experience_fit=4.0,
+        location_fit=2.5,
+        salary_fit=2.0,
+        industry_fit=3.5,
+        reasoning="Insufficient Python experience.",
+    )
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "owner/repo"
+    mock_gh_client.project_id = "proj_123"
+
+    run_triage(
+        issue_number=32,
+        issue_title="Acme job posting",
+        issue_body="https://acme.com/jobs/123",
+        issue_node_id="node_abc",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path(),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    # No fetch, no extraction: the raw URL body is triaged as the description.
+    mock_llm_client.extract_job_details.assert_not_called()
+    mock_llm_client.triage_job.assert_called_once_with(
+        "https://acme.com/jobs/123", mock_resume
+    )
+
+
+def test_run_triage_full_body_skips_fetch(
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test a body with a job-description section is never fetched.
+
+    The URL-aware fetch must not disturb full-body (scraped) issues: when a
+    ``## Job Description`` section exists, the apply URL is not fetched.
+    """
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=3.4,
+        tech_stack_fit=3.0,
+        experience_fit=4.0,
+        location_fit=2.5,
+        salary_fit=2.0,
+        industry_fit=3.5,
+        reasoning="Insufficient Python experience.",
+    )
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "owner/repo"
+    mock_gh_client.project_id = "proj_123"
+
+    web_client = mock.MagicMock()
+    web_client.research.max_content_bytes = 4096
+
+    run_triage(
+        issue_number=33,
+        issue_title="Acme job posting",
+        issue_body=(
+            "**Company:** Acme\n"
+            "**Role:** Python Dev\n"
+            "**Apply URL:** https://acme.com/jobs/123\n"
+            "## Job Description\n"
+            "Need 10 years of Python."
+        ),
+        issue_node_id="node_abc",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path(),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+        web_client=web_client,
+    )
+
+    # Existing full-body description is triaged; the URL is never fetched.
+    web_client.fetch_url.assert_not_called()
+    mock_llm_client.extract_job_details.assert_not_called()
+    mock_llm_client.triage_job.assert_called_once_with(
+        "Need 10 years of Python.", mock_resume
+    )
+
+
 @mock.patch("triage.get_llm_client")
 @mock.patch("triage.load_settings")
 @mock.patch("triage.load_resume")
@@ -577,6 +980,7 @@ def test_main_cli_args(
         settings=mock_settings,
         resume=mock_resume,
         llm_client=mock.ANY,
+        web_client=mock.ANY,
     )
 
 
@@ -649,6 +1053,7 @@ def test_main_event_path(
         settings=mock_settings,
         resume=mock_resume,
         llm_client=mock.ANY,
+        web_client=mock.ANY,
     )
 
 
@@ -723,6 +1128,7 @@ def test_main_issue_number_env(
         settings=mock_settings,
         resume=mock_resume,
         llm_client=mock.ANY,
+        web_client=mock.ANY,
     )
 
 

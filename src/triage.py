@@ -26,6 +26,7 @@ from jobgitops.github_client import GitHubClient
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings, render_resume_yaml
 from jobgitops.renderer import compile_resume
+from jobgitops.web import WebClient
 
 logger = logging.getLogger("jobgitops.triage")
 
@@ -34,6 +35,12 @@ EXIT_QUOTA_EXCEEDED = 75
 
 # Sub-scores below this threshold are flagged with a category mismatch label.
 CATEGORY_MISMATCH_THRESHOLD = 3.0
+
+# Defaults applied when a job detail cannot be inferred.
+DEFAULT_COMPANY = "Unknown Company"
+DEFAULT_ROLE = "Unknown Role"
+DEFAULT_LOCATION = "Remote"
+DEFAULT_SALARY = "Not specified"
 
 # Maps each triage fit dimension to the label applied when its score is too low.
 FIT_CATEGORY_MISMATCH_LABELS: dict[str, str] = {
@@ -53,6 +60,59 @@ SOURCE_REGEX = re.compile(r"\*\*[Ss]ource:?\*\*:?\s*(.*)")
 APPLY_URL_REGEX = re.compile(r"\*\*[Aa]pply\s*[Uu][Rr][Ll]:?\*\*:?\s*(.*)")
 MARKDOWN_LINK_REGEX = re.compile(r"^\[.*?\]\((.*?)\)$")
 TITLE_COMPANY_ROLE_REGEX = re.compile(r"^\[(.*?)\]\s*(.*)$")
+JOB_DESCRIPTION_HEADING_REGEX = re.compile(r"##\s*Job\s*Description", re.IGNORECASE)
+BARE_URL_REGEX = re.compile(r"https?://[^\s]+")
+
+# Canonical layout for URL-sourced job issues (spec 5.5). The single source of
+# truth for how a fetched posting is rendered into a body that the existing
+# parse_job_details / run_triage core can consume unchanged.
+CANONICAL_BODY_TEMPLATE = (
+    "**Company:** {company}\n"
+    "**Role:** {role}\n"
+    "**Location:** {location}\n"
+    "**Salary:** {salary}\n"
+    "**Source:** manual\n"
+    "**Apply URL:** {url}\n"
+    "\n## Job Description\n"
+    "{description}"
+)
+
+
+class JobFetchError(Exception):
+    """Raised when a job posting URL cannot be fetched or yields no content."""
+
+
+def _clean_str(value: str | None) -> str:
+    """Coerce a value to a stripped string; empty string when None."""
+    return (value or "").strip()
+
+
+def _sanitize_apply_url(apply_url: str | None) -> str:
+    """Validate and sanitize an apply URL against markdown injection.
+
+    Unsafe URLs (missing http(s) scheme or containing characters that could
+    break out of markdown, including parentheses that smuggle link-injection
+    payloads like ``url) [Click](evil``) are dropped entirely and logged.
+
+    Args:
+        apply_url: The raw apply URL to validate.
+
+    Returns:
+        The sanitized URL, or an empty string when unsafe or empty.
+    """
+    apply_url = _clean_str(apply_url)
+    if apply_url and (
+        not (apply_url.startswith("http://") or apply_url.startswith("https://"))
+        or any(char in apply_url for char in " ()[]\"'<>")
+    ):
+        logger.warning("apply_url is invalid or unsafe: %s", apply_url)
+        return ""
+    return apply_url
+
+
+def _has_job_description_section(body: str | None) -> bool:
+    """Return True when the body contains a '## Job Description' section."""
+    return bool(body and JOB_DESCRIPTION_HEADING_REGEX.search(body))
 
 
 def parse_job_details(body: str | None, title: str | None = "") -> dict[str, str]:
@@ -71,8 +131,8 @@ def parse_job_details(body: str | None, title: str | None = "") -> dict[str, str
 
     company = ""
     role = ""
-    location = "Remote"
-    salary = "Not specified"
+    location = DEFAULT_LOCATION
+    salary = DEFAULT_SALARY
     source = ""
     apply_url = ""
     description = ""
@@ -131,20 +191,22 @@ def parse_job_details(body: str | None, title: str | None = "") -> dict[str, str
                 role = title.strip()
 
     if not company:
-        company = "Unknown Company"
+        company = DEFAULT_COMPANY
     if not role:
-        role = "Unknown Role"
+        role = DEFAULT_ROLE
 
     # Validate/Sanitize Apply URL to prevent markdown injection
-    if apply_url and (
-        not (apply_url.startswith("http://") or apply_url.startswith("https://"))
-        or any(char in apply_url for char in " []\"'<>")
-    ):
-        logger.warning(
-            "apply_url is invalid or unsafe: %s",
-            apply_url,
-        )
-        apply_url = ""
+    apply_url = _sanitize_apply_url(apply_url)
+
+    # URL-aware parsing (spec 5.5): only when the body carries no explicit
+    # Apply URL field and no job-description section is the body treated as a
+    # bare URL submission. This deliberately runs only on bodies without an
+    # `**Apply URL:**` marker so a rejected injection payload is never
+    # re-admitted by scanning for an arbitrary http(s) string.
+    if not apply_url_match and not _has_job_description_section(body):
+        url_match = BARE_URL_REGEX.search(body)
+        if url_match:
+            apply_url = _sanitize_apply_url(url_match.group(0).rstrip(".,;"))
 
     return {
         "company": company,
@@ -155,6 +217,197 @@ def parse_job_details(body: str | None, title: str | None = "") -> dict[str, str
         "apply_url": apply_url,
         "description": description,
     }
+
+
+def build_canonical_body(
+    company: str,
+    role: str,
+    location: str,
+    salary: str,
+    url: str,
+    description: str,
+) -> str:
+    """Build the canonical job issue body for a URL-sourced posting.
+
+    Renders the shared ``CANONICAL_BODY_TEMPLATE``: salary defaults to
+    'Not specified', ``url`` passes through the apply-URL markdown-injection
+    sanitization, and ``description`` is always the fetched text.
+
+    Args:
+        company: Inferred hiring company name.
+        role: Inferred job title/role.
+        location: Work location (defaults to 'Remote' when empty).
+        salary: Stated salary ('Not specified' when empty).
+        url: Apply URL (sanitized; unsafe URLs become empty).
+        description: Fetched job posting text.
+
+    Returns:
+        The formatted canonical body string.
+    """
+    values = {
+        "company": _clean_str(company) or DEFAULT_COMPANY,
+        "role": _clean_str(role) or DEFAULT_ROLE,
+        "location": _clean_str(location) or DEFAULT_LOCATION,
+        "salary": _clean_str(salary) or DEFAULT_SALARY,
+        "url": _sanitize_apply_url(url),
+        "description": description or "",
+    }
+    # Substitute placeholders manually instead of ``str.format`` so literal
+    # braces in fetched text (code snippets, JSON) never raise a format error.
+    # ``description`` is substituted last so a placeholder-looking substring
+    # inside the fetched text is preserved verbatim.
+    body = CANONICAL_BODY_TEMPLATE
+    for key, value in values.items():
+        body = body.replace("{" + key + "}", value)
+    return body
+
+
+def _fetch_job_page(url: str, web_client: Any) -> dict[str, str]:
+    """Fetch a job page once, returning ``{title, description}``.
+
+    ``description`` is always the extracted page text (never model-synthesized)
+    and is trimmed to the research ``max_content_bytes`` when available.
+
+    Args:
+        url: The job posting URL to fetch.
+        web_client: The WebClient (or test double) exposing ``fetch_url``.
+
+    Returns:
+        A dict with the page title and the trimmed extracted text.
+
+    Raises:
+        JobFetchError: When the fetch fails or yields no readable content.
+    """
+    result = web_client.fetch_url(url)
+    if isinstance(result, dict):
+        raise JobFetchError(_clean_str(result.get("error")) or "URL fetch failed")
+    text = _clean_str(result.text)
+    if not text:
+        raise JobFetchError("No readable content extracted from the URL")
+    max_bytes = getattr(
+        getattr(web_client, "research", None), "max_content_bytes", None
+    )
+    if isinstance(max_bytes, int) and max_bytes > 0:
+        text = text[:max_bytes]
+    return {"title": _clean_str(result.title), "description": text}
+
+
+def extract_job_from_url(url: str, web_client: Any) -> str:
+    """Fetch a job posting URL and return its extracted description text.
+
+    Shared by the triage webhook path and the responder's auto-detect path
+    (spec 5.5).
+
+    Args:
+        url: The job posting URL to fetch.
+        web_client: The WebClient (or test double) exposing ``fetch_url``.
+
+    Returns:
+        The extracted readable text of the posting.
+
+    Raises:
+        JobFetchError: When the URL cannot be fetched or yields no content.
+    """
+    return _fetch_job_page(url, web_client)["description"]
+
+
+def _parse_page_title(title: str) -> tuple[str, str]:
+    """Best-effort ``(company, role)`` parse from a page title.
+
+    Handles the common "Software Engineer at Acme" and "Acme — Careers"
+    layouts before giving up on the raw title.
+
+    Args:
+        title: The page ``<title>`` text.
+
+    Returns:
+        A ``(company, role)`` tuple; either side may be empty.
+    """
+    title = _clean_str(title)
+    if not title:
+        return "", ""
+    if " at " in title:
+        role, _, company = title.partition(" at ")
+        return company.strip(), role.strip()
+    for separator in ("|", "—", "\u2013", "-", ":"):
+        if separator in title:
+            company, _, role = title.partition(separator)
+            return company.strip(), role.strip()
+    return "", title
+
+
+def infer_job_details_from_page(
+    page_text: str,
+    page_title: str,
+    url: str,
+    llm_client: LLMClient,
+) -> dict[str, str]:
+    """Infer company/role/location/salary from a fetched job page.
+
+    Runs a single LLM extraction call; when it fails or yields empty
+    company/role, falls back to a best-effort page-title parse. The returned
+    ``description`` is always ``page_text``, never model-synthesized.
+
+    Args:
+        page_text: The fetched posting text.
+        page_title: The fetched page ``<title>``.
+        url: The posting URL (an input to the extraction prompt).
+        llm_client: The LLM client exposing ``extract_job_details``.
+
+    Returns:
+        A job-details dict with company, role, location, salary, and
+        description keys.
+
+    Raises:
+        QuotaExceededError: When the LLM provider rate limit is exceeded.
+    """
+    extracted: dict[str, str] = {}
+    try:
+        extracted = llm_client.extract_job_details(page_text, page_title, url) or {}
+    except QuotaExceededError:
+        raise
+    except Exception as e:
+        logger.warning(
+            "Job details extraction failed (%s); falling back to title parse", e
+        )
+        extracted = {}
+
+    company = _clean_str(extracted.get("company"))
+    role = _clean_str(extracted.get("role"))
+    if not company or not role:
+        title_company, title_role = _parse_page_title(page_title)
+        if not company:
+            company = title_company
+        if not role:
+            role = title_role
+
+    return {
+        "company": company or DEFAULT_COMPANY,
+        "role": role or DEFAULT_ROLE,
+        "location": _clean_str(extracted.get("location")) or DEFAULT_LOCATION,
+        "salary": _clean_str(extracted.get("salary")) or DEFAULT_SALARY,
+        "source": "manual",
+        "description": page_text,
+    }
+
+
+def _post_fetch_failure_comment(
+    issue_number: int, gh_client: GitHubClient, url: str, error: str
+) -> None:
+    """Post a clear explanation when a job URL cannot be fetched.
+
+    The issue is intentionally left open and unlabeled so a human can fix the
+    URL or paste the description; triage never auto-closes on a fetch failure.
+    """
+    comment_body = (
+        "### AI Triage: Could Not Fetch Job Posting\n\n"
+        f"I couldn't fetch the job posting at `{url}` to evaluate it:\n"
+        f"```\n{error}\n```\n"
+        "The issue is left open and unlabeled. Please double-check the apply "
+        "URL or paste the job description directly, then re-label with "
+        "`triage-pending`."
+    )
+    gh_client.post_comment(issue_number, comment_body)
 
 
 def get_category_mismatch_labels(triage_res: TriageResult) -> list[str]:
@@ -414,6 +667,7 @@ def run_triage(
     settings: Any,
     resume: Any,
     llm_client: LLMClient,
+    web_client: Any | None = None,
 ) -> None:
     """Orchestrate the triage and tailoring process for a single issue.
 
@@ -428,6 +682,8 @@ def run_triage(
         settings: Parsed Settings object.
         resume: Parsed base Resume object.
         llm_client: Instantiated LLM client.
+        web_client: Optional WebClient used to fetch URL-only issues when the
+            body has no job-description section (spec 5.5).
     """
     logger.info("Starting triage for issue #%d: %s", issue_number, issue_title)
 
@@ -438,6 +694,36 @@ def run_triage(
         job_details["role"],
         job_details["company"],
     )
+
+    # URL-aware parsing (spec 5.5): when the body has no job-description
+    # section but carries an apply_url, fetch the posting and substitute its
+    # extracted text (plus inferred company/role) before evaluation.
+    if (
+        not _has_job_description_section(issue_body)
+        and job_details["apply_url"]
+        and web_client is not None
+    ):
+        apply_url = job_details["apply_url"]
+        try:
+            page = _fetch_job_page(apply_url, web_client)
+        except JobFetchError as e:
+            logger.warning(
+                "Could not fetch job posting for issue #%d: %s", issue_number, e
+            )
+            _post_fetch_failure_comment(issue_number, gh_client, apply_url, str(e))
+            return
+        job_details = infer_job_details_from_page(
+            page_text=page["description"],
+            page_title=page["title"],
+            url=apply_url,
+            llm_client=llm_client,
+        )
+        job_details["apply_url"] = _sanitize_apply_url(apply_url)
+        logger.info(
+            "Fetched job posting: %s at %s",
+            job_details["role"],
+            job_details["company"],
+        )
 
     # 2. Triage evaluation
     logger.info("Evaluating job description with LLM...")
@@ -604,6 +890,7 @@ def main() -> None:
     # Execute triage orchestration
     try:
         llm_client = get_llm_client()
+        web_client = WebClient(settings.research)
         run_triage(
             issue_number=issue_number,
             issue_title=issue_title,
@@ -615,6 +902,7 @@ def main() -> None:
             settings=settings,
             resume=resume,
             llm_client=llm_client,
+            web_client=web_client,
         )
     except QuotaExceededError as e:
         logger.warning("LLM API quota exceeded: %s", e)
