@@ -22,7 +22,7 @@ from jobgitops.git_ops import (
     push_branch,
     run_git,
 )
-from jobgitops.github_client import GitHubClient
+from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings, render_resume_yaml
 from jobgitops.renderer import compile_resume
@@ -823,12 +823,7 @@ def main() -> None:
             issue_node_id = issue_data.get("node_id")
 
             # Extract labels from event payload
-            labels_raw = issue_data.get("labels", [])
-            issue_labels = [
-                lbl["name"]
-                for lbl in labels_raw
-                if isinstance(lbl, dict) and "name" in lbl
-            ]
+            issue_labels = extract_label_names(issue_data.get("labels", []))
 
             # Repository can be resolved from payload repository full_name
             # if env is missing
@@ -877,12 +872,7 @@ def main() -> None:
             issue_node_id = issue.get("node_id")
 
             # Extract labels from API response
-            labels_raw = issue.get("labels", [])
-            issue_labels = [
-                lbl["name"]
-                for lbl in labels_raw
-                if isinstance(lbl, dict) and "name" in lbl
-            ]
+            issue_labels = extract_label_names(issue.get("labels", []))
         except Exception as e:
             logger.error("Failed to fetch issue #%d: %s", issue_number, e)
             sys.exit(1)

@@ -6,7 +6,11 @@ from unittest import mock
 
 import pytest
 
-from jobgitops.github_client import GitHubClient, GitHubClientError
+from jobgitops.github_client import (
+    GitHubClient,
+    GitHubClientError,
+    extract_label_names,
+)
 
 
 def make_mock_response(
@@ -19,6 +23,17 @@ def make_mock_response(
     mock_resp.read.return_value = body
     mock_resp.__enter__.return_value = mock_resp
     return mock_resp
+
+
+def test_extract_label_names() -> None:
+    """Test extracting label names filters malformed entries."""
+    labels_raw = [
+        {"name": "applied"},
+        {"name": "interviewing"},
+        "not-a-dict",
+        {"no-name-key": True},
+    ]
+    assert extract_label_names(labels_raw) == ["applied", "interviewing"]
 
 
 def test_github_client_init_validation() -> None:
@@ -157,6 +172,94 @@ def test_close_issue(mock_urlopen: mock.MagicMock) -> None:
     assert req.full_url == "https://api.github.com/repos/owner/repo/issues/42"
     assert req.method == "PATCH"
     assert json.loads(req.data.decode("utf-8")) == {"state": "closed"}
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_comments(mock_urlopen: mock.MagicMock) -> None:
+    """Test listing comments on an issue."""
+    expected_response = [
+        {"id": 1, "body": "First comment"},
+        {"id": 2, "body": "Second comment"},
+    ]
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps(expected_response).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    res = client.list_comments(issue_number=42)
+
+    assert res == expected_response
+    mock_urlopen.assert_called_once()
+    req = mock_urlopen.call_args[0][0]
+    assert (
+        req.full_url
+        == "https://api.github.com/repos/owner/repo/issues/42/comments?per_page=100"
+    )
+    assert req.method == "GET"
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_comments_pagination(mock_urlopen: mock.MagicMock) -> None:
+    """Test listing comments with pagination parameters."""
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps([{"id": 1, "body": "Comment"}]).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    res = client.list_comments(issue_number=42, per_page=50, page=2)
+
+    assert res == [{"id": 1, "body": "Comment"}]
+    req = mock_urlopen.call_args[0][0]
+    assert (
+        req.full_url
+        == "https://api.github.com/repos/owner/repo/issues/42/comments?per_page=50&page=2"
+    )
+    assert req.method == "GET"
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_comments_invalid_response_format(mock_urlopen: mock.MagicMock) -> None:
+    """Test list_comments raising error on non-list JSON response."""
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=b'{"error": "not a list"}'
+    )
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    with pytest.raises(GitHubClientError) as exc_info:
+        client.list_comments(issue_number=42)
+    assert "Unexpected response format" in str(exc_info.value)
+
+
+@mock.patch("urllib.request.urlopen")
+def test_get_labels(mock_urlopen: mock.MagicMock) -> None:
+    """Test getting the label names on an issue."""
+    issue_data = {
+        "number": 42,
+        "title": "Job",
+        "labels": [{"name": "applied"}, {"name": "interviewing"}],
+    }
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps(issue_data).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    res = client.get_labels(issue_number=42)
+
+    assert res == ["applied", "interviewing"]
+    mock_urlopen.assert_called_once()
+    req = mock_urlopen.call_args[0][0]
+    assert req.full_url == "https://api.github.com/repos/owner/repo/issues/42"
+    assert req.method == "GET"
+
+
+@mock.patch("urllib.request.urlopen")
+def test_get_labels_empty(mock_urlopen: mock.MagicMock) -> None:
+    """Test get_labels on an issue without labels returns an empty list."""
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps({"number": 42, "labels": []}).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    assert client.get_labels(issue_number=42) == []
 
 
 @mock.patch("urllib.request.urlopen")
