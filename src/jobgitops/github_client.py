@@ -29,6 +29,25 @@ class GitHubClientError(Exception):
         self.response_body = response_body
 
 
+def extract_label_names(labels_raw: list) -> list[str]:
+    """Extract label names from a GitHub issue's labels field.
+
+    Filters out malformed entries so callers can trust the result contains
+    only usable label name strings.
+
+    Args:
+        labels_raw: The raw ``labels`` array from an issue object or event.
+
+    Returns:
+        List of label name strings.
+    """
+    return [
+        label["name"]
+        for label in labels_raw
+        if isinstance(label, dict) and "name" in label
+    ]
+
+
 class GitHubClient:
     """Client for interacting with the GitHub REST and GraphQL APIs."""
 
@@ -241,6 +260,46 @@ class GitHubClient:
         if not isinstance(res, dict):
             raise GitHubClientError(f"Unexpected response format: {res}")
         return res
+
+    def list_comments(
+        self,
+        issue_number: int,
+        per_page: int = 100,
+        page: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """List comments on a GitHub issue.
+
+        Args:
+            issue_number: The number of the issue.
+            per_page: Number of comments to retrieve per page (max 100).
+            page: Optional page number for pagination.
+
+        Returns:
+            List of comment objects from the API.
+        """
+        params: dict[str, Any] = {"per_page": per_page}
+        if page is not None:
+            params["page"] = page
+        query = urllib.parse.urlencode(params)
+        url = f"https://api.github.com/repos/{self.repo}/issues/{issue_number}/comments?{query}"
+        res = self._request("GET", url)
+        if not isinstance(res, list):
+            raise GitHubClientError(f"Unexpected response format: {res}")
+        return res
+
+    def get_labels(self, issue_number: int) -> list[str]:
+        """Get the names of all labels on a GitHub issue.
+
+        Convenience wrapper around `get_issue` for the comment flow's guard.
+
+        Args:
+            issue_number: The number of the issue.
+
+        Returns:
+            List of label names on the issue.
+        """
+        issue = self.get_issue(issue_number)
+        return extract_label_names(issue.get("labels", []))
 
     def list_issues(
         self, state: str = "all", per_page: int = 100, page: int | None = None
