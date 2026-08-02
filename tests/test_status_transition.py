@@ -249,6 +249,95 @@ def test_transition_cli_label_fills_missing_payload_label(
 
 
 @patch("status_transition.GitHubClient")
+def test_transition_cli_issue_and_label_override_payload(
+    mock_github_client_class,
+) -> None:
+    """Verify --issue/--label win while the payload node_id is reused."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+
+    event_data = {
+        "action": "labeled",
+        "label": {"name": "rejected"},
+        "issue": {"number": "101", "node_id": "ND_EVENT_999"},
+        "repository": {"full_name": "event_owner/event_repo"},
+    }
+
+    with (
+        in_memory_event(event_data),
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch(
+            "sys.argv",
+            [
+                "status_transition.py",
+                "--event-path",
+                "event.json",
+                "--issue",
+                "42",
+                "--label",
+                "interviewing",
+            ],
+        ),
+    ):
+        main()
+
+    # Issue #42 from CLI and payload node_id: no API fetch needed.
+    mock_client.get_issue.assert_not_called()
+    mock_client.update_project_status.assert_called_once_with(
+        "ND_EVENT_999", "Interviewing"
+    )
+
+
+@patch("status_transition.GitHubClient")
+def test_transition_payload_number_coerced_to_int(
+    mock_github_client_class,
+) -> None:
+    """Verify a string issue number from the payload is coerced to an int."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+
+    event_data = {
+        "action": "labeled",
+        "label": {"name": "applied"},
+        "issue": {"number": "101", "node_id": "ND_EVENT_999"},
+        "repository": {"full_name": "event_owner/event_repo"},
+    }
+
+    with (
+        in_memory_event(event_data),
+        patch.dict(os.environ, {"GITHUB_TOKEN": "test_token"}, clear=True),
+        patch("sys.argv", ["status_transition.py", "--event-path", "event.json"]),
+    ):
+        main()
+
+    mock_client.get_issue.assert_not_called()
+    mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "Applied")
+
+
+@patch("status_transition.GitHubClient")
+def test_transition_invalid_payload_number(
+    mock_github_client_class,
+    caplog,
+) -> None:
+    """Verify a non-numeric issue number from the payload exits with error."""
+    event_data = {
+        "action": "labeled",
+        "label": {"name": "applied"},
+        "issue": {"number": "not-a-number", "node_id": "ND_EVENT_999"},
+        "repository": {"full_name": "event_owner/event_repo"},
+    }
+
+    with in_memory_event(event_data):
+        run_main(
+            env={"GITHUB_TOKEN": "test_token"},
+            argv=["status_transition.py", "--event-path", "event.json"],
+        )
+
+    assert "No issue number or event payload specified." in caplog.text
+    mock_github_client_class.assert_not_called()
+
+
+@patch("status_transition.GitHubClient")
 def test_transition_missing_label(
     mock_github_client_class,
     caplog,
