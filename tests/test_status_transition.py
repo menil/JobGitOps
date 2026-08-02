@@ -1,19 +1,19 @@
-"""Unit tests for the applied status transition coordinator (applied_transition.py)."""
+"""Unit tests for the label-driven status transition coordinator."""
 
-import json
 import os
+from contextlib import contextmanager
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from applied_transition import main
 from jobgitops.schema import Settings
+from status_transition import LABEL_TO_STATUS, main
 
 # Standard environment and CLI args used by most tests. centralizing these keeps
 # the per-test setup focused on the single failure condition under test.
 DEFAULT_ENV = {"GITHUB_TOKEN": "test_token", "GITHUB_REPOSITORY": "owner/repo"}
-DEFAULT_ARGV = ["applied_transition.py", "--issue", "42"]
+DEFAULT_ARGV = ["status_transition.py", "--issue", "42", "--label", "applied"]
 
 
 def run_main(
@@ -31,6 +31,20 @@ def run_main(
     assert exc_info.value.code == expected_code
 
 
+@contextmanager
+def in_memory_event(event_data=None, json_side_effect=None):
+    """Serve a webhook payload in memory instead of writing a JSON file."""
+    with (
+        patch("status_transition.pathlib.Path.open"),
+        patch(
+            "status_transition.json.load",
+            return_value=event_data,
+            side_effect=json_side_effect,
+        ),
+    ):
+        yield
+
+
 @pytest.fixture
 def mock_settings() -> Settings:
     """Mock Settings object with Projects V2 configured."""
@@ -40,7 +54,27 @@ def mock_settings() -> Settings:
     )
 
 
-@patch("applied_transition.load_settings")
+@pytest.fixture(autouse=True)
+def mock_load_settings(mock_settings) -> MagicMock:
+    """Patch load_settings to return Projects V2-configured settings by default.
+
+    Individual tests override ``return_value`` / ``side_effect`` to exercise
+    specific load or configuration branches.
+    """
+    with patch("status_transition.load_settings") as mocked:
+        mocked.return_value = mock_settings
+        yield mocked
+
+
+def test_label_to_status_mapping() -> None:
+    """Verify the lifecycle label mapping covers all three statuses."""
+    assert LABEL_TO_STATUS == {
+        "applied": "Applied",
+        "interviewing": "Interviewing",
+        "rejected": "Rejected",
+    }
+
+
 def test_transition_no_projects_v2_configured(mock_load_settings) -> None:
     """Verify that the script exits cleanly if Projects V2 is not configured."""
     mock_load_settings.return_value = Settings(fit_threshold=4.0, projects_v2=None)
@@ -48,17 +82,12 @@ def test_transition_no_projects_v2_configured(mock_load_settings) -> None:
     run_main(env={}, expected_code=0)
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_missing_token(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
     caplog,
 ) -> None:
     """Verify script exits with error if GITHUB_TOKEN is missing."""
-    mock_load_settings.return_value = mock_settings
-
     # No GITHUB_TOKEN: the client must never be reached.
     run_main(env={"GITHUB_REPOSITORY": "owner/repo"})
 
@@ -66,23 +95,28 @@ def test_transition_missing_token(
     mock_github_client_class.assert_not_called()
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@pytest.mark.parametrize(
+    ("label", "expected_status"),
+    [
+        ("applied", "Applied"),
+        ("interviewing", "Interviewing"),
+        ("rejected", "Rejected"),
+    ],
+)
+@patch("status_transition.GitHubClient")
 def test_transition_from_cli_args(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
+    label,
+    expected_status,
 ) -> None:
-    """Verify transition succeeds when issue is passed via CLI args."""
-    mock_load_settings.return_value = mock_settings
-
+    """Verify transition succeeds for each label passed via CLI args."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
     mock_client.get_issue.return_value = {"node_id": "ND_123"}
 
     with (
         patch.dict(os.environ, DEFAULT_ENV, clear=True),
-        patch("sys.argv", DEFAULT_ARGV),
+        patch("sys.argv", ["status_transition.py", "--issue", "42", "--label", label]),
     ):
         main()
 
@@ -97,45 +131,34 @@ def test_transition_from_cli_args(
     # get_issue called to resolve node ID
     mock_client.get_issue.assert_called_once_with(42)
 
-    # update_project_status called with correct node ID
-    mock_client.update_project_status.assert_called_once_with("ND_123", "Applied")
+    # update_project_status called with correct node ID and status
+    mock_client.update_project_status.assert_called_once_with("ND_123", expected_status)
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_from_event_payload(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
-    tmp_path,
 ) -> None:
-    """Verify transition succeeds using details from event payload JSON file."""
-    mock_load_settings.return_value = mock_settings
-
+    """Verify transition succeeds using details from the webhook event payload."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
 
-    # Create temporary event payload JSON
     event_data = {
         "action": "labeled",
+        "label": {"name": "rejected"},
         "issue": {
             "number": 101,
             "node_id": "ND_EVENT_999",
-            "labels": [{"name": "applied"}],
+            "labels": [{"name": "rejected"}],
         },
         "repository": {"full_name": "event_owner/event_repo"},
     }
-    payload_file = tmp_path / "event.json"
-    with payload_file.open("w", encoding="utf-8") as f:
-        json.dump(event_data, f)
 
     # GITHUB_REPOSITORY is missing in env, should load from event payload
     with (
+        in_memory_event(event_data),
         patch.dict(os.environ, {"GITHUB_TOKEN": "test_token"}, clear=True),
-        patch(
-            "sys.argv",
-            ["applied_transition.py", "--event-path", str(payload_file)],
-        ),
+        patch("sys.argv", ["status_transition.py", "--event-path", "event.json"]),
     ):
         main()
 
@@ -150,12 +173,106 @@ def test_transition_from_event_payload(
     # get_issue should NOT be called since node_id was in payload
     mock_client.get_issue.assert_not_called()
 
-    # update_project_status called with node ID from payload
-    mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "Applied")
+    # update_project_status called with node ID and label-mapped status
+    mock_client.update_project_status.assert_called_once_with(
+        "ND_EVENT_999", "Rejected"
+    )
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
+def test_transition_cli_label_overrides_event_payload(
+    mock_github_client_class,
+) -> None:
+    """Verify --label wins over the event payload label when both are present."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+
+    event_data = {
+        "action": "labeled",
+        "label": {"name": "rejected"},
+        "issue": {"number": 101, "node_id": "ND_EVENT_999"},
+    }
+
+    with (
+        in_memory_event(event_data),
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch(
+            "sys.argv",
+            [
+                "status_transition.py",
+                "--event-path",
+                "event.json",
+                "--label",
+                "interviewing",
+            ],
+        ),
+    ):
+        main()
+
+    mock_client.update_project_status.assert_called_once_with(
+        "ND_EVENT_999", "Interviewing"
+    )
+
+
+@patch("status_transition.GitHubClient")
+def test_transition_cli_label_fills_missing_payload_label(
+    mock_github_client_class,
+) -> None:
+    """Verify --label is used when the event payload carries no label."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+
+    event_data = {
+        "action": "labeled",
+        "issue": {"number": 101, "node_id": "ND_EVENT_999"},
+    }
+
+    with (
+        in_memory_event(event_data),
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch(
+            "sys.argv",
+            [
+                "status_transition.py",
+                "--event-path",
+                "event.json",
+                "--label",
+                "interviewing",
+            ],
+        ),
+    ):
+        main()
+
+    mock_client.update_project_status.assert_called_once_with(
+        "ND_EVENT_999", "Interviewing"
+    )
+
+
+@patch("status_transition.GitHubClient")
+def test_transition_missing_label(
+    mock_github_client_class,
+    caplog,
+) -> None:
+    """Verify script exits with error when no label is provided."""
+    run_main(argv=["status_transition.py", "--issue", "42"])
+
+    assert "Unsupported or missing label" in caplog.text
+    mock_github_client_class.assert_not_called()
+
+
+@patch("status_transition.GitHubClient")
+def test_transition_unknown_label(
+    mock_github_client_class,
+    caplog,
+) -> None:
+    """Verify script exits with error for a label outside the known set."""
+    run_main(argv=["status_transition.py", "--issue", "42", "--label", "unknown-label"])
+
+    assert "Unsupported or missing label 'unknown-label'" in caplog.text
+    mock_github_client_class.assert_not_called()
+
+
+@patch("status_transition.GitHubClient")
 def test_transition_settings_load_failure(
     mock_github_client_class,
     mock_load_settings,
@@ -170,60 +287,39 @@ def test_transition_settings_load_failure(
     mock_github_client_class.assert_not_called()
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_invalid_event_payload(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
-    tmp_path,
     caplog,
 ) -> None:
-    """Verify script exits with error when the CLI event payload is not valid JSON."""
-    mock_load_settings.return_value = mock_settings
-
-    bad_payload = tmp_path / "event.json"
-    bad_payload.write_text("{not valid json", encoding="utf-8")
-
-    run_main(argv=["applied_transition.py", "--event-path", str(bad_payload)])
+    """Verify script exits with error when the event payload is not valid JSON."""
+    with in_memory_event(json_side_effect=ValueError("bad json")):
+        run_main(argv=["status_transition.py", "--event-path", "event.json"])
 
     assert "Failed to parse event payload JSON:" in caplog.text
     mock_github_client_class.assert_not_called()
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_invalid_event_payload_from_env(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
-    tmp_path,
     caplog,
 ) -> None:
     """Verify script exits when GITHUB_EVENT_PATH env var points to invalid JSON."""
-    mock_load_settings.return_value = mock_settings
-
-    bad_payload = tmp_path / "event.json"
-    bad_payload.write_text("{not valid json", encoding="utf-8")
-
     # No --event-path arg: the script must pick up GITHUB_EVENT_PATH from the env.
-    run_main(env={**DEFAULT_ENV, "GITHUB_EVENT_PATH": str(bad_payload)})
+    with in_memory_event(json_side_effect=ValueError("bad json")):
+        run_main(env={**DEFAULT_ENV, "GITHUB_EVENT_PATH": "event.json"})
 
     assert "Failed to parse event payload JSON:" in caplog.text
     mock_github_client_class.assert_not_called()
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_missing_repository(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
     caplog,
 ) -> None:
     """Verify script exits with error when GITHUB_REPOSITORY is missing."""
-    mock_load_settings.return_value = mock_settings
-
     # No GITHUB_REPOSITORY: the client must never be reached.
     run_main(env={"GITHUB_TOKEN": "test_token"})
 
@@ -231,31 +327,21 @@ def test_transition_missing_repository(
     mock_github_client_class.assert_not_called()
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_missing_issue_number(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
     caplog,
 ) -> None:
     """Verify script exits with error when no issue number can be resolved."""
-    mock_load_settings.return_value = mock_settings
-
     # No --issue and no event payload: no issue number to act on.
-    run_main(argv=["applied_transition.py"])
+    run_main(argv=["status_transition.py", "--label", "applied"])
 
     assert "No issue number or event payload specified." in caplog.text
     mock_github_client_class.assert_not_called()
 
 
-@patch("applied_transition.load_settings")
-def test_transition_client_init_failure(
-    mock_load_settings, mock_settings, caplog
-) -> None:
+def test_transition_client_init_failure(caplog) -> None:
     """Verify script exits with error when GitHubClient cannot be initialized."""
-    mock_load_settings.return_value = mock_settings
-
     # Real client (unmocked): invalid repo format triggers ValueError in __init__
     # before any network I/O, matching the guard production actually relies on.
     run_main(
@@ -265,17 +351,12 @@ def test_transition_client_init_failure(
     assert "Failed to initialize GitHubClient: Invalid repository format" in caplog.text
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_get_issue_failure(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
     caplog,
 ) -> None:
     """Verify script exits with error when fetching the issue fails."""
-    mock_load_settings.return_value = mock_settings
-
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
     mock_client.get_issue.side_effect = RuntimeError("api down")
@@ -286,17 +367,12 @@ def test_transition_get_issue_failure(
     mock_client.update_project_status.assert_not_called()
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_missing_node_id(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
     caplog,
 ) -> None:
     """Verify script exits with error when the issue node ID cannot be resolved."""
-    mock_load_settings.return_value = mock_settings
-
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
     mock_client.get_issue.return_value = {}  # No node_id
@@ -307,17 +383,12 @@ def test_transition_missing_node_id(
     mock_client.update_project_status.assert_not_called()
 
 
-@patch("applied_transition.load_settings")
-@patch("applied_transition.GitHubClient")
+@patch("status_transition.GitHubClient")
 def test_transition_update_status_failure(
     mock_github_client_class,
-    mock_load_settings,
-    mock_settings,
     caplog,
 ) -> None:
     """Verify script exits with error when updating the project status fails."""
-    mock_load_settings.return_value = mock_settings
-
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
     mock_client.get_issue.return_value = {"node_id": "ND_123"}

@@ -1,4 +1,4 @@
-name: Transition Job Status to Applied
+name: Transition Job Status
 
 on:
   issues:
@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   transition:
-    if: github.event.label.name == 'applied'
+    if: |
+      github.event.label.name == 'applied' ||
+      github.event.label.name == 'interviewing' ||
+      github.event.label.name == 'rejected'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -27,8 +30,8 @@ jobs:
       - name: Install Devenv
         run: nix profile install nixpkgs#devenv
 
-      - name: Run Applied Transition Script
-        run: devenv shell python src/applied_transition.py --event-path "$GITHUB_EVENT_PATH"
+      - name: Run Status Transition Script
+        run: devenv shell python src/status_transition.py --event-path "$GITHUB_EVENT_PATH"
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
