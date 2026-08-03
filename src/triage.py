@@ -262,7 +262,7 @@ def build_canonical_body(
     return body
 
 
-def _fetch_job_page(url: str, web_client: Any) -> dict[str, str]:
+def fetch_job_page(url: str, web_client: Any) -> dict[str, str]:
     """Fetch a job page once, returning ``{title, description}``.
 
     ``description`` is always the extracted page text (never model-synthesized)
@@ -308,7 +308,7 @@ def extract_job_from_url(url: str, web_client: Any) -> str:
     Raises:
         JobFetchError: When the URL cannot be fetched or yields no content.
     """
-    return _fetch_job_page(url, web_client)["description"]
+    return fetch_job_page(url, web_client)["description"]
 
 
 def _parse_page_title(title: str) -> tuple[str, str]:
@@ -391,7 +391,7 @@ def infer_job_details_from_page(
     }
 
 
-def _post_fetch_failure_comment(
+def post_fetch_failure_comment(
     issue_number: int, gh_client: GitHubClient, url: str, error: str
 ) -> None:
     """Post a clear explanation when a job URL cannot be fetched.
@@ -705,12 +705,12 @@ def run_triage(
     ):
         apply_url = job_details["apply_url"]
         try:
-            page = _fetch_job_page(apply_url, web_client)
+            page = fetch_job_page(apply_url, web_client)
         except JobFetchError as e:
             logger.warning(
                 "Could not fetch job posting for issue #%d: %s", issue_number, e
             )
-            _post_fetch_failure_comment(issue_number, gh_client, apply_url, str(e))
+            post_fetch_failure_comment(issue_number, gh_client, apply_url, str(e))
             return
         job_details = infer_job_details_from_page(
             page_text=page["description"],

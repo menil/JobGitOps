@@ -319,6 +319,52 @@ def test_get_llm_client_custom_gemini_model(mock_configure: MagicMock) -> None:
     assert client.model_name == "gemini-pro-custom"
 
 
+@patch.dict(
+    os.environ,
+    {
+        "GEMINI_API_KEY": "fake-gemini-key",
+        "GEMINI_MODEL": "gemini-pro-env",
+    },
+    clear=True,
+)
+@patch("google.generativeai.configure")
+def test_get_llm_client_gemini_model_override(mock_configure: MagicMock) -> None:
+    """Verify the research.model override wins over GEMINI_MODEL for the responder."""
+    client = get_llm_client(model="models/gemini-2.5-flash")
+    assert isinstance(client, GeminiClient)
+    assert client.model_name == "models/gemini-2.5-flash"
+
+
+@patch.dict(
+    os.environ,
+    {
+        "OPENROUTER_API_KEY": "fake-or-key",
+        "OPENROUTER_MODEL": "meta-llama/llama-3-70b-instruct",
+    },
+    clear=True,
+)
+def test_get_llm_client_openrouter_model_override() -> None:
+    """Verify the research.model override wins over OPENROUTER_MODEL."""
+    client = get_llm_client(model="google/gemini-2.5-flash")
+    assert isinstance(client, OpenRouterClient)
+    assert client.model_name == "google/gemini-2.5-flash"
+
+
+@patch.dict(os.environ, {"GEMINI_API_KEY": "fake-gemini-key"}, clear=True)
+@patch("google.generativeai.configure")
+def test_get_llm_client_invalid_override_raises(mock_configure: MagicMock) -> None:
+    """Verify an invalid model override fails Gemini validation with the name."""
+    with pytest.raises(ValidationError, match="Invalid model name: 'gpt-4o'"):
+        get_llm_client(model="gpt-4o")
+
+
+@patch.dict(os.environ, {"OPENROUTER_API_KEY": "fake-or-key"}, clear=True)
+def test_get_llm_client_invalid_openrouter_override_raises() -> None:
+    """Verify an invalid model override fails OpenRouter validation with the name."""
+    with pytest.raises(ValidationError, match="Invalid model name: 'gpt-4o'"):
+        get_llm_client(model="gpt-4o")
+
+
 @patch.dict(os.environ, {"LLM_PROVIDER": "gemini"}, clear=True)
 def test_get_llm_client_explicit_gemini_missing_key() -> None:
     """Verify missing key raises ValidationError when provider is explicitly set."""
