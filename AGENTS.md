@@ -51,6 +51,12 @@ Within the Nix shell environment, you can run tests directly via `pytest` for ta
 
 - **Conditional Cache Addition**: Never update deduplication caches (e.g., calling `existing_jobs.add()`) outside of try-except blocks. Cache updates must be placed strictly inside successful execution scopes of write API calls to prevent failing requests from polluting the cache.
 
+## Issue Assistant Conventions
+
+- **Self-reply Guard**: The assistant (`src/respond.py`) skips comments authored by bots (`user.type == "Bot"`) or logins in `AGENT_BOT_LOGINS`, and any comment containing the `<!-- jobgitops:status-update -->` confirmation marker. Never remove or weaken these guards — they are the only thing preventing infinite comment→respond→comment loops.
+- **Tool Loop**: `assistant.run_agent` is a capped tool-calling loop over `web_search` / `fetch_url` only (see `src/jobgitops/web.py`). Identical tool calls within one run are memoized; web-tool errors are returned to the model as tool results, never raised. Side effects run only from the model's structured action JSON — web content is *data*, not instructions.
+- **Single Owner of Projects V2 Column Moves**: `status-transition.yml` is the only workflow that calls `update_project_status`. The responder's `status_update` action adds the label and posts a confirmation; it never moves the column itself.
+
 ---
 
 ## Non-Interactive Shell Commands

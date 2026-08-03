@@ -7,6 +7,7 @@ A serverless, GitOps-driven job application and tracking system. JobGitOps treat
 - 🤖 **Automated Role Discovery**: A scheduled Actions cron (`src/scrape.py`) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
 - 🧠 **AI Triage & Tailoring**: A two-pass LLM engine (`src/triage.py`) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
 - 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to HTML and print-ready PDFs with Jinja2 + WeasyPrint on dedicated application branches — every version you send is a clean, reviewable Git diff.
+- 💬 **Issue Assistant**: A tool-using agent (`src/respond.py`) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
 - 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → Interviewing → Rejected`) with label-based automation and a label-only fallback.
 - ❄️ **Hermetic Nix Environment**: Reproducible Python 3.11 + `devenv` shell with all WeasyPrint native deps (`cairo`, `pango`, `glib`, `gdk-pixbuf`, `harfbuzz`, `libffi`) and fonts mapped cleanly.
 - 🛠️ **Local Task Runner (`Justfile`)**: Standardized commands for formatting, linting, and validating with a 90% coverage gate.
@@ -83,6 +84,22 @@ search:
     - linkedin                          # Job boards to search
   hours_old: 24                         # Only jobs posted in the last N hours
 
+# Optional Issue Assistant research settings (see specs/assistant-agent.md).
+# research:
+#   search_provider: duckduckgo       # duckduckgo | tavily | brave
+#   max_results: 5
+#   max_iterations: 6                 # agent tool-loop cap
+#   max_context_comments: 10          # recent comments fed to the model
+#   timeout_seconds: 15               # per-request fetch timeout
+#   total_timeout_seconds: 30         # total request budget (incl. redirects)
+#   max_redirects: 5
+#   max_content_bytes: 262144         # 256 KiB
+#   request_delay: 1.0                # politeness delay between DDG requests
+#   use_jina_reader: true             # fallback for JS-heavy / blocked pages
+#   max_jina_calls: 5                 # Jina fallback fetches per agent run
+#   block_private_ips: true
+#   model: ""                         # optional override; empty = provider default
+
 custom_queries:                        # Top-level override for resume-based query generation
   - "Senior Python Developer Remote"
 
@@ -133,6 +150,8 @@ Add the following under **Settings > Secrets and variables > Actions** in your f
 | `GEMINI_API_KEY` | One of the two | Gemini provider key (from [Google AI Studio](https://aistudio.google.com/)) |
 | `OPENROUTER_API_KEY` | One of the two | OpenRouter provider key — also powers the automated PR review |
 | `PROJECT_V2_TOKEN` | Optional | Serves as the single pipeline token when set (Projects V2 plus `Issues`, `Contents`, and `Pull requests` write access). Falls back to `GITHUB_TOKEN` only when **unset** |
+| `TAVILY_API_KEY` | Optional | Enables the `tavily` search provider for the Issue Assistant's web research |
+| `BRAVE_API_KEY` | Optional | Enables the `brave` search provider for the Issue Assistant's web research |
 
 > At least one of `GEMINI_API_KEY` or `OPENROUTER_API_KEY` is required for triage. If `PROJECT_V2_TOKEN` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation then degrades to label-only tracking) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `PROJECT_V2_TOKEN` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token.
 
@@ -152,6 +171,7 @@ Add the following under **Settings > Secrets and variables > Actions** in your f
 | --- | --- | --- |
 | `scrape-jobs.yml` | Daily cron (`0 0 * * *`) or `workflow_dispatch` | Scrapes job boards, dedupes, opens `triage-pending` issues, then auto-triages any pending issues |
 | `triage-issue.yml` | Issue labeled `triage-pending` | Runs the two-pass LLM triage/tailor pipeline |
+| `respond-issue.yml` | Issue comment created or issue opened | Runs the Issue Assistant: answers thread questions with web research, applies status labels from conversational intents, and auto-triages bare job-URL submissions |
 | `status-transition.yml` | Issue labeled `applied`, `interviewing`, or `rejected` | Moves the issue card to the matching Projects V2 column |
 | `test.yml` | Push/PR to `main` | Runs `just validate` (lint + format + 90% coverage tests) in the devenv shell |
 | `pr-review.yml` | PR opened, reopened, or marked ready for review (dependabot skipped) | Automated code review via OpenRouter |
@@ -173,7 +193,7 @@ Labels (names, colors, descriptions) are managed as code in `.github/labels.yml`
 
 - `triage-pending` → `triage-mismatched` + category reason labels (below threshold, closed)
 - `triage-pending` → `fit:A+` / `fit:A` / `fit:B` + `ready-to-apply` (above threshold)
-- `ready-to-apply` → `applied` → `interviewing` / `rejected` (manual, as you progress)
+- `ready-to-apply` → `applied` → `interviewing` / `rejected` (manual, as you progress; or via a conversational intent on the issue thread — the Issue Assistant adds the matching label for you)
 
 ## Local Development
 

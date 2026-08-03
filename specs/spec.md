@@ -55,6 +55,8 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 
 ## 2. Component Specifications
 
+> **Issue Assistant:** The conversational responder, status-transition intents, and URL triage are specified separately in [`specs/assistant-agent.md`](assistant-agent.md).
+
 ### 2.1. Job Scraper Bot
 *   **Location:** `src/scrape.py`
 *   **Role:** Runs on a scheduled GitHub Actions cron (daily at 8:00 AM) or manual dispatch (`workflow_dispatch`).
