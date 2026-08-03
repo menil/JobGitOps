@@ -691,7 +691,8 @@ class WebClient:
                 max_bytes=self.research.max_content_bytes,
                 extra_headers=extra_headers,
             )
-        except _FetchError:
+        except _FetchError as e:
+            logger.warning("Jina Reader request failed for %s: %s", url, e)
             return None
         body = raw.decode("utf-8", errors="replace")
         title, text = _parse_jina_body(body)
