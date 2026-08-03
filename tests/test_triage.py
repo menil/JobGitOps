@@ -14,6 +14,7 @@ from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
 from jobgitops.schema import Resume, Settings, ValidationError
 from jobgitops.web import PageContent
 from triage import (
+    BATCH_PAGE_SIZE,
     EXIT_QUOTA_EXCEEDED,
     FIT_CATEGORY_MISMATCH_LABELS,
     JobFetchError,
@@ -24,6 +25,7 @@ from triage import (
     infer_job_details_from_page,
     main,
     parse_job_details,
+    run_all_pending,
     run_triage,
 )
 
@@ -1178,3 +1180,261 @@ def test_main_quota_exceeded(
         main()
 
     assert exc_info.value.code == EXIT_QUOTA_EXCEEDED
+
+
+@mock.patch("triage.run_triage")
+def test_run_all_pending_triages_each_labeled_issue(
+    mock_run_triage: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test run_all_pending triages every open issue carrying triage-pending."""
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.list_issues.return_value = [
+        {
+            "number": 10,
+            "title": "Job A",
+            "body": "Body A",
+            "node_id": "node_a",
+            "labels": [{"name": "triage-pending"}],
+        },
+        {
+            "number": 11,
+            "title": "Job B",
+            "body": "Body B",
+            "node_id": "node_b",
+            "labels": [{"name": "triage-pending"}, {"name": "other"}],
+        },
+        {
+            "number": 12,
+            "title": "Job C",
+            "body": "Body C",
+            "node_id": "node_c",
+            "labels": [{"name": "already-triaged"}],
+        },
+    ]
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+
+    exit_code = run_all_pending(
+        gh_client=mock_gh_client,
+        repo_path=pathlib.Path("/repo"),
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    assert exit_code == 0
+    mock_gh_client.list_issues.assert_called_once_with(
+        state="open",
+        labels="triage-pending",
+        per_page=BATCH_PAGE_SIZE,
+        page=1,
+    )
+    assert mock_run_triage.call_count == 2
+    mock_run_triage.assert_any_call(
+        issue_number=10,
+        issue_title="Job A",
+        issue_body="Body A",
+        issue_node_id="node_a",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path("/repo"),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+        web_client=None,
+    )
+    mock_run_triage.assert_any_call(
+        issue_number=11,
+        issue_title="Job B",
+        issue_body="Body B",
+        issue_node_id="node_b",
+        issue_labels=["triage-pending", "other"],
+        repo_path=pathlib.Path("/repo"),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+        web_client=None,
+    )
+
+
+@mock.patch("triage.run_triage")
+def test_run_all_pending_paginates_through_all_pending_issues(
+    mock_run_triage: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test run_all_pending processes pending issues beyond the first API page."""
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    first_page = [
+        {
+            "number": issue_number,
+            "title": f"Job {issue_number}",
+            "body": "Body",
+            "node_id": f"node_{issue_number}",
+            "labels": [{"name": "triage-pending"}],
+        }
+        for issue_number in range(1, BATCH_PAGE_SIZE + 1)
+    ]
+    second_page = [
+        {
+            "number": BATCH_PAGE_SIZE + 1,
+            "title": f"Job {BATCH_PAGE_SIZE + 1}",
+            "body": "Body",
+            "node_id": f"node_{BATCH_PAGE_SIZE + 1}",
+            "labels": [{"name": "triage-pending"}],
+        }
+    ]
+    mock_gh_client.list_issues.side_effect = [first_page, second_page]
+
+    exit_code = run_all_pending(
+        gh_client=mock_gh_client,
+        repo_path=pathlib.Path("/repo"),
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock.MagicMock(spec=LLMClient),
+    )
+
+    assert exit_code == 0
+    assert mock_run_triage.call_count == BATCH_PAGE_SIZE + 1
+    assert mock_gh_client.list_issues.call_args_list == [
+        mock.call(
+            state="open",
+            labels="triage-pending",
+            per_page=BATCH_PAGE_SIZE,
+            page=1,
+        ),
+        mock.call(
+            state="open",
+            labels="triage-pending",
+            per_page=BATCH_PAGE_SIZE,
+            page=2,
+        ),
+    ]
+
+
+@mock.patch("triage.run_triage")
+def test_run_all_pending_continues_on_individual_failure(
+    mock_run_triage: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test run_all_pending keeps triaging after a single issue fails."""
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.list_issues.return_value = [
+        {
+            "number": 10,
+            "title": "Job A",
+            "body": "Body A",
+            "node_id": "node_a",
+            "labels": [{"name": "triage-pending"}],
+        },
+        {
+            "number": 11,
+            "title": "Job B",
+            "body": "Body B",
+            "node_id": "node_b",
+            "labels": [{"name": "triage-pending"}],
+        },
+    ]
+    mock_run_triage.side_effect = [None, ValueError("boom")]
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+
+    exit_code = run_all_pending(
+        gh_client=mock_gh_client,
+        repo_path=pathlib.Path("/repo"),
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    assert exit_code == 1
+    assert mock_run_triage.call_count == 2
+
+
+@mock.patch("triage.run_triage")
+def test_run_all_pending_returns_quota_exit_code(
+    mock_run_triage: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test run_all_pending returns EXIT_QUOTA_EXCEEDED when quota is hit."""
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.list_issues.return_value = [
+        {
+            "number": 10,
+            "title": "Job A",
+            "body": "Body A",
+            "node_id": "node_a",
+            "labels": [{"name": "triage-pending"}],
+        },
+        {
+            "number": 11,
+            "title": "Job B",
+            "body": "Body B",
+            "node_id": "node_b",
+            "labels": [{"name": "triage-pending"}],
+        },
+    ]
+    mock_run_triage.side_effect = [QuotaExceededError("quota"), None]
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+
+    exit_code = run_all_pending(
+        gh_client=mock_gh_client,
+        repo_path=pathlib.Path("/repo"),
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    assert exit_code == EXIT_QUOTA_EXCEEDED
+    assert mock_run_triage.call_count == 1
+
+
+@mock.patch("triage.get_llm_client")
+@mock.patch("triage.load_settings")
+@mock.patch("triage.load_resume")
+@mock.patch("triage.GitHubClient")
+@mock.patch("triage.run_all_pending")
+def test_main_all_pending_mode(
+    mock_run_all_pending: mock.MagicMock,
+    mock_gh_class: mock.MagicMock,
+    mock_load_resume: mock.MagicMock,
+    mock_load_settings: mock.MagicMock,
+    mock_get_llm: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test main --all-pending invokes run_all_pending instead of run_triage."""
+    mock_load_settings.return_value = mock_settings
+    mock_load_resume.return_value = mock_resume
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_get_llm.return_value = mock_llm_client
+    mock_run_all_pending.return_value = 0
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_class.return_value = mock_gh_client
+
+    test_args = ["triage.py", "--all-pending"]
+
+    with (
+        mock.patch.object(sys, "argv", test_args),
+        mock.patch.dict(
+            "os.environ",
+            {
+                "GITHUB_TOKEN": "mock-token",
+                "GITHUB_REPOSITORY": "owner/repo",
+            },
+        ),
+    ):
+        os.environ.pop("GITHUB_EVENT_PATH", None)
+        main()
+
+    mock_run_all_pending.assert_called_once()
+    call_kwargs = mock_run_all_pending.call_args.kwargs
+    assert call_kwargs["gh_client"] == mock_gh_client
+    assert call_kwargs["settings"] == mock_settings
+    assert call_kwargs["resume"] == mock_resume
+    assert call_kwargs["repo_path"] == pathlib.Path().resolve()
+    mock_get_llm.assert_called_once()

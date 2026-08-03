@@ -286,6 +286,26 @@ def test_list_issues(mock_urlopen: mock.MagicMock) -> None:
 
 
 @mock.patch("urllib.request.urlopen")
+def test_list_issues_with_labels_filter(mock_urlopen: mock.MagicMock) -> None:
+    """Test listing issues filtered by a comma-separated label list."""
+    expected_response = [{"number": 1, "title": "Job 1"}]
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps(expected_response).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    res = client.list_issues(state="open", labels="triage-pending")
+
+    assert res == expected_response
+    req = mock_urlopen.call_args[0][0]
+    assert (
+        req.full_url == "https://api.github.com/repos/owner/repo/issues"
+        "?state=open&per_page=100&labels=triage-pending"
+    )
+    assert req.method == "GET"
+
+
+@mock.patch("urllib.request.urlopen")
 def test_create_issue(mock_urlopen: mock.MagicMock) -> None:
     """Test creating a new issue with labels."""
     expected_response = {"number": 101, "title": "New Job"}
