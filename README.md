@@ -9,7 +9,7 @@ A serverless, GitOps-driven job application and tracking system. JobGitOps treat
 - 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to HTML and print-ready PDFs with Jinja2 + WeasyPrint on dedicated application branches — every version you send is a clean, reviewable Git diff.
 - 💬 **Issue Assistant**: A tool-using agent (`src/respond.py`) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
 - 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → Interviewing → Rejected`) with label-based automation and a label-only fallback.
-- ❄️ **Hermetic Nix Environment**: Reproducible Python 3.11 + `devenv` shell with all WeasyPrint native deps (`cairo`, `pango`, `glib`, `gdk-pixbuf`, `harfbuzz`, `libffi`) and fonts mapped cleanly.
+- ❄️ **Hermetic Nix Environment**: Reproducible Python 3.12 + `devenv` shell with all WeasyPrint native deps (`cairo`, `pango`, `glib`, `gdk-pixbuf`, `harfbuzz`, `libffi`) and fonts mapped cleanly.
 - 🛠️ **Local Task Runner (`Justfile`)**: Standardized commands for formatting, linting, and validating with a 90% coverage gate.
 - 🛡️ **Git Hooks**: Pre-configured pre-commit quality gate (`just validate`) and conventional commit title verification.
 - 👀 **Automated PR Reviews**: Integrated via `menil/pr-code-review-action` using OpenRouter.

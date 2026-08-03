@@ -39,10 +39,10 @@ in
     pkgs.liberation_ttf
   ] ++ weasyprintLibs;
 
-  # Enable Python 3.11 with automatic uv virtualenv synchronization.
+  # Enable Python 3.12 with automatic uv virtualenv synchronization.
   languages.python = {
     enable = true;
-    version = "3.11";
+    version = "3.12";
     uv = {
       enable = true;
       sync.enable = true;
