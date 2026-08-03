@@ -8,6 +8,7 @@ and the quota-exit ``75`` behavior.
 
 import json
 import os
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -508,6 +509,30 @@ def test_should_auto_detect_url_with_trailing_punctuation() -> None:
 def test_should_auto_detect_rejects_any_job_label(label: str) -> None:
     """Issues carrying any job label are already owned by the pipeline."""
     assert not respond.should_auto_detect("https://careers.acme.com/jobs/123", [label])
+
+
+def test_respond_workflow_short_circuit_label_in_job_labels() -> None:
+    """The respond workflow's short-circuit label stays a known job label.
+
+    The workflow's ``if:`` expression only gates on ``triage-pending`` (the one
+    pipeline label present in an ``issues: opened`` event); the full guard lives
+    in ``should_auto_detect``. This drift test keeps the YAML's label in sync
+    with the authoritative ``JOB_LABELS`` set in ``respond.py``.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    workflow_path = repo_root / ".github/workflows/respond-issue.yml"
+    assert workflow_path.is_file(), "respond-issue.yml must exist"
+
+    raw = workflow_path.read_text(encoding="utf-8")
+    pattern = r"!contains\(github\.event\.issue\.labels\.\*\.name,\s*'([^']+)'\)"
+    match = re.search(pattern, raw)
+    assert match, "workflow if: must reference a label in its short-circuit"
+    short_circuit_label = match.group(1)
+
+    assert short_circuit_label in respond.JOB_LABELS, (
+        f"workflow short-circuit label {short_circuit_label!r} "
+        f"must be a member of respond.JOB_LABELS"
+    )
 
 
 @pytest.mark.parametrize(
