@@ -93,7 +93,7 @@ search:
 #   timeout_seconds: 15               # per-request fetch timeout
 #   total_timeout_seconds: 30         # total request budget (incl. redirects)
 #   max_redirects: 5
-#   max_content_bytes: 262144         # 256 KiB
+#   max_content_bytes: 1048576        # 1 MiB
 #   request_delay: 1.0                # politeness delay between DDG requests
 #   use_jina_reader: true             # fallback for JS-heavy / blocked pages
 #   max_jina_calls: 5                 # Jina fallback fetches per agent run
@@ -152,6 +152,7 @@ Add the following under **Settings > Secrets and variables > Actions** in your f
 | `PROJECT_V2_TOKEN` | Optional | Serves as the single pipeline token when set (Projects V2 plus `Issues`, `Contents`, and `Pull requests` write access). Falls back to `GITHUB_TOKEN` only when **unset** |
 | `TAVILY_API_KEY` | Optional | Enables the `tavily` search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional | Enables the `brave` search provider for the Issue Assistant's web research |
+| `JINA_API_KEY` | Optional | Free key (jina.ai) for the Jina Reader fallback on JS-heavy job boards; raises the anonymous 20 RPM limit to 500 RPM |
 
 > At least one of `GEMINI_API_KEY` or `OPENROUTER_API_KEY` is required for triage. If `PROJECT_V2_TOKEN` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation then degrades to label-only tracking) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `PROJECT_V2_TOKEN` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token.
 

@@ -511,14 +511,19 @@ class WebClient:
         return urllib.request.build_opener(handler)
 
     def _open(
-        self, url: str, timeout: float, total_timeout: float, max_redirects: int
+        self,
+        url: str,
+        timeout: float,
+        total_timeout: float,
+        max_redirects: int,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         """Open a URL, mapping HTTP/network/timeout failures to ``_HttpError``."""
         opener = self._build_opener(max_redirects, total_timeout)
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": _USER_AGENT, "Accept-Encoding": "gzip"},
-        )
+        headers = {"User-Agent": _USER_AGENT, "Accept-Encoding": "gzip"}
+        if extra_headers:
+            headers.update(extra_headers)
+        req = urllib.request.Request(url, headers=headers)
         # Per-request timeout capped by the remaining total budget so the two
         # limits compose across redirect hops.
         per_request = min(timeout, total_timeout)
@@ -552,6 +557,7 @@ class WebClient:
         total_timeout: float,
         max_redirects: int,
         max_bytes: int,
+        extra_headers: dict[str, str] | None = None,
     ) -> tuple[str, bytes]:
         """GET a URL with the SSRF guards and caps enforced.
 
@@ -561,7 +567,13 @@ class WebClient:
         Raises:
             _FetchError subclasses for policy/cap violations and HTTP failures.
         """
-        resp = self._open(url, timeout, total_timeout, max_redirects)
+        resp = self._open(
+            url,
+            timeout,
+            total_timeout,
+            max_redirects,
+            extra_headers=extra_headers,
+        )
         with resp:
             if self.research.block_private_ips:
                 _verify_public_peer(resp)
@@ -658,9 +670,18 @@ class WebClient:
     def _fetch_jina(self, url: str) -> PageContent | None:
         """Re-fetch via the Jina Reader (r.jina.ai) which renders JS pages.
 
+        Jina gated the public Reader behind a free API key, so without
+        ``JINA_API_KEY`` the request 403s and this returns None (falling back
+        to the plain fetch). With a key, an ``Authorization: Bearer`` header is
+        sent, which also lifts the anonymous rate limit (20 RPM -> 500 RPM).
+
         Returns None on failure so the caller falls back to the plain result.
         """
         jina_url = "https://r.jina.ai/" + url
+        extra_headers = {}
+        jina_api_key = os.environ.get("JINA_API_KEY", "").strip()
+        if jina_api_key:
+            extra_headers["Authorization"] = f"Bearer {jina_api_key}"
         try:
             _, raw = self._http_get(
                 jina_url,
@@ -668,6 +689,7 @@ class WebClient:
                 total_timeout=float(self.research.total_timeout_seconds),
                 max_redirects=self.research.max_redirects,
                 max_bytes=self.research.max_content_bytes,
+                extra_headers=extra_headers,
             )
         except _FetchError:
             return None
