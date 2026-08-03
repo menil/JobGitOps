@@ -393,3 +393,95 @@ def test_push_branch(mock_run: mock.MagicMock) -> None:
         text=True,
         check=True,
     )
+
+
+@mock.patch("subprocess.run")
+def test_push_branch_retries_force_with_lease_on_collision(
+    mock_run: mock.MagicMock,
+) -> None:
+    """Re-running triage for the same job pushes a branch that already exists.
+
+    The plain push is rejected (non-fast-forward), so push_branch fetches the
+    remote-tracking ref and retries with --force-with-lease to avoid clobbering
+    concurrent pushes.
+    """
+    repo = pathlib.Path("/repo")
+    rejection = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["git", "push", "--set-upstream", "origin", "my-branch"],
+        stderr="! [rejected] (fetch first)",
+    )
+    mock_run.side_effect = [
+        rejection,
+        mock.MagicMock(returncode=0, stdout=""),
+        mock.MagicMock(returncode=0, stdout=""),
+    ]
+
+    push_branch(repo, "my-branch", "origin")
+
+    assert [c.args[0] for c in mock_run.call_args_list] == [
+        ["git", "push", "--set-upstream", "origin", "my-branch"],
+        ["git", "fetch", "origin", "my-branch"],
+        ["git", "push", "--force-with-lease", "--set-upstream", "origin", "my-branch"],
+    ]
+
+
+@mock.patch("subprocess.run")
+def test_push_branch_rejects_propagates(mock_run: mock.MagicMock) -> None:
+    """When the plain push fails for a non-collision reason, the error propagates."""
+    repo = pathlib.Path("/repo")
+    auth_failure = subprocess.CalledProcessError(
+        returncode=128,
+        cmd=["git", "push", "--set-upstream", "origin", "my-branch"],
+        stderr="Authentication failed",
+    )
+    mock_run.side_effect = [
+        auth_failure,
+        mock.MagicMock(returncode=0, stdout=""),
+        auth_failure,
+    ]
+
+    with pytest.raises(GitOpsError) as exc_info:
+        push_branch(repo, "my-branch", "origin")
+
+    assert "my-branch" in str(exc_info.value)
+    assert "Authentication failed" in str(exc_info.value)
+    assert "Initial push error" in str(exc_info.value)
+
+
+@mock.patch("subprocess.run")
+def test_push_branch_force_with_lease_failure(
+    mock_run: mock.MagicMock,
+) -> None:
+    """A force-with-lease retry that also fails reports both errors."""
+    repo = pathlib.Path("/repo")
+    rejection = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["git", "push", "--set-upstream", "origin", "my-branch"],
+        stderr="! [rejected] (fetch first)",
+    )
+    lease_failure = subprocess.CalledProcessError(
+        returncode=128,
+        cmd=[
+            "git",
+            "push",
+            "--force-with-lease",
+            "--set-upstream",
+            "origin",
+            "my-branch",
+        ],
+        stderr="Permission denied",
+    )
+    mock_run.side_effect = [
+        rejection,
+        mock.MagicMock(returncode=0, stdout=""),
+        lease_failure,
+    ]
+
+    with pytest.raises(GitOpsError) as exc_info:
+        push_branch(repo, "my-branch", "origin")
+
+    error_msg = str(exc_info.value)
+    assert "force-with-lease" in error_msg
+    assert "Permission denied" in error_msg
+    assert "fetch first" in error_msg

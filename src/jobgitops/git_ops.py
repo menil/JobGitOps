@@ -1,9 +1,12 @@
 """Git repository operations wrapper for JobGitOps."""
 
 import hashlib
+import logging
 import pathlib
 import re
 import subprocess
+
+logger = logging.getLogger("jobgitops.git_ops")
 
 # Pre-compiled regex for slugify to optimize performance in loops.
 SLUG_REGEX = re.compile(r"[^a-z0-9]+")
@@ -257,12 +260,71 @@ def push_branch(
 ) -> None:
     """Push the branch to remote and set upstream tracking.
 
+    Re-running triage for the same job regenerates an ``applications/<slug>``
+    branch that already exists on the remote, so the initial plain push is
+    rejected as non-fast-forward. Rather than fail the whole run, the remote
+    branch is fetched into the local remote-tracking ref and the push retried
+    with ``--force-with-lease``. Force-with-lease only overwrites the remote ref
+    if it still points at what was just fetched, so a concurrent push to the
+    same ref is never silently clobbered.
+
     Args:
         repo_path: Path to the git repository.
         branch_name: The branch name to push.
         remote: The git remote to push to.
 
     Raises:
-        GitOpsError: If git execution fails.
+        GitOpsError: If the initial push fails for a non-collision reason, or
+            if the force-with-lease retry also fails.
     """
-    run_git(["push", "--set-upstream", remote, branch_name], cwd=repo_path)
+    try:
+        run_git(["push", "--set-upstream", remote, branch_name], cwd=repo_path)
+    except GitOpsError as original_error:
+        # The branch likely already exists on the remote (a re-run for the same
+        # job). The original error is preserved for diagnostics; the retry path
+        # refreshes the remote-tracking ref and force-pushes with a lease guard.
+        _push_with_lease_retry(
+            repo_path, branch_name, remote, original_error=original_error
+        )
+
+
+def _push_with_lease_retry(
+    repo_path: pathlib.Path,
+    branch_name: str,
+    remote: str,
+    *,
+    original_error: GitOpsError,
+) -> None:
+    """Retry a rejected push with ``--force-with-lease`` after a fresh fetch.
+
+    Only called when the initial plain push failed. The fetch ensures the local
+    remote-tracking ref matches the remote, so ``--force-with-lease`` can prove
+    the ref has not moved since and will refuse to overwrite a concurrent push.
+
+    Args:
+        repo_path: Path to the git repository.
+        branch_name: The branch name to push.
+        remote: The git remote to push to.
+        original_error: The GitOpsError raised by the initial plain push.
+
+    Raises:
+        GitOpsError: If the fetch or the force-with-lease push fails.
+    """
+    logger.info(
+        "Initial push of '%s' rejected (%s); refreshing and retrying with "
+        "--force-with-lease",
+        branch_name,
+        original_error,
+    )
+    try:
+        run_git(["fetch", remote, branch_name], cwd=repo_path)
+        run_git(
+            ["push", "--force-with-lease", "--set-upstream", remote, branch_name],
+            cwd=repo_path,
+        )
+    except GitOpsError as retry_error:
+        raise GitOpsError(
+            f"Failed to push branch '{branch_name}' to '{remote}' even after "
+            f"refreshing with --force-with-lease: {retry_error}. "
+            f"Initial push error: {original_error}"
+        ) from retry_error
