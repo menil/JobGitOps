@@ -241,8 +241,10 @@ class ProjectsV2Config:
             raise ValidationError(f"Failed to parse ProjectsV2Config: {e}") from e
 
 
-# Maximum response body accepted from a fetched page (256 KiB).
-MAX_CONTENT_BYTES = 262144
+# Maximum decompressed response body accepted from a fetched page (1 MiB).
+# Sized for JS-heavy job boards (e.g. LinkedIn serves ~300 KiB of HTML) while
+# still bounding memory on the runner.
+MAX_CONTENT_BYTES = 1048576
 
 # Positive-int research fields parsed with the same shared helper.
 _RESEARCH_INT_FIELDS: tuple[str, ...] = (

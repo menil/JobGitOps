@@ -151,7 +151,7 @@ rather than racing on labels/columns.
 with `GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}`.
 Env: `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `GEMINI_API_KEY` /
 `OPENROUTER_API_KEY`, `LLM_PROVIDER`, `GEMINI_MODEL`, `OPENROUTER_MODEL`,
-plus optional `TAVILY_API_KEY`, `BRAVE_API_KEY`.
+plus optional `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`.
 
 ### 4.2. `triage-issue.yml` (extended, unchanged trigger)
 
@@ -306,7 +306,8 @@ it to `function_declarations` (Gemini) or `tools` (OpenRouter).
 - Scheme guard: only `http:` / `https:`; anything else → tool error.
 - Plain `urllib.request` GET with a browser-like `User-Agent`, per-request
   timeout (`research.timeout_seconds`, default `15`), response size cap
-  (`research.max_content_bytes`, default `256 KiB`).
+  (`research.max_content_bytes`, default `1 MiB` — sized for JS-heavy boards
+  like LinkedIn that serve ~300 KiB of HTML).
 - Redirect and total-time bounds: `urllib.request` follows redirects without a
   limit and does not decode gzip, so `fetch_url` caps redirects
   (`research.max_redirects`, default `5`), enforces a total request budget
@@ -316,11 +317,14 @@ it to `function_declarations` (Gemini) or `tools` (OpenRouter).
 - **Jina Reader fallback** (when `research.use_jina_reader`, default `true`):
   if plain fetch fails, returns empty/gated content, or the URL is a known
   JS-heavy job board (LinkedIn, Indeed, Greenhouse, Lever, etc.), re-fetch via
-  `https://r.jina.ai/<url>` and use the markdown body. No key required at low
-  volume. Fallback fetches are capped at `research.max_jina_calls` (default
-  `5`) per agent run to bound latency and cost; once the cap is exhausted,
-  `fetch_url` returns the plain-fetch result (or a failure result) instead of
-  issuing more Jina requests.
+  `https://r.jina.ai/<url>` and use the markdown body. Jina gated the public
+  Reader behind a free API key: set `JINA_API_KEY` (repo secret + workflow env)
+  to send an `Authorization: Bearer` header, which also raises the anonymous
+  20 RPM limit to 500 RPM; without a key the plain-fetch fallback is used.
+  Fallback fetches are capped at `research.max_jina_calls` (default `5`) per
+  agent run to bound latency and cost; once the cap is exhausted, `fetch_url`
+  returns the plain-fetch result (or a failure result) instead of issuing more
+  Jina requests.
 - `PageContent = {url, title, text, source: "direct" | "jina"}`.
 - Errors are returned as tool results (the model can recover), never raised
   through the loop.
@@ -486,7 +490,7 @@ research:
   timeout_seconds: 15              # per-request fetch timeout
   total_timeout_seconds: 30        # total request budget (incl. redirects)
   max_redirects: 5
-  max_content_bytes: 262144        # 256 KiB
+  max_content_bytes: 1048576       # 1 MiB
   request_delay: 1.0               # politeness delay between DDG requests
   use_jina_reader: true            # fallback for JS-heavy / blocked pages
   max_jina_calls: 5                # Jina fallback fetches per agent run
@@ -509,6 +513,7 @@ only (triage/tailor keep `GEMINI_MODEL` / `OPENROUTER_MODEL`).
 | --- | --- |
 | `TAVILY_API_KEY` | Enables the `tavily` search provider. |
 | `BRAVE_API_KEY` | Enables the `brave` search provider. |
+| `JINA_API_KEY` | Free key (jina.ai) for the Jina Reader fallback on JS-heavy job boards; lifts the anonymous 20 RPM limit to 500 RPM. |
 
 All existing secrets/variables are reused; no new mandatory secret.
 
@@ -526,7 +531,7 @@ comment→respond→comment loop.
 ### 9.2. URL safety
 
 `fetch_url` accepts only `http`/`https` (schemes such as `file://`, `data://`,
-`ftp://` are rejected), enforces timeouts and a 256 KiB content cap, and (by
+`ftp://` are rejected), enforces timeouts and a 1 MiB content cap, and (by
 default) rejects `localhost`, loopback, RFC1918/private, and link-local
 addresses after DNS resolution (DNS-rebinding guard). Markdown-injection
 sanitization for the `apply_url` field (already present in `triage.py`) is

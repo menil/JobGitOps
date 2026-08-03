@@ -52,13 +52,16 @@ research:
   # Maximum redirects followed per fetch
   max_redirects: 5
 
-  # Maximum response body size (256 KiB)
-  max_content_bytes: 262144
+  # Maximum response body size (1 MiB)
+  max_content_bytes: 1048576
 
   # Politeness delay between DuckDuckGo requests (seconds)
   request_delay: 1.0
 
-  # Use the Jina Reader fallback (r.jina.ai) for JS-heavy / blocked pages
+  # Use the Jina Reader fallback (r.jina.ai) for JS-heavy / blocked pages.
+  # Jina gated the public Reader behind a free API key (jina.ai); set
+  # JINA_API_KEY as a repo secret + workflow env to use it (also raises the
+  # anonymous 20 RPM limit to 500 RPM). Without a key the plain fetch is used.
   use_jina_reader: true
 
   # Jina fallback fetches allowed per agent run

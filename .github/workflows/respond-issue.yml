@@ -57,4 +57,5 @@ jobs:
           OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
           AGENT_BOT_LOGINS: ${{ vars.AGENT_BOT_LOGINS }}

@@ -25,7 +25,7 @@ def test_default_settings() -> None:
     assert settings.research.timeout_seconds == 15
     assert settings.research.total_timeout_seconds == 30
     assert settings.research.max_redirects == 5
-    assert settings.research.max_content_bytes == 262144
+    assert settings.research.max_content_bytes == 1048576
     assert settings.research.request_delay == 1.0
     assert settings.research.use_jina_reader is True
     assert settings.research.max_jina_calls == 5
@@ -254,7 +254,7 @@ def test_research_section_defaults_when_empty() -> None:
         assert settings.research.timeout_seconds == 15
         assert settings.research.total_timeout_seconds == 30
         assert settings.research.max_redirects == 5
-        assert settings.research.max_content_bytes == 262144
+        assert settings.research.max_content_bytes == 1048576
         assert settings.research.request_delay == 1.0
         assert settings.research.use_jina_reader is True
         assert settings.research.max_jina_calls == 5
@@ -725,7 +725,7 @@ def test_repo_defaults_integration() -> None:
     assert settings.research.timeout_seconds == 15
     assert settings.research.total_timeout_seconds == 30
     assert settings.research.max_redirects == 5
-    assert settings.research.max_content_bytes == 262144
+    assert settings.research.max_content_bytes == 1048576
     assert settings.research.request_delay == 1.0
     assert settings.research.use_jina_reader is True
     assert settings.research.max_jina_calls == 5

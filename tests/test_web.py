@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import os
 import urllib.error
 import urllib.request
 from unittest import mock
@@ -573,6 +574,51 @@ def test_fetch_url_jina_fallback_on_js_heavy() -> None:
     assert isinstance(result, PageContent)
     assert result.source == "jina"
     jina_opener.open.assert_called_once()
+
+
+def test_fetch_url_jina_sends_api_key_header() -> None:
+    """When JINA_API_KEY is set, the Jina request carries a Bearer header."""
+    jina_opener = make_fetch_opener(
+        body=_jina_markdown_body(),
+        url="https://r.jina.ai/https://www.linkedin.com/jobs/1",
+    )
+    client = make_client()
+
+    with (
+        mock.patch(
+            "jobgitops.web.urllib.request.build_opener", return_value=jina_opener
+        ),
+        mock.patch.object(web, "_host_is_public", return_value=True),
+        mock.patch.dict(os.environ, {"JINA_API_KEY": "jina_test_secret"}, clear=False),
+    ):
+        result = client.fetch_url("https://www.linkedin.com/jobs/1")
+
+    assert isinstance(result, PageContent)
+    assert result.source == "jina"
+    request = jina_opener.open.call_args[0][0]
+    assert request.get_header("Authorization") == "Bearer jina_test_secret"
+
+
+def test_fetch_url_jina_no_key_sends_no_auth() -> None:
+    """Without JINA_API_KEY the Jina request carries no Authorization header."""
+    jina_opener = make_fetch_opener(
+        body=_jina_markdown_body(),
+        url="https://r.jina.ai/https://www.linkedin.com/jobs/1",
+    )
+    client = make_client()
+
+    with (
+        mock.patch(
+            "jobgitops.web.urllib.request.build_opener", return_value=jina_opener
+        ),
+        mock.patch.object(web, "_host_is_public", return_value=True),
+        mock.patch.dict(os.environ, {}, clear=True),
+    ):
+        result = client.fetch_url("https://www.linkedin.com/jobs/1")
+
+    assert isinstance(result, PageContent)
+    request = jina_opener.open.call_args[0][0]
+    assert request.get_header("Authorization") is None
 
 
 def test_fetch_url_jina_skipped_when_js_heavy_and_disabled() -> None:
