@@ -717,14 +717,32 @@ class OpenRouterClient(LLMClient):
             ) from e
 
 
+_DEFAULT_GEMINI_MODEL = "models/gemini-2.5-flash"
+_DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash"
+
+
 def _get_model_name(env_var: str, default_val: str) -> str:
     """Retrieve and clean a model name from environment variables."""
     val = os.environ.get(env_var)
     return default_val if not val else val.strip()
 
 
-def get_llm_client() -> LLMClient:
-    """Instantiate pluggable LLM client based on environment variables."""
+def get_llm_client(model: str | None = None) -> LLMClient:
+    """Instantiate pluggable LLM client based on environment variables.
+
+    Args:
+        model: Optional model-name override (spec 8.1). When provided it wins
+            over the ``GEMINI_MODEL`` / ``OPENROUTER_MODEL`` env vars; this is
+            how the responder applies its ``research.model`` config while
+            triage/tailor keep their provider defaults.
+
+    Returns:
+        An instantiated ``GeminiClient`` or ``OpenRouterClient``.
+
+    Raises:
+        ValidationError: When no provider/credential is configured, the
+            provider name is unknown, or the resolved model name is invalid.
+    """
     provider = os.environ.get("LLM_PROVIDER")
     gemini_key = os.environ.get("GEMINI_API_KEY")
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
@@ -752,10 +770,10 @@ def get_llm_client() -> LLMClient:
     if provider == "gemini":
         if not gemini_key:
             raise ValidationError("GEMINI_API_KEY environment variable is missing.")
-        model_name = _get_model_name("GEMINI_MODEL", "models/gemini-2.5-flash")
+        model_name = model or _get_model_name("GEMINI_MODEL", _DEFAULT_GEMINI_MODEL)
         if not (model_name.startswith("gemini-") or model_name.startswith("models/")):
             raise ValidationError(
-                f"Invalid Gemini model name: '{model_name}'. "
+                f"Invalid model name: '{model_name}'. "
                 "Gemini model names must start with 'gemini-' or 'models/' "
                 "(e.g., 'gemini-1.5-flash')."
             )
@@ -763,10 +781,12 @@ def get_llm_client() -> LLMClient:
     elif provider == "openrouter":
         if not openrouter_key:
             raise ValidationError("OPENROUTER_API_KEY environment variable is missing.")
-        model_name = _get_model_name("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+        model_name = model or _get_model_name(
+            "OPENROUTER_MODEL", _DEFAULT_OPENROUTER_MODEL
+        )
         if "/" not in model_name:
             raise ValidationError(
-                f"Invalid OpenRouter model name: '{model_name}'. "
+                f"Invalid model name: '{model_name}'. "
                 "OpenRouter model names must specify a provider prefix "
                 "(e.g., 'google/gemini-1.5-flash' or 'anthropic/claude-3')."
             )
