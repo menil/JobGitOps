@@ -7,7 +7,7 @@ name = "jobgitops"
 version = "0.1.0"
 description = "GitOps-driven job application and tracking system"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "weasyprint",
     "jinja2",
@@ -35,7 +35,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "PTH"]
