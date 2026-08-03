@@ -302,7 +302,11 @@ class GitHubClient:
         return extract_label_names(issue.get("labels", []))
 
     def list_issues(
-        self, state: str = "all", per_page: int = 100, page: int | None = None
+        self,
+        state: str = "all",
+        per_page: int = 100,
+        page: int | None = None,
+        labels: str | None = None,
     ) -> list[dict[str, Any]]:
         """List issues for the repository.
 
@@ -310,11 +314,14 @@ class GitHubClient:
             state: State of issues to list ('open', 'closed', or 'all').
             per_page: Number of issues to retrieve per page (max 100).
             page: Optional page number for pagination.
+            labels: Optional comma-separated label names to filter by.
 
         Returns:
             List of issues.
         """
         url = f"https://api.github.com/repos/{self.repo}/issues?state={state}&per_page={per_page}"
+        if labels:
+            url += f"&labels={urllib.parse.quote(labels)}"
         if page is not None:
             url += f"&page={page}"
         res = self._request("GET", url)

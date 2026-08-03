@@ -3,6 +3,9 @@ name: Triage and Tailor Issue
 on:
   issues:
     types: [opened, labeled]
+  workflow_run:
+    workflows: [Daily Job Scraper]
+    types: [completed]
 
 concurrency:
   group: triage
@@ -12,10 +15,13 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  actions: read
 
 jobs:
   triage:
-    if: contains(github.event.issue.labels.*.name, 'triage-pending')
+    if: >
+      github.event_name == 'workflow_run'
+      || contains(github.event.issue.labels.*.name, 'triage-pending')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -33,7 +39,12 @@ jobs:
         run: nix profile install nixpkgs#devenv
 
       - name: Run Triage Coordinator
-        run: devenv shell python src/triage.py --event-path "$GITHUB_EVENT_PATH"
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            devenv shell python src/triage.py --all-pending
+          else
+            devenv shell python src/triage.py --event-path "$GITHUB_EVENT_PATH"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

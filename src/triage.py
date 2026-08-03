@@ -30,8 +30,16 @@ from jobgitops.web import WebClient
 
 logger = logging.getLogger("jobgitops.triage")
 
+EXIT_SUCCESS = 0
+EXIT_ERROR = 1
+
 # POSIX exit code for temporary quota/rate-limit failure (EX_TEMPFAIL)
 EXIT_QUOTA_EXCEEDED = 75
+
+type ExitCode = EXIT_SUCCESS | EXIT_ERROR | EXIT_QUOTA_EXCEEDED
+
+# Maximum number of pending issues retrieved in each batch API request.
+BATCH_PAGE_SIZE = 100
 
 # Sub-scores below this threshold are flagged with a category mismatch label.
 CATEGORY_MISMATCH_THRESHOLD = 3.0
@@ -759,6 +767,86 @@ def run_triage(
         )
 
 
+def run_all_pending(
+    gh_client: GitHubClient,
+    repo_path: pathlib.Path,
+    settings: Any,
+    resume: Any,
+    llm_client: LLMClient,
+    web_client: Any | None = None,
+) -> ExitCode:
+    """Triage every open issue carrying the ``triage-pending`` label.
+
+    Used by the ``--all-pending`` mode invoked from the ``workflow_run``
+    trigger (scraper completion). Individual issue failures are logged and
+    do not abort the batch, so one broken posting never blocks the rest.
+
+    Returns:
+        A process exit code: ``0`` on full success, ``EXIT_QUOTA_EXCEEDED``
+        when the LLM quota was exceeded, or ``1`` when any issue failed.
+    """
+    failed = 0
+    page = 1
+    total_pending = 0
+    logger.info("Listing open issues labeled 'triage-pending'...")
+    while True:
+        try:
+            issues = gh_client.list_issues(
+                state="open",
+                labels="triage-pending",
+                per_page=BATCH_PAGE_SIZE,
+                page=page,
+            )
+        except Exception as e:
+            logger.error("Failed to list triage-pending issues: %s", e)
+            return EXIT_ERROR
+
+        pending = [
+            issue
+            for issue in issues
+            if "triage-pending" in extract_label_names(issue.get("labels", []))
+        ]
+        total_pending += len(pending)
+        for issue in pending:
+            issue_number = issue.get("number")
+            if not issue_number:
+                continue
+            logger.info("Triage-all: processing issue #%d", issue_number)
+            try:
+                run_triage(
+                    issue_number=issue_number,
+                    issue_title=issue.get("title", ""),
+                    issue_body=issue.get("body", ""),
+                    issue_node_id=issue.get("node_id"),
+                    issue_labels=extract_label_names(issue.get("labels", [])),
+                    repo_path=repo_path,
+                    gh_client=gh_client,
+                    settings=settings,
+                    resume=resume,
+                    llm_client=llm_client,
+                    web_client=web_client,
+                )
+            except QuotaExceededError as e:
+                logger.warning(
+                    "LLM API quota exceeded while triaging #%d: %s", issue_number, e
+                )
+                return EXIT_QUOTA_EXCEEDED
+            except Exception as e:
+                failed += 1
+                logger.exception("Triage failed for issue #%d: %s", issue_number, e)
+
+        if len(issues) < BATCH_PAGE_SIZE:
+            break
+        page += 1
+
+    logger.info("Found %d triage-pending issue(s).", total_pending)
+
+    if failed:
+        return EXIT_ERROR
+
+    return EXIT_SUCCESS
+
+
 def main() -> None:
     """CLI entry point for triage and tailoring coordinator."""
     # Configure logging
@@ -771,6 +859,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Triage and tailoring coordinator.")
     parser.add_argument(
         "--issue", "-i", type=int, help="GitHub issue number to triage."
+    )
+    parser.add_argument(
+        "--all-pending",
+        action="store_true",
+        help="Triage every open issue carrying the 'triage-pending' label.",
     )
     parser.add_argument(
         "--event-path",
@@ -793,7 +886,7 @@ def main() -> None:
         resume = load_resume(repo_path / "resumes/resume.yaml")
     except Exception as e:
         logger.error("Failed to load settings or base resume configuration: %s", e)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     # Load environmental tokens and details
     token = os.environ.get("GITHUB_TOKEN")
@@ -831,19 +924,19 @@ def main() -> None:
                 repo = event["repository"].get("full_name")
         except Exception as e:
             logger.error("Failed to parse event payload JSON: %s", e)
-            sys.exit(1)
+            sys.exit(EXIT_ERROR)
 
     if not token:
         logger.error("GITHUB_TOKEN environment variable is missing.")
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     if not repo:
         logger.error("GITHUB_REPOSITORY environment variable is missing.")
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
-    if not issue_number:
+    if not issue_number and not args.all_pending:
         logger.error("No issue number or event payload specified to triage.")
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     # Initialize GitHub client
     project_id = settings.projects_v2.project_id if settings.projects_v2 else None
@@ -860,7 +953,31 @@ def main() -> None:
         )
     except Exception as e:
         logger.error("Failed to initialize GitHubClient: %s", e)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
+
+    # Batch mode (workflow_run trigger): triage all triage-pending issues.
+    if args.all_pending:
+        try:
+            llm_client = get_llm_client()
+            web_client = WebClient(settings.research)
+            exit_code = run_all_pending(
+                gh_client=gh_client,
+                repo_path=repo_path,
+                settings=settings,
+                resume=resume,
+                llm_client=llm_client,
+                web_client=web_client,
+            )
+        except QuotaExceededError as e:
+            logger.warning("LLM API quota exceeded: %s", e)
+            sys.exit(EXIT_QUOTA_EXCEEDED)
+        except Exception as e:
+            logger.exception("Triage-all coordinator failed: %s", e)
+            sys.exit(EXIT_ERROR)
+
+        if exit_code:
+            sys.exit(exit_code)
+        return
 
     # Fetch issue details if we didn't get them from a payload file
     if not issue_title or not issue_body:
@@ -875,7 +992,7 @@ def main() -> None:
             issue_labels = extract_label_names(issue.get("labels", []))
         except Exception as e:
             logger.error("Failed to fetch issue #%d: %s", issue_number, e)
-            sys.exit(1)
+            sys.exit(EXIT_ERROR)
 
     # Execute triage orchestration
     try:
@@ -899,7 +1016,7 @@ def main() -> None:
         sys.exit(EXIT_QUOTA_EXCEEDED)
     except Exception as e:
         logger.exception("Triage coordinator failed: %s", e)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
 
 if __name__ == "__main__":
