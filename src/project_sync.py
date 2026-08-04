@@ -22,6 +22,7 @@ from jobgitops.status_model import (
     LIFECYCLE_LABELS,
     REVERSE_SYNC_STATUSES,
     STATUS_TO_LABEL,
+    resolve_closed_lifecycle_label,
     sync_lifecycle_label,
 )
 
@@ -384,10 +385,13 @@ def _reverse_reconcile(
 def _target_status(issue_number: int, state: str, labels: set[str]) -> str | None:
     """Resolve the board status an issue should occupy, from its labels.
 
-    A lifecycle label wins (falling back deterministically when several are
-    present); otherwise open issues default to Triage Pending and closed issues
-    to Rejected.
+    Closed issues always resolve to Mismatched/Closed or Rejected. Open issues
+    resolve to their lifecycle label (falling back to Triage Pending if none).
     """
+    if state == "closed":
+        target_label = resolve_closed_lifecycle_label(labels)
+        return LABEL_TO_STATUS[target_label]
+
     lifecycle = sorted(label for label in labels if label in LIFECYCLE_LABELS)
 
     if lifecycle:
@@ -400,9 +404,7 @@ def _target_status(issue_number: int, state: str, labels: set[str]) -> str | Non
             )
         return LABEL_TO_STATUS[lifecycle[0]]
 
-    if state == "open":
-        return LABEL_TO_STATUS["triage-pending"]
-    return LABEL_TO_STATUS["rejected"]
+    return LABEL_TO_STATUS["triage-pending"]
 
 
 def _run_field_options(gh_client: GitHubClient, prune: bool) -> None:

@@ -13,7 +13,11 @@ from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_loggi
 from jobgitops.github_client import GitHubClient
 from jobgitops.loader import load_settings
 from jobgitops.schema import ProjectsV2Config
-from jobgitops.status_model import LABEL_TO_STATUS, sync_lifecycle_label
+from jobgitops.status_model import (
+    LABEL_TO_STATUS,
+    resolve_closed_lifecycle_label,
+    sync_lifecycle_label,
+)
 
 logger = logging.getLogger("status_transition")
 
@@ -119,8 +123,18 @@ def _resolve_label(event: dict[str, Any], cli_label: str | None) -> str:
     loudly before the Projects V2 no-op path can swallow it.
     """
     label = cli_label
-    if not label and isinstance(event.get("label"), dict):
-        label = event["label"].get("name")
+    if not label:
+        if event.get("action") == "closed":
+            issue_data = event.get("issue") or {}
+            labels_list = issue_data.get("labels") or []
+            current_labels = {
+                label_dict.get("name")
+                for label_dict in labels_list
+                if isinstance(label_dict, dict) and label_dict.get("name")
+            }
+            label = resolve_closed_lifecycle_label(current_labels)
+        elif isinstance(event.get("label"), dict):
+            label = event["label"].get("name")
 
     if not label or label not in LABEL_TO_STATUS:
         logger.error(

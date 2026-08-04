@@ -562,6 +562,62 @@ def test_sync_backfill_closed_with_lifecycle_label_wins(
 
 
 @patch("project_sync.GitHubClient")
+def test_sync_backfill_closed_with_triage_pending_resolves_to_rejected(
+    mock_github_client_class,
+) -> None:
+    """Verify that a closed issue with triage-pending resolves to Rejected."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.list_issues.side_effect = [
+        [
+            {
+                "number": 6,
+                "node_id": "ND_6",
+                "state": "closed",
+                "labels": [{"name": "triage-pending"}],
+            }
+        ],
+        [],
+    ]
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", ["project_sync.py", "backfill"]),
+    ):
+        main()
+
+    mock_client.update_project_status.assert_called_once_with("ND_6", "Rejected")
+
+
+@patch("project_sync.GitHubClient")
+def test_sync_backfill_closed_with_multiple_lifecycle_labels_resolves_to_rejected(
+    mock_github_client_class,
+) -> None:
+    """Verify closed issue with multiple lifecycle labels resolves to Rejected."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.list_issues.side_effect = [
+        [
+            {
+                "number": 7,
+                "node_id": "ND_7",
+                "state": "closed",
+                "labels": [{"name": "triage-pending"}, {"name": "applied"}],
+            }
+        ],
+        [],
+    ]
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", ["project_sync.py", "backfill"]),
+    ):
+        main()
+
+    mock_client.update_project_status.assert_called_once_with("ND_7", "Rejected")
+
+
+@patch("project_sync.GitHubClient")
 def test_sync_backfill_skips_already_correct_columns(
     mock_github_client_class,
 ) -> None:
