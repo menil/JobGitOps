@@ -8,7 +8,7 @@ A serverless, GitOps-driven job application and tracking system. JobGitOps treat
 - 🧠 **AI Triage & Tailoring**: A two-pass LLM engine (`src/triage.py`) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
 - 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to HTML and print-ready PDFs with Jinja2 + WeasyPrint on dedicated application branches — every version you send is a clean, reviewable Git diff.
 - 💬 **Issue Assistant**: A tool-using agent (`src/respond.py`) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
-- 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → Interviewing → Rejected`) with label-based automation and a label-only fallback.
+- 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → In Loop → Rejected`) with label-based automation and a label-only fallback.
 - ❄️ **Hermetic Nix Environment**: Reproducible Python 3.12 + `devenv` shell with all WeasyPrint native deps (`cairo`, `pango`, `glib`, `gdk-pixbuf`, `harfbuzz`, `libffi`) and fonts mapped cleanly.
 - 🛠️ **Local Task Runner (`Justfile`)**: Standardized commands for formatting, linting, and validating with a 90% coverage gate.
 - 🛡️ **Git Hooks**: Pre-configured pre-commit quality gate (`just validate`) and conventional commit title verification.
@@ -65,7 +65,7 @@ JobGitOps is designed to run entirely "out-of-the-box" on GitHub's free executio
 1. **Discovery** — The cron scrapes job boards, dedupes against the ~500 most recent roles already in your repo, and opens new candidates as issues labeled `triage-pending`.
 2. **Triage** — The LLM scores each job against your base resume. Below `fit_threshold` → the issue is labeled `triage-mismatched` plus a red reason label for each dimension scored below 3 (e.g. `salary-mismatch`, `location-mismatch`), a mismatch breakdown is commented, and the issue is closed.
 3. **Tailoring** — Above threshold → a dedicated branch `applications/<company>-<role>-<hash>` is created. `resumes/resume.yaml` is subtly tailored, a JSON version is generated, and a print-ready PDF is compiled. All three files are committed and pushed, and a comment links the fit score and the browser-viewable PDF.
-4. **Apply & Track** — Review the diff, submit the PDF, then label the issue `applied` to move the card to `Applied` on your board. Track `interviewing` / `rejected` from there.
+4. **Apply & Track** — Review the diff, submit the PDF, then label the issue `applied` to move the card to `Applied` on your board. Track `in-loop` / `rejected` from there.
 
 ## Configuration
 
@@ -104,13 +104,43 @@ custom_queries:                        # Top-level override for resume-based que
   - "Senior Python Developer Remote"
 
 # Optional GitHub Projects V2 integration (auto status tracking).
+# IMPORTANT: the shipped placeholder (PVT_YOUR_PROJECT_ID) keeps the
+# integration DISABLED (label-only tracking) on a fresh clone. Replace it with
+# a real node ID to enable two-way board <-> label sync.
 # projects_v2:
 #   project_id: "PVT_YOUR_PROJECT_ID"
 #   status_field_name: "Status"
 ```
 
 - **`custom_queries`** (top-level, sibling of `search`): When non-empty, the scraper uses these queries instead of auto-generating them from your resume — useful for targeting new stacks or domains.
-- **`projects_v2`**: When configured, issue cards move through your Projects V2 board automatically. Without it, the system falls back to repository labels (`ready-to-apply`, `applied`, `interviewing`, `rejected`).
+- **`projects_v2`**: When configured, issue cards move through your Projects V2 board automatically and column moves are reflected back as labels. Without it (or while the placeholder is in place), the system falls back to repository labels (`ready-to-apply`, `applied`, `in-loop`, `rejected`).
+
+**Enabling Projects V2** is a three-step, explicit process:
+
+1. **Get your project's node ID** — the `PVT_...` identifier, *not* the `N` number shown in the board URL. In a terminal:
+
+   ```bash
+   gh api graphql -f query='query { viewer { projectV2(number: 1) { id } } }'
+   ```
+
+   (Replace `1` with your board's number.) Copy the returned `"PVT_..."` string into `config/settings.yaml`.
+
+2. **Add a `PROJECT_V2_TOKEN` secret** with `Projects` (read) plus `Issues`/`Contents`/`Pull requests` (write) scopes — see [API Key Setup](#api-key-setup). **This token is mandatory for full two-way sync**: the built-in `GITHUB_TOKEN` cannot write to Projects V2, so without it the workflows fall back to label-only tracking even when `project_id` is set.
+
+3. **Sync the board and options** — the lifecycle columns (`Triage Pending`, `Ready to Apply`, `Applied`, `In Loop`, `Offer Received`, `Rejected`, `Mismatched/Closed`) must exist on your Status field before cards can move. Run:
+
+   ```bash
+   devenv shell python src/project_sync.py field-options   # create missing options
+   devenv shell python src/project_sync.py backfill --reverse   # one-time label/board reconciliation
+   ```
+
+   > **Warning:** `backfill` moves every card to the column its labels dictate,
+   > overwriting manual column positions, and `field-options --prune` permanently
+   > deletes Status options not in the lifecycle model (GitHub rejects deleting
+   > options still in use). Run them only when you intend labels to be the source
+   > of truth for the board.
+
+   **How the two-way sync works:** labels are the single source of truth in `src/jobgitops/status_model.py`. Adding a lifecycle label moves the card (`status-transition.yml`); moving a card applies the matching label (`project-status-sync.yml`); `backfill` converges the whole board idempotently, and `backfill --reverse` recovers any column move whose webhook event was dropped. Triage Pending is intentionally excluded from the reverse direction so dragging a card back never re-triggers an AI re-triage.
 
 ### `resumes/resume.yaml`
 
@@ -173,10 +203,11 @@ Add the following under **Settings > Secrets and variables > Actions** in your f
 | `scrape-jobs.yml` | Daily cron (`0 0 * * *`) or `workflow_dispatch` | Scrapes job boards, dedupes, opens `triage-pending` issues, then auto-triages any pending issues |
 | `triage-issue.yml` | Issue labeled `triage-pending` | Runs the two-pass LLM triage/tailor pipeline |
 | `respond-issue.yml` | Issue comment created or issue opened | Runs the Issue Assistant: answers thread questions with web research, applies status labels from conversational intents, and auto-triages bare job-URL submissions |
-| `status-transition.yml` | Issue labeled `applied`, `interviewing`, or `rejected` | Moves the issue card to the matching Projects V2 column |
+| `status-transition.yml` | Issue labeled `applied`, `in-loop`, or `rejected` | Moves the issue card to the matching Projects V2 column |
+| `project-status-sync.yml` | Projects V2 item created/edited | Reverse sync: applies the label matching a card's new column (skips Triage Pending) |
 | `test.yml` | Push/PR to `main` | Runs `just validate` (lint + format + 90% coverage tests) in the devenv shell |
 | `pr-review.yml` | PR opened, reopened, or marked ready for review (dependabot skipped) | Automated code review via OpenRouter |
-| `sync-labels.yml` | Push to `main` | Applies issue labels from `.github/labels.yml` |
+| `sync-labels.yml` | Push to `main` | Applies issue labels from `.github/labels.yml` and migrates renamed labels (e.g. `interviewing` → `in-loop`) |
 
 The scrape, triage, status-transition, and test workflows run inside the reproducible Nix/devenv environment, avoiding runner `apt-get` library-install delays.
 
@@ -185,7 +216,8 @@ The scrape, triage, status-transition, and test workflows run inside the reprodu
 - **Check workflow logs**: every run is visible under the **Actions** tab, with the exact command and error output per step.
 - **Scraping works but nothing is triaged**: confirm at least one of `GEMINI_API_KEY` / `OPENROUTER_API_KEY` is set; otherwise triage fails on every run.
 - **LLM quota / rate limit**: the daily scraper stops triaging for the day (exit 75) when the LLM provider reports quota exhaustion; per-issue failures post a comment on the issue.
-- **`applied` label set but the board card never moves**: the Projects V2 move only happens when `projects_v2` is configured in `config/settings.yaml`; otherwise the label alone tracks state.
+- **`applied` label set but the board card never moves**: the Projects V2 move only happens when `projects_v2` is configured in `config/settings.yaml` with a real `PVT_...` node ID; otherwise the label alone tracks state.
+- **Board moves but the label never updates (or vice-versa)**: verify `PROJECT_V2_TOKEN` is set and `src/jobgitops/status_model.py` still matches your board's column names; then run `devenv shell python src/project_sync.py backfill --reverse` to converge both directions.
 - **`custom_queries` / `fit_threshold` seem ignored**: verify `custom_queries` is a top-level key in `config/settings.yaml` (a sibling of `search`), not nested under it.
 
 ## Issue Labels
@@ -194,7 +226,7 @@ Labels (names, colors, descriptions) are managed as code in `.github/labels.yml`
 
 - `triage-pending` → `triage-mismatched` + category reason labels (below threshold, closed)
 - `triage-pending` → `fit:A+` / `fit:A` / `fit:B` + `ready-to-apply` (above threshold)
-- `ready-to-apply` → `applied` → `interviewing` / `rejected` (manual, as you progress; or via a conversational intent on the issue thread — the Issue Assistant adds the matching label for you)
+- `ready-to-apply` → `applied` → `in-loop` / `rejected` (manual, as you progress; or via a conversational intent on the issue thread — the Issue Assistant adds the matching label for you)
 
 ## Local Development
 
@@ -213,7 +245,9 @@ config/settings.yaml          # Search + triage configuration
 resumes/                      # resume.yaml (base), template.html, style.css
 src/scrape.py                 # Job discovery bot
 src/triage.py                 # AI triage & tailoring coordinator
-src/jobgitops/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper)
+src/status_transition.py      # Label -> Projects V2 column (forward sync)
+src/project_sync.py           # Column -> label (reverse), backfill, option sync
+src/jobgitops/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper, status_model, cli)
 scripts/format_resume.py      # Canonical resume.yaml formatter
 specs/                        # Architecture spec + user story
 tests/                        # pytest suite (90% coverage enforced)

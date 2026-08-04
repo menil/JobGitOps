@@ -1,0 +1,45 @@
+name: Sync Project Status to Label
+
+on:
+  projects_v2_item:
+    types: [edited, created]
+
+permissions:
+  contents: read
+  issues: write
+
+# Serialize runs so rapid column moves never race the reverse sync, and bail
+# out of a wedged run instead of burning a runner for hours.
+concurrency:
+  group: project-status-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # Reverse direction (column -> label). The forward direction lives in
+    # status-transition.yml; together they converge because re-setting an
+    # already-set column emits no `edited` event, and the script no-ops when
+    # the target label is already present.
+    if: github.event.projects_v2_item.content_type == 'Issue'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v8
+
+      - name: Install Devenv
+        run: nix profile install nixpkgs#devenv
+
+      - name: Run Project Status Sync
+        run: devenv shell python src/project_sync.py event --event-path "$GITHUB_EVENT_PATH"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}

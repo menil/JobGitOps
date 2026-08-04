@@ -36,9 +36,11 @@ from jobgitops.assistant import (
     AgentAction,
     run_agent,
 )
+from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
 from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.llm import QuotaExceededError, get_llm_client
 from jobgitops.loader import load_resume, load_settings
+from jobgitops.status_model import LIFECYCLE_LABELS
 from jobgitops.web import WebClient
 
 logger = logging.getLogger("jobgitops.respond")
@@ -48,20 +50,9 @@ EXIT_QUOTA_EXCEEDED = 75
 
 # Job pipeline labels. An issue carrying any of these is already owned by the
 # scraper/triage/status machinery and must not be re-processed by the
-# auto-detect guard (spec 4.1).
-JOB_LABELS = frozenset(
-    {
-        "triage-pending",
-        "ready-to-apply",
-        "applied",
-        "interviewing",
-        "rejected",
-        "triage-mismatched",
-        "fit:A+",
-        "fit:A",
-        "fit:B",
-    }
-)
+# auto-detect guard (spec 4.1). Lifecycle labels are imported from the single
+# source of truth (status_model) so the sets can never drift apart.
+JOB_LABELS = LIFECYCLE_LABELS | frozenset({"fit:A+", "fit:A", "fit:B"})
 
 BARE_URL_REGEX = re.compile(r"https?://[^\s]+")
 
@@ -425,25 +416,16 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         help="Path to GitHub webhook event JSON file (e.g. GITHUB_EVENT_PATH).",
     )
-    parser.add_argument(
-        "--repo-path",
-        type=str,
-        default=".",
-        help="Path to the local git repository (defaults to '.').",
-    )
+    add_repo_path_argument(parser)
     return parser.parse_args()
 
 
 def main() -> None:
     """CLI entry point: classify the event, dispatch, and execute side effects."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
+    setup_logging()
 
     args = _parse_args()
-    repo_path = pathlib.Path(args.repo_path).resolve()
+    repo_path = resolve_repo_path(args.repo_path)
 
     # Load configurations and base resume once (spec 5.1).
     try:

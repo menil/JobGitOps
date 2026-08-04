@@ -168,19 +168,36 @@ the label-driven fallback stays consistent with the assistant's conversational
 transitions:
 
 - Trigger: `issues: labeled` where `github.event.label.name` is one of
-  `applied`, `interviewing`, `rejected`.
+  `applied`, `in-loop`, `rejected` (the full lifecycle list lives in
+  `src/jobgitops/status_model.py`).
 - `src/applied_transition.py` → `src/status_transition.py`: a `LABEL_TO_STATUS`
-  map (`applied` → `Applied`, `interviewing` → `Interviewing`, `rejected` →
-  `Rejected`); the script updates the Projects V2 column for the matching
-  status and no-ops when `projects_v2` is unconfigured (label-only fallback).
+  map (single-sourced from `src/jobgitops/status_model.py`); the script updates
+  the Projects V2 column for the matching status and no-ops when
+  `projects_v2` is unconfigured (label-only fallback).
 - The old `applied_transition.py` is removed; tests are updated accordingly.
 - Environment carries `GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}` as today.
 
-This workflow is the **single owner** of Projects V2 column moves. The
-responder's `status_update` action adds the label and posts the confirmation,
-but does **not** call `update_project_status` itself: the label-add emits
-`issues: labeled`, which triggers this workflow. The two paths can therefore
-never race on the column — one owner, one GraphQL write.
+### 4.3.1. Reverse sync: `project-status-sync.yml`
+
+The reverse direction (column → label) is owned by `src/project_sync.py`,
+triggered by the `projects_v2_item` (`edited`, `created`) workflow:
+
+- Only `Issue` content types are handled; the event's `project_node_id` must
+  equal the configured project, so events from unrelated boards are ignored.
+- A column move to a `REVERSE_SYNC_STATUSES` status applies the matching
+  lifecycle label (removing stale sibling labels). **Triage Pending is
+  excluded**: dragging a card back must never re-add `triage-pending`, which
+  would re-trigger the AI triage loop.
+- `backfill` populates the board from labels idempotently; `backfill --reverse`
+  reconciles labels from columns to recover dropped webhook events.
+
+The forward `status-transition.yml` workflow and the responder's `status_update`
+action are the **single owners** of Projects V2 column moves. The responder's
+`status_update` action adds the label and posts the confirmation, but does
+**not** call `update_project_status` itself: the label-add emits
+`issues: labeled`, which triggers the forward workflow. The reverse workflow
+never moves a column either — it only touches labels — so the two paths can
+never race on the column: one owner, one GraphQL write.
 
 ---
 

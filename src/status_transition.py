@@ -9,17 +9,13 @@ import pathlib
 import sys
 from typing import Any
 
+from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
 from jobgitops.github_client import GitHubClient
 from jobgitops.loader import load_settings
 from jobgitops.schema import ProjectsV2Config
+from jobgitops.status_model import LABEL_TO_STATUS, sync_lifecycle_label
 
 logger = logging.getLogger("status_transition")
-
-LABEL_TO_STATUS: dict[str, str] = {
-    "applied": "Applied",
-    "interviewing": "Interviewing",
-    "rejected": "Rejected",
-}
 
 
 @dataclasses.dataclass
@@ -43,18 +39,14 @@ def main() -> None:
     from --label or github.event.label.name.
     """
     # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
+    setup_logging()
 
     args = _parse_args()
 
     # Load configurations
     try:
         settings = load_settings(
-            pathlib.Path(args.repo_path).resolve() / "config/settings.yaml"
+            resolve_repo_path(args.repo_path) / "config/settings.yaml"
         )
     except Exception as e:
         logger.error("Failed to load settings configuration: %s", e)
@@ -90,19 +82,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--label",
         type=str,
-        help="Lifecycle label that was added (applied, interviewing, rejected).",
+        help="Lifecycle label that was added (e.g. applied, in-loop, rejected).",
     )
     parser.add_argument(
         "--event-path",
         type=str,
         help="Path to GitHub webhook event JSON file (e.g. GITHUB_EVENT_PATH).",
     )
-    parser.add_argument(
-        "--repo-path",
-        type=str,
-        default=".",
-        help="Path to the local git repository (defaults to '.').",
-    )
+    add_repo_path_argument(parser)
     return parser.parse_args()
 
 
@@ -226,6 +213,10 @@ def _transition(gh_client: GitHubClient, context: TransitionContext) -> None:
         context.status,
     )
     try:
+        # The lifecycle label that triggered this workflow is the source of
+        # truth; drop stale sibling lifecycle labels so the issue carries a
+        # single pipeline stage and the board matches the label state.
+        sync_lifecycle_label(gh_client, context.issue_number, context.label)
         gh_client.update_project_status(issue_node_id, context.status)
         logger.info("Successfully updated status to %s.", context.status)
     except Exception as e:
