@@ -763,7 +763,14 @@ def test_update_status_field_options_success(mock_urlopen: mock.MagicMock) -> No
                         {
                             "id": "field-id-456",
                             "name": "Status",
-                            "options": [{"id": "opt-id-1", "name": "Applied"}],
+                            "options": [
+                                {
+                                    "id": "opt-id-1",
+                                    "name": "Applied",
+                                    "color": "GREEN",
+                                    "description": "applied",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -771,9 +778,7 @@ def test_update_status_field_options_success(mock_urlopen: mock.MagicMock) -> No
         }
     }
     resp_mutation = {
-        "data": {
-            "updateProjectV2SingleSelectFieldOptions": {"field": {"id": "field-id-456"}}
-        }
+        "data": {"updateProjectV2Field": {"projectV2Field": {"id": "field-id-456"}}}
     }
     mock_urlopen.side_effect = [
         make_mock_response(body=json.dumps(resp_fields).encode("utf-8")),
@@ -785,10 +790,16 @@ def test_update_status_field_options_success(mock_urlopen: mock.MagicMock) -> No
 
     req = mock_urlopen.call_args_list[1][0][0]
     body = json.loads(req.data.decode("utf-8"))
-    assert "updateProjectV2SingleSelectFieldOptions" in body["query"]
+    assert "updateProjectV2Field" in body["query"]
+    assert "singleSelectOptions" in body["query"]
     assert body["variables"]["options"] == [
-        {"name": "Applied", "id": "opt-id-1"},
-        {"name": "Offer Received"},
+        {
+            "name": "Applied",
+            "id": "opt-id-1",
+            "color": "GREEN",
+            "description": "applied",
+        },
+        {"name": "Offer Received", "color": "GREEN", "description": ""},
     ]
     assert body["variables"]["fieldId"] == "field-id-456"
 
@@ -907,7 +918,14 @@ def test_update_status_field_options_invalidates_cache(
                         {
                             "id": "field-id-456",
                             "name": "Status",
-                            "options": [{"id": "opt-id-1", "name": "Applied"}],
+                            "options": [
+                                {
+                                    "id": "opt-id-1",
+                                    "name": "Applied",
+                                    "color": "GREEN",
+                                    "description": "applied",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -915,9 +933,7 @@ def test_update_status_field_options_invalidates_cache(
         }
     }
     resp_mutation = {
-        "data": {
-            "updateProjectV2SingleSelectFieldOptions": {"field": {"id": "field-id-456"}}
-        }
+        "data": {"updateProjectV2Field": {"projectV2Field": {"id": "field-id-456"}}}
     }
     mock_urlopen.side_effect = [
         make_mock_response(body=json.dumps(resp_fields).encode("utf-8")),

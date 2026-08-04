@@ -464,6 +464,40 @@ def test_sync_backfill_moves_issues(
 
 
 @patch("project_sync.GitHubClient")
+def test_sync_backfill_skips_pull_requests(
+    mock_github_client_class,
+) -> None:
+    """Verify pull requests are not added to the board by backfill.
+
+    GitHub's Issues REST API returns pull requests alongside issues; the
+    project board tracks job applications, so PRs must be filtered out.
+    """
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.list_issues.side_effect = [
+        [
+            {"number": 1, "node_id": "ND_1", "state": "open", "labels": []},
+            {
+                "number": 2,
+                "node_id": "ND_PR",
+                "state": "open",
+                "labels": [],
+                "pull_request": {"url": "https://api.github.com/pulls/2"},
+            },
+        ],
+        [],
+    ]
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", ["project_sync.py", "backfill"]),
+    ):
+        main()
+
+    mock_client.update_project_status.assert_called_once_with("ND_1", "Triage Pending")
+
+
+@patch("project_sync.GitHubClient")
 def test_sync_backfill_continues_on_failure(
     mock_github_client_class,
     caplog,

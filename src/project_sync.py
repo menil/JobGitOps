@@ -305,7 +305,12 @@ def _run_backfill(gh_client: GitHubClient, reverse: bool) -> None:
 
 
 def _list_all_issues(gh_client: GitHubClient) -> list[dict[str, Any]]:
-    """Fetch every issue in the repository across paginated list calls."""
+    """Fetch every issue in the repository across paginated list calls.
+
+    GitHub's Issues REST API also returns pull requests, so those are filtered
+    out: a Projects V2 board tracks job applications (issues), not development
+    PRs.
+    """
     issues: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -314,7 +319,7 @@ def _list_all_issues(gh_client: GitHubClient) -> list[dict[str, Any]]:
         )
         if not batch:
             break
-        issues.extend(batch)
+        issues.extend(item for item in batch if "pull_request" not in item)
         if len(batch) < BACKFILL_PAGE_SIZE:
             break
         page += 1

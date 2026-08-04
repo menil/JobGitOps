@@ -90,10 +90,10 @@ class GitHubClient:
         self._retryable_status_codes = (429, 500, 502, 503, 504)
 
         # Cache project field IDs and option mapping to save network round-trips.
-        # Keyed by (project_id, status_field_name) ->
-        # (field_id, {option_name: option_id})
+        # Keyed by (project_id, status_field_name) -> (field_id,
+        # {option_name: {"id", "color", "description"}})
         self._project_fields_cache: dict[
-            tuple[str, str], tuple[str, dict[str, str]]
+            tuple[str, str], tuple[str, dict[str, dict[str, str]]]
         ] = {}
 
     def _retry_delay(self, error: "urllib.error.HTTPError", attempt: int) -> float:
@@ -474,7 +474,7 @@ class GitHubClient:
         # 2. Get status field ID and option ID
         field_id, options_map = self._resolve_status_field()
 
-        option_id = options_map.get(status_name)
+        option_id = (options_map.get(status_name) or {}).get("id")
         if not option_id:
             raise GitHubClientError(
                 f"Status option '{status_name}' not found in status field options."
@@ -548,6 +548,8 @@ class GitHubClient:
                     options {
                       id
                       name
+                      color
+                      description
                     }
                   }
                 }
@@ -589,7 +591,11 @@ class GitHubClient:
         options_map = {}
         for opt in options:
             if isinstance(opt, dict) and "name" in opt and "id" in opt:
-                options_map[opt["name"]] = opt["id"]
+                options_map[opt["name"]] = {
+                    "id": opt["id"],
+                    "color": opt.get("color"),
+                    "description": opt.get("description"),
+                }
 
         self._project_fields_cache[cache_key] = (field_id, options_map)
         return field_id, options_map
@@ -607,9 +613,11 @@ class GitHubClient:
     def update_status_field_options(self, option_names: list[str]) -> None:
         """Replace the status field's single-select options with the given names.
 
-        Existing options keep their IDs; new names are added. GitHub rejects
-        removing options that are still in use, so callers should add missing
-        options, move items onto them, and only then prune old ones.
+        Existing options keep their IDs, colors, and descriptions; new names are
+        added with a default color and blank description. GitHub requires every
+        option to carry a color and description (with no server-side default),
+        and rejects removing options that are still in use, so callers should
+        add missing options, move items onto them, and only then prune old ones.
 
         Args:
             option_names: The full desired option-name list.
@@ -621,24 +629,34 @@ class GitHubClient:
         if not self.project_id:
             return
 
+        # Rotate through the palette so new columns are visually distinct from
+        # their neighbours instead of all rendering in the same gray.
+        palette = ("BLUE", "GREEN", "YELLOW", "ORANGE", "PURPLE", "PINK", "RED")
         field_id, options_map = self._resolve_status_field()
-        options = [
-            {"name": name, "id": options_map[name]}
-            if name in options_map
-            else {"name": name}
-            for name in option_names
-        ]
+        options = []
+        for index, name in enumerate(option_names):
+            existing = options_map.get(name) or {}
+            options.append(
+                {
+                    "name": name,
+                    **({"id": existing["id"]} if existing.get("id") else {}),
+                    "color": existing.get("color") or palette[index % len(palette)],
+                    "description": existing.get("description") or "",
+                }
+            )
 
         mutation = """
-        mutation UpdateProjectV2SingleSelectFieldOptions(
+        mutation UpdateProjectV2FieldOptions(
           $fieldId: ID!,
           $options: [ProjectV2SingleSelectFieldOptionInput!]!
         ) {
-          updateProjectV2SingleSelectFieldOptions(
-            input: { fieldId: $fieldId, options: $options }
+          updateProjectV2Field(
+            input: { fieldId: $fieldId, singleSelectOptions: $options }
           ) {
-            field {
-              id
+            projectV2Field {
+              ... on ProjectV2FieldCommon {
+                id
+              }
             }
           }
         }
@@ -686,6 +704,7 @@ class GitHubClient:
                     }
                     nodes {
                       content {
+                        __typename
                         ... on Issue {
                           number
                         }
@@ -695,7 +714,9 @@ class GitHubClient:
                           ... on ProjectV2ItemFieldSingleSelectValue {
                             name
                             field {
-                              name
+                              ... on ProjectV2FieldCommon {
+                                name
+                              }
                             }
                           }
                         }
