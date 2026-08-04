@@ -81,3 +81,14 @@ def sync_lifecycle_label(
         gh_client.remove_label(issue_number, label)
     if target_label not in current_labels:
         gh_client.add_labels(issue_number, [target_label])
+
+
+def resolve_closed_lifecycle_label(labels: set[str]) -> str:
+    """Resolve the lifecycle label for a closed issue.
+
+    Returns 'triage-mismatched' if that label is present; otherwise defaults to
+    'rejected'.
+    """
+    if "triage-mismatched" in labels:
+        return "triage-mismatched"
+    return "rejected"
