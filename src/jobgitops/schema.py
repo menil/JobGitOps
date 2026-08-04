@@ -206,6 +206,13 @@ class ProjectsV2Config:
     project_id: str
     status_field_name: str = "Status"
 
+    # Sentinel shipped in config/settings.yaml; normalized to empty below so a
+    # fresh clone degrades to label-only tracking instead of firing GraphQL
+    # mutations against a nonexistent project (which would red-CI every label
+    # event). Enabling the integration is an explicit "replace the placeholder"
+    # step.
+    PLACEHOLDER_PREFIX = "PVT_YOUR_"
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ProjectsV2Config":
         """Parse Projects V2 configuration from dictionary.
@@ -228,6 +235,12 @@ class ProjectsV2Config:
                 raise ValidationError(
                     "projects_v2.project_id must be a non-empty string."
                 )
+
+            # A placeholder project ID is indistinguishable from "not set":
+            # scripts gate Projects V2 work on project_id truthiness, so keep
+            # the shipped default in a label-only state until a real ID is set.
+            if project_id.startswith(cls.PLACEHOLDER_PREFIX):
+                project_id = ""
 
             status_field_name = (
                 _parse_str(

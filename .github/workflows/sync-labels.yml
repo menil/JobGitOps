@@ -23,3 +23,21 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           yaml-file: .github/labels.yml
           skip-delete: true
+
+      # skip-delete: true keeps every label the YAML no longer lists (so
+      # hand-created labels are never clobbered), which means a rename like
+      # interviewing -> in-loop would otherwise leave the old name behind
+      # forever. This step migrates the known-renamed label: open issues move
+      # onto the new name (firing the usual label -> column transition) and the
+      # stale label is deleted. Safe to re-run: it no-ops once the label is gone.
+      - name: Migrate renamed labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh label list | grep -q '^interviewing[[:space:]]'; then
+            for issue in $(gh issue list --state open --label interviewing --json number --jq '.[].number'); do
+              gh issue edit "$issue" --add-label in-loop --remove-label interviewing
+            done
+            gh label delete interviewing --yes
+          fi

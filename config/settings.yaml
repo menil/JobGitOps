@@ -25,9 +25,28 @@ custom_queries:
   - "Senior Python Developer Remote"
 
 # Optional GitHub Projects V2 integration settings for automated status tracking.
-# projects_v2:
-#   project_id: "PVT_YOUR_PROJECT_ID"
-#   status_field_name: "Status"
+#
+# project_id: your project's node ID (starts with "PVT_"). Obtain it from the
+#   Projects API: `gh api graphql -f query='query { viewer { projectV2(number: <N>) { id } } }'`
+#   (where <N> is your project number, shown in the project URL as
+#   github.com/<owner>/<repo>/projects/<N>), or browse to
+#   https://api.github.com/graphql and run
+#   `query { node(id: "<project's first ProjectV2 id>") { id } }`.
+#   IMPORTANT: the placeholder below keeps the integration DISABLED (label-only
+#   tracking) until you replace it with a real node ID. A placeholder is
+#   treated exactly like an unset value by the automation.
+# status_field_name: name of the single-select Status field on the board. The
+#   option names must match the lifecycle statuses in src/jobgitops/status_model.py
+#   exactly (e.g. "Triage Pending", "Ready to Apply"); run
+#   `src/project_sync.py field-options` to align them.
+#
+# Requires a fine-grained PAT with read/write access to Projects and Issues,
+# stored as the PROJECT_V2_TOKEN repository secret (see README "Secrets").
+# When unset, the workflows fall back to GITHUB_TOKEN and Projects V2
+# automation degrades to label-only tracking.
+projects_v2:
+  project_id: "PVT_YOUR_PROJECT_ID"
+  status_field_name: "Status"
 
 # Research settings for the Issue Assistant agent (respond.py web tools).
 research:

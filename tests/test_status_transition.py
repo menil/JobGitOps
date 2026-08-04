@@ -67,11 +67,15 @@ def mock_load_settings(mock_settings) -> MagicMock:
 
 
 def test_label_to_status_mapping() -> None:
-    """Verify the lifecycle label mapping covers all three statuses."""
+    """Verify the lifecycle label mapping covers every pipeline stage."""
     assert LABEL_TO_STATUS == {
+        "triage-pending": "Triage Pending",
+        "ready-to-apply": "Ready to Apply",
         "applied": "Applied",
-        "interviewing": "Interviewing",
+        "in-loop": "In Loop",
+        "offer-received": "Offer Received",
         "rejected": "Rejected",
+        "triage-mismatched": "Mismatched/Closed",
     }
 
 
@@ -98,9 +102,13 @@ def test_transition_missing_token(
 @pytest.mark.parametrize(
     ("label", "expected_status"),
     [
+        ("triage-pending", "Triage Pending"),
+        ("ready-to-apply", "Ready to Apply"),
         ("applied", "Applied"),
-        ("interviewing", "Interviewing"),
+        ("in-loop", "In Loop"),
+        ("offer-received", "Offer Received"),
         ("rejected", "Rejected"),
+        ("triage-mismatched", "Mismatched/Closed"),
     ],
 )
 @patch("status_transition.GitHubClient")
@@ -113,6 +121,7 @@ def test_transition_from_cli_args(
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
     mock_client.get_issue.return_value = {"node_id": "ND_123"}
+    mock_client.get_labels.return_value = []
 
     with (
         patch.dict(os.environ, DEFAULT_ENV, clear=True),
@@ -136,12 +145,37 @@ def test_transition_from_cli_args(
 
 
 @patch("status_transition.GitHubClient")
+def test_transition_removes_stale_sibling_lifecycle_labels(
+    mock_github_client_class,
+) -> None:
+    """The column owner keeps lifecycle labels exclusive: stale siblings dropped."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.get_issue.return_value = {"node_id": "ND_123"}
+    mock_client.get_labels.return_value = ["applied", "ready-to-apply", "fit:A"]
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch(
+            "sys.argv", ["status_transition.py", "--issue", "42", "--label", "applied"]
+        ),
+    ):
+        main()
+
+    mock_client.remove_label.assert_called_once_with(42, "ready-to-apply")
+    # The triggering label was already added by the webhook; never re-add it.
+    mock_client.add_labels.assert_not_called()
+    mock_client.update_project_status.assert_called_once_with("ND_123", "Applied")
+
+
+@patch("status_transition.GitHubClient")
 def test_transition_from_event_payload(
     mock_github_client_class,
 ) -> None:
     """Verify transition succeeds using details from the webhook event payload."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
+    mock_client.get_labels.return_value = []
 
     event_data = {
         "action": "labeled",
@@ -186,6 +220,7 @@ def test_transition_cli_label_overrides_event_payload(
     """Verify --label wins over the event payload label when both are present."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
+    mock_client.get_labels.return_value = []
 
     event_data = {
         "action": "labeled",
@@ -203,15 +238,13 @@ def test_transition_cli_label_overrides_event_payload(
                 "--event-path",
                 "event.json",
                 "--label",
-                "interviewing",
+                "in-loop",
             ],
         ),
     ):
         main()
 
-    mock_client.update_project_status.assert_called_once_with(
-        "ND_EVENT_999", "Interviewing"
-    )
+    mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "In Loop")
 
 
 @patch("status_transition.GitHubClient")
@@ -221,6 +254,7 @@ def test_transition_cli_label_fills_missing_payload_label(
     """Verify --label is used when the event payload carries no label."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
+    mock_client.get_labels.return_value = []
 
     event_data = {
         "action": "labeled",
@@ -237,15 +271,13 @@ def test_transition_cli_label_fills_missing_payload_label(
                 "--event-path",
                 "event.json",
                 "--label",
-                "interviewing",
+                "in-loop",
             ],
         ),
     ):
         main()
 
-    mock_client.update_project_status.assert_called_once_with(
-        "ND_EVENT_999", "Interviewing"
-    )
+    mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "In Loop")
 
 
 @patch("status_transition.GitHubClient")
@@ -255,6 +287,7 @@ def test_transition_cli_issue_and_label_override_payload(
     """Verify --issue/--label win while the payload node_id is reused."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
+    mock_client.get_labels.return_value = []
 
     event_data = {
         "action": "labeled",
@@ -275,7 +308,7 @@ def test_transition_cli_issue_and_label_override_payload(
                 "--issue",
                 "42",
                 "--label",
-                "interviewing",
+                "in-loop",
             ],
         ),
     ):
@@ -283,9 +316,7 @@ def test_transition_cli_issue_and_label_override_payload(
 
     # Issue #42 from CLI and payload node_id: no API fetch needed.
     mock_client.get_issue.assert_not_called()
-    mock_client.update_project_status.assert_called_once_with(
-        "ND_EVENT_999", "Interviewing"
-    )
+    mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "In Loop")
 
 
 @patch("status_transition.GitHubClient")
@@ -295,6 +326,7 @@ def test_transition_payload_number_coerced_to_int(
     """Verify a string issue number from the payload is coerced to an int."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
+    mock_client.get_labels.return_value = []
 
     event_data = {
         "action": "labeled",
@@ -481,6 +513,7 @@ def test_transition_update_status_failure(
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
     mock_client.get_issue.return_value = {"node_id": "ND_123"}
+    mock_client.get_labels.return_value = []
     mock_client.update_project_status.side_effect = RuntimeError("graphql failed")
 
     run_main()

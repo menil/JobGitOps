@@ -150,7 +150,10 @@ def test_remove_label_other_error_raises(mock_urlopen: mock.MagicMock) -> None:
     )
 
     client = GitHubClient(token="my-token", repo="owner/repo")
-    with pytest.raises(GitHubClientError) as exc_info:
+    with (
+        mock.patch("jobgitops.github_client.time.sleep"),
+        pytest.raises(GitHubClientError) as exc_info,
+    ):
         client.remove_label(issue_number=42, label="some-label")
 
     assert exc_info.value.status_code == 500
@@ -594,7 +597,10 @@ def test_api_http_error_read_exception(mock_urlopen: mock.MagicMock) -> None:
     )
 
     client = GitHubClient(token="my-token", repo="owner/repo")
-    with pytest.raises(GitHubClientError) as exc_info:
+    with (
+        mock.patch("jobgitops.github_client.time.sleep"),
+        pytest.raises(GitHubClientError) as exc_info,
+    ):
         client.close_issue(issue_number=42)
 
     assert "GitHub API request failed: 500 Internal Server Error" in str(exc_info.value)
@@ -691,3 +697,331 @@ def test_update_project_status_graphql_update_error(
         client.update_project_status("issue-node-id", "Applied")
 
     assert "GraphQL error updating project status" in str(exc_info.value)
+
+
+@mock.patch("urllib.request.urlopen")
+def test_resolve_issue_number_success(mock_urlopen: mock.MagicMock) -> None:
+    """Test resolving a GraphQL node ID to an issue number."""
+    resp = {"data": {"node": {"number": 42}}}
+    mock_urlopen.return_value = make_mock_response(
+        body=json.dumps(resp).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    assert client.resolve_issue_number("node-42") == 42
+
+    req = mock_urlopen.call_args[0][0]
+    body = json.loads(req.data.decode("utf-8"))
+    assert "node(id:" in body["query"]
+    assert body["variables"]["nodeId"] == "node-42"
+
+
+@mock.patch("urllib.request.urlopen")
+def test_resolve_issue_number_not_an_issue(mock_urlopen: mock.MagicMock) -> None:
+    """Test raising when the node ID does not resolve to an issue."""
+    resp = {"data": {"node": None}}
+    mock_urlopen.return_value = make_mock_response(
+        body=json.dumps(resp).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    with pytest.raises(GitHubClientError) as exc_info:
+        client.resolve_issue_number("node-404")
+    assert "does not resolve to an issue" in str(exc_info.value)
+
+
+@mock.patch("urllib.request.urlopen")
+def test_resolve_issue_number_graphql_error(mock_urlopen: mock.MagicMock) -> None:
+    """Test raising when the GraphQL request itself returns errors."""
+    resp = {"errors": [{"message": "Not authorized"}]}
+    mock_urlopen.return_value = make_mock_response(
+        body=json.dumps(resp).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    with pytest.raises(GitHubClientError) as exc_info:
+        client.resolve_issue_number("node-1")
+    assert "Not authorized" in str(exc_info.value)
+
+
+def test_update_status_field_options_no_project_id() -> None:
+    """Test update_status_field_options is a no-op without a project ID."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id=None)
+    with mock.patch("urllib.request.urlopen") as mock_urlopen:
+        client.update_status_field_options(["Ready to Apply"])
+        mock_urlopen.assert_not_called()
+
+
+@mock.patch("urllib.request.urlopen")
+def test_update_status_field_options_success(mock_urlopen: mock.MagicMock) -> None:
+    """Test replacing field options keeps existing IDs and adds new names."""
+    resp_fields = {
+        "data": {
+            "node": {
+                "fields": {
+                    "nodes": [
+                        {
+                            "id": "field-id-456",
+                            "name": "Status",
+                            "options": [{"id": "opt-id-1", "name": "Applied"}],
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    resp_mutation = {
+        "data": {
+            "updateProjectV2SingleSelectFieldOptions": {"field": {"id": "field-id-456"}}
+        }
+    }
+    mock_urlopen.side_effect = [
+        make_mock_response(body=json.dumps(resp_fields).encode("utf-8")),
+        make_mock_response(body=json.dumps(resp_mutation).encode("utf-8")),
+    ]
+
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    client.update_status_field_options(["Applied", "Offer Received"])
+
+    req = mock_urlopen.call_args_list[1][0][0]
+    body = json.loads(req.data.decode("utf-8"))
+    assert "updateProjectV2SingleSelectFieldOptions" in body["query"]
+    assert body["variables"]["options"] == [
+        {"name": "Applied", "id": "opt-id-1"},
+        {"name": "Offer Received"},
+    ]
+    assert body["variables"]["fieldId"] == "field-id-456"
+
+
+@mock.patch("urllib.request.urlopen")
+def test_update_status_field_options_graphql_error(
+    mock_urlopen: mock.MagicMock,
+) -> None:
+    """Test raising when the option-sync mutation reports GraphQL errors."""
+    resp_fields = {
+        "data": {
+            "node": {
+                "fields": {
+                    "nodes": [
+                        {
+                            "id": "field-id-456",
+                            "name": "Status",
+                            "options": [{"id": "opt-id-1", "name": "Applied"}],
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    resp_mutation = {"errors": [{"message": "Option in use"}]}
+    mock_urlopen.side_effect = [
+        make_mock_response(body=json.dumps(resp_fields).encode("utf-8")),
+        make_mock_response(body=json.dumps(resp_mutation).encode("utf-8")),
+    ]
+
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    with pytest.raises(GitHubClientError) as exc_info:
+        client.update_status_field_options(["Applied"])
+    assert "Option in use" in str(exc_info.value)
+
+
+@mock.patch("jobgitops.github_client.time.sleep")
+@mock.patch("urllib.request.urlopen")
+def test_request_retries_on_rate_limit(
+    mock_urlopen: mock.MagicMock, mock_sleep: mock.MagicMock
+) -> None:
+    """Test a 429 is retried and succeeds once the server responds."""
+    mock_err_fp = mock.MagicMock()
+    mock_err_fp.read.return_value = b'{"message": "rate limited"}'
+    rate_limited = urllib.error.HTTPError(
+        url="https://api.github.com",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=None,
+        fp=mock_err_fp,
+    )
+    mock_urlopen.side_effect = [
+        rate_limited,
+        make_mock_response(status=200, body=b'{"ok": true}'),
+    ]
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    result = client._request("GET", "https://api.github.com/test")
+
+    assert result == {"ok": True}
+    assert mock_urlopen.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+@mock.patch("jobgitops.github_client.time.sleep")
+@mock.patch("urllib.request.urlopen")
+def test_request_retries_exhausted(
+    mock_urlopen: mock.MagicMock, mock_sleep: mock.MagicMock
+) -> None:
+    """Test a persistently rate-limited request raises after all retries."""
+    mock_err_fp = mock.MagicMock()
+    mock_err_fp.read.return_value = b'{"message": "still limited"}'
+    mock_urlopen.side_effect = urllib.error.HTTPError(
+        url="https://api.github.com",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=None,
+        fp=mock_err_fp,
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    with pytest.raises(GitHubClientError) as exc_info:
+        client._request("GET", "https://api.github.com/test")
+
+    assert exc_info.value.status_code == 429
+    assert mock_urlopen.call_count == 3
+    assert mock_sleep.call_count == 2
+
+
+@mock.patch("urllib.request.urlopen")
+def test_resolve_status_field_project_not_found(mock_urlopen: mock.MagicMock) -> None:
+    """Test a null project node is reported as a config problem, not a field gap."""
+    resp_fields = {"data": {"node": None}}
+    mock_urlopen.return_value = make_mock_response(
+        body=json.dumps(resp_fields).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="bogus-id")
+    with pytest.raises(GitHubClientError) as exc_info:
+        client._resolve_status_field()
+
+    assert "Project V2 'bogus-id' not found" in str(exc_info.value)
+    assert "projects_v2.project_id" in str(exc_info.value)
+
+
+@mock.patch("urllib.request.urlopen")
+def test_update_status_field_options_invalidates_cache(
+    mock_urlopen: mock.MagicMock,
+) -> None:
+    """Test the field cache is dropped so a later call re-fetches options."""
+    resp_fields = {
+        "data": {
+            "node": {
+                "fields": {
+                    "nodes": [
+                        {
+                            "id": "field-id-456",
+                            "name": "Status",
+                            "options": [{"id": "opt-id-1", "name": "Applied"}],
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    resp_mutation = {
+        "data": {
+            "updateProjectV2SingleSelectFieldOptions": {"field": {"id": "field-id-456"}}
+        }
+    }
+    mock_urlopen.side_effect = [
+        make_mock_response(body=json.dumps(resp_fields).encode("utf-8")),
+        make_mock_response(body=json.dumps(resp_mutation).encode("utf-8")),
+        make_mock_response(body=json.dumps(resp_fields).encode("utf-8")),
+    ]
+
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    client.update_status_field_options(["Applied", "Offer Received"])
+    # Without cache invalidation this would hit the stale cache and not call
+    # urlopen; the fresh fetch is the third request.
+    assert client.get_status_field_options() == ["Applied"]
+    assert mock_urlopen.call_count == 3
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_project_items(mock_urlopen: mock.MagicMock) -> None:
+    """Test listing project items maps issue numbers to their Status value."""
+    resp = {
+        "data": {
+            "node": {
+                "items": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": "cur-1"},
+                    "nodes": [
+                        {
+                            "content": {"__typename": "Issue", "number": 1},
+                            "fieldValues": {
+                                "nodes": [
+                                    {"name": "Applied", "field": {"name": "Status"}},
+                                    {"name": "high", "field": {"name": "Priority"}},
+                                ]
+                            },
+                        },
+                        {
+                            "content": {"__typename": "PullRequest", "number": 2},
+                            "fieldValues": {"nodes": []},
+                        },
+                        {
+                            "content": {"__typename": "Issue", "number": 3},
+                            "fieldValues": {"nodes": []},
+                        },
+                    ],
+                }
+            }
+        }
+    }
+    mock_urlopen.return_value = make_mock_response(
+        body=json.dumps(resp).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    assert client.list_project_items() == {1: "Applied", 3: None}
+
+    req = mock_urlopen.call_args[0][0]
+    body = json.loads(req.data.decode("utf-8"))
+    assert "ProjectItems" in body["query"]
+    assert body["variables"]["after"] is None
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_project_items_pagination(mock_urlopen: mock.MagicMock) -> None:
+    """Test listing project items follows the endCursor across pages."""
+    resp_page1 = {
+        "data": {
+            "node": {
+                "items": {
+                    "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                    "nodes": [
+                        {
+                            "content": {"__typename": "Issue", "number": 1},
+                            "fieldValues": {"nodes": []},
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    resp_page2 = {
+        "data": {
+            "node": {
+                "items": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": "cursor-2"},
+                    "nodes": [
+                        {
+                            "content": {"__typename": "Issue", "number": 2},
+                            "fieldValues": {
+                                "nodes": [
+                                    {"name": "Rejected", "field": {"name": "Status"}}
+                                ]
+                            },
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    mock_urlopen.side_effect = [
+        make_mock_response(body=json.dumps(resp_page1).encode("utf-8")),
+        make_mock_response(body=json.dumps(resp_page2).encode("utf-8")),
+    ]
+
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    assert client.list_project_items() == {1: None, 2: "Rejected"}
+
+    req_page2 = mock_urlopen.call_args_list[1][0][0]
+    body = json.loads(req_page2.data.decode("utf-8"))
+    assert body["variables"]["after"] == "cursor-1"

@@ -22,6 +22,7 @@ from jobgitops import (
     load_resume,
     load_settings,
 )
+from jobgitops.status_model import LABEL_TO_STATUS
 
 logger = logging.getLogger("job_scraper")
 
@@ -387,12 +388,14 @@ def publish_job(
     if github_client.project_id:
         node_id = issue.get("node_id")
         if node_id:
+            status = LABEL_TO_STATUS["triage-pending"]
             logger.info(
-                "Adding node %s to status 'Triage Pending'",
+                "Adding node %s to status '%s'",
                 node_id,
+                status,
             )
             try:
-                github_client.update_project_status(node_id, "Triage Pending")
+                github_client.update_project_status(node_id, status)
             except Exception as pe:
                 logger.warning("Failed to update Projects V2 status: %s", pe)
     return issue

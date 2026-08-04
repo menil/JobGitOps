@@ -167,6 +167,25 @@ def test_invalid_settings_types() -> None:
         )
 
 
+def test_projects_v2_placeholder_id_is_treated_as_unset() -> None:
+    """Verify the shipped PVT_YOUR_ placeholder disables the integration.
+
+    A placeholder (e.g. PVT_YOUR_PROJECT_ID) must behave exactly like an empty
+    project_id so scripts fall back to label-only tracking instead of firing
+    GraphQL mutations against a nonexistent board.
+    """
+    settings = Settings.from_dict(
+        {
+            "projects_v2": {
+                "project_id": "PVT_YOUR_PROJECT_ID",
+                "status_field_name": "Status",
+            }
+        }
+    )
+    assert settings.projects_v2 is not None
+    assert settings.projects_v2.project_id == ""
+
+
 def test_invalid_research_types() -> None:
     """Test validation errors for invalid research setting types and bounds."""
     msg = "research.search_provider must be a string, not a boolean"

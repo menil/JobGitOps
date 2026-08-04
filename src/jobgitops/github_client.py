@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -83,12 +84,44 @@ class GitHubClient:
         self.status_field_name = status_field_name
         self.timeout = timeout
 
+        # Number of attempts for transient failures (429/5xx), including the
+        # initial try. Kept as an instance attribute so tests can shrink it.
+        self._max_retries = 3
+        self._retryable_status_codes = (429, 500, 502, 503, 504)
+
         # Cache project field IDs and option mapping to save network round-trips.
         # Keyed by (project_id, status_field_name) ->
         # (field_id, {option_name: option_id})
         self._project_fields_cache: dict[
             tuple[str, str], tuple[str, dict[str, str]]
         ] = {}
+
+    def _retry_delay(self, error: "urllib.error.HTTPError", attempt: int) -> float:
+        """Compute the backoff delay before retrying a transient failure.
+
+        Honors the server's ``Retry-After`` header when present (seconds);
+        otherwise falls back to exponential backoff capped at 8 seconds.
+        """
+        retry_after = None
+        if error.headers is not None:
+            retry_after = error.headers.get("Retry-After")
+        if retry_after is not None:
+            try:
+                return float(retry_after)
+            except (TypeError, ValueError):
+                pass
+        return float(min(2**attempt, 8))
+
+    def _read_error_body(self, error: "urllib.error.HTTPError") -> str:
+        """Read and decode an HTTP error response body, tolerating failures."""
+        try:
+            body_bytes = error.read()
+            return body_bytes.decode("utf-8")
+        except Exception:
+            return "No detailed body"
+        finally:
+            # Explicitly close the error stream to prevent resource leakage.
+            error.close()
 
     def __repr__(self) -> str:
         """Provide a secure string representation redacting the API token.
@@ -136,26 +169,31 @@ class GitHubClient:
         req = urllib.request.Request(
             url, data=req_data, headers=req_headers, method=method
         )
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                resp_data = resp.read().decode("utf-8")
-                return json.loads(resp_data) if resp_data else {}
-        except urllib.error.HTTPError as e:
+
+        # Transient HTTP failures (rate limits and server hiccups) are retried
+        # with backoff so one 429 does not permanently drop a webhook event.
+        # Anything else is surfaced immediately to the caller.
+        for attempt in range(self._max_retries):
             try:
-                body_bytes = e.read()
-                body = body_bytes.decode("utf-8")
-            except Exception:
-                body = "No detailed body"
-            finally:
-                # Explicitly close the error stream to prevent resource leakage.
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    resp_data = resp.read().decode("utf-8")
+                    return json.loads(resp_data) if resp_data else {}
+            except urllib.error.HTTPError as e:
+                if e.code not in self._retryable_status_codes or (
+                    attempt == self._max_retries - 1
+                ):
+                    body = self._read_error_body(e)
+                    raise GitHubClientError(
+                        f"GitHub API request failed: {e.code} {e.reason}. "
+                        f"Detail: {body}",
+                        status_code=e.code,
+                        response_body=body,
+                    ) from e
+                delay = self._retry_delay(e, attempt)
                 e.close()
-            raise GitHubClientError(
-                f"GitHub API request failed: {e.code} {e.reason}. Detail: {body}",
-                status_code=e.code,
-                response_body=body,
-            ) from e
-        except Exception as e:
-            raise GitHubClientError(f"GitHub API communication failed: {e}") from e
+                time.sleep(delay)
+            except Exception as e:
+                raise GitHubClientError(f"GitHub API communication failed: {e}") from e
 
     def _graphql(
         self, query: str, variables: dict[str, Any] | None = None
@@ -260,6 +298,47 @@ class GitHubClient:
         if not isinstance(res, dict):
             raise GitHubClientError(f"Unexpected response format: {res}")
         return res
+
+    def resolve_issue_number(self, node_id: str) -> int:
+        """Resolve a GraphQL node ID to the number of its linked issue.
+
+        Webhook events that carry Projects V2 item data (``projects_v2_item``)
+        expose the issue only as a GraphQL ``content_node_id``, never as a
+        numeric issue number. This bridges that gap so REST label/comment calls
+        can be made against the resolved issue.
+
+        Args:
+            node_id: The GraphQL node ID of an issue.
+
+        Returns:
+            The numeric issue number.
+
+        Raises:
+            GitHubClientError: If the node cannot be resolved to an issue or
+                the GraphQL request fails.
+        """
+        query = """
+        query ResolveIssueNumber($nodeId: ID!) {
+          node(id: $nodeId) {
+            ... on Issue {
+              number
+            }
+          }
+        }
+        """
+        res = self._graphql(query, {"nodeId": node_id})
+        if "errors" in res:
+            raise GitHubClientError(
+                f"GraphQL error resolving issue node ID: {res['errors']}"
+            )
+
+        node = (res.get("data") or {}).get("node") or {}
+        number = node.get("number")
+        if number is None:
+            raise GitHubClientError(
+                f"Node ID {node_id!r} does not resolve to an issue."
+            )
+        return int(number)
 
     def list_comments(
         self,
@@ -393,61 +472,7 @@ class GitHubClient:
             raise GitHubClientError("Failed to add or retrieve item ID from project.")
 
         # 2. Get status field ID and option ID
-        cache_key = (self.project_id, self.status_field_name)
-        if cache_key in self._project_fields_cache:
-            field_id, options_map = self._project_fields_cache[cache_key]
-        else:
-            fields_query = """
-            query GetProjectFields($projectId: ID!) {
-              node(id: $projectId) {
-                ... on ProjectV2 {
-                  fields(first: 100) {
-                    nodes {
-                      ... on ProjectV2SingleSelectField {
-                        id
-                        name
-                        options {
-                          id
-                          name
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            """
-            fields_res = self._graphql(fields_query, {"projectId": self.project_id})
-            if "errors" in fields_res:
-                raise GitHubClientError(
-                    f"GraphQL error fetching project fields: {fields_res['errors']}"
-                )
-
-            data = fields_res.get("data") or {}
-            node = data.get("node") or {}
-            fields_container = node.get("fields") or {}
-            fields = fields_container.get("nodes") or []
-
-            status_field = None
-            for f in fields:
-                if isinstance(f, dict) and f.get("name") == self.status_field_name:
-                    status_field = f
-                    break
-
-            if not status_field:
-                raise GitHubClientError(
-                    f"Status field '{self.status_field_name}' not found in project."
-                )
-
-            field_id = status_field.get("id")
-            options = status_field.get("options") or []
-
-            options_map = {}
-            for opt in options:
-                if isinstance(opt, dict) and "name" in opt and "id" in opt:
-                    options_map[opt["name"]] = opt["id"]
-
-            self._project_fields_cache[cache_key] = (field_id, options_map)
+        field_id, options_map = self._resolve_status_field()
 
         option_id = options_map.get(status_name)
         if not option_id:
@@ -490,3 +515,224 @@ class GitHubClient:
             raise GitHubClientError(
                 f"GraphQL error updating project status: {update_res['errors']}"
             )
+
+    def _resolve_status_field(self) -> tuple[str, dict[str, str]]:
+        """Resolve the status field ID and its option-name-to-ID map.
+
+        Cached by (project_id, status_field_name) so repeated column moves and
+        option syncs share one field-fetch round-trip.
+
+        Returns:
+            A tuple of (field_id, {option_name: option_id}).
+
+        Raises:
+            GitHubClientError: If the project is unconfigured or the status
+                field cannot be found.
+        """
+        if not self.project_id:
+            raise GitHubClientError("project_id is not configured.")
+
+        cache_key = (self.project_id, self.status_field_name)
+        if cache_key in self._project_fields_cache:
+            return self._project_fields_cache[cache_key]
+
+        fields_query = """
+        query GetProjectFields($projectId: ID!) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              fields(first: 100) {
+                nodes {
+                  ... on ProjectV2SingleSelectField {
+                    id
+                    name
+                    options {
+                      id
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        fields_res = self._graphql(fields_query, {"projectId": self.project_id})
+        if "errors" in fields_res:
+            raise GitHubClientError(
+                f"GraphQL error fetching project fields: {fields_res['errors']}"
+            )
+
+        node = fields_res.get("data") or {}
+        node = node.get("node")
+        if node is None:
+            raise GitHubClientError(
+                f"Project V2 '{self.project_id}' not found. "
+                "Check projects_v2.project_id in config/settings.yaml."
+            )
+        fields_container = node.get("fields") or {}
+        fields = fields_container.get("nodes") or []
+
+        status_field = None
+        for f in fields:
+            if isinstance(f, dict) and f.get("name") == self.status_field_name:
+                status_field = f
+                break
+
+        if not status_field:
+            raise GitHubClientError(
+                f"Status field '{self.status_field_name}' not found in project."
+            )
+
+        field_id = status_field.get("id")
+        options = status_field.get("options") or []
+
+        options_map = {}
+        for opt in options:
+            if isinstance(opt, dict) and "name" in opt and "id" in opt:
+                options_map[opt["name"]] = opt["id"]
+
+        self._project_fields_cache[cache_key] = (field_id, options_map)
+        return field_id, options_map
+
+    def get_status_field_options(self) -> list[str]:
+        """Return the current Status field option names, in board order.
+
+        Returns an empty list when no project is configured.
+        """
+        if not self.project_id:
+            return []
+        _, options_map = self._resolve_status_field()
+        return list(options_map.keys())
+
+    def update_status_field_options(self, option_names: list[str]) -> None:
+        """Replace the status field's single-select options with the given names.
+
+        Existing options keep their IDs; new names are added. GitHub rejects
+        removing options that are still in use, so callers should add missing
+        options, move items onto them, and only then prune old ones.
+
+        Args:
+            option_names: The full desired option-name list.
+
+        Raises:
+            GitHubClientError: If the GraphQL mutation fails (including when a
+                removed option is still in use).
+        """
+        if not self.project_id:
+            return
+
+        field_id, options_map = self._resolve_status_field()
+        options = [
+            {"name": name, "id": options_map[name]}
+            if name in options_map
+            else {"name": name}
+            for name in option_names
+        ]
+
+        mutation = """
+        mutation UpdateProjectV2SingleSelectFieldOptions(
+          $fieldId: ID!,
+          $options: [ProjectV2SingleSelectFieldOptionInput!]!
+        ) {
+          updateProjectV2SingleSelectFieldOptions(
+            input: { fieldId: $fieldId, options: $options }
+          ) {
+            field {
+              id
+            }
+          }
+        }
+        """
+        res = self._graphql(mutation, {"fieldId": field_id, "options": options})
+        if "errors" in res:
+            raise GitHubClientError(
+                f"GraphQL error updating status field options: {res['errors']}"
+            )
+
+        # The mutation changed the option set, so the cached option map is
+        # stale; drop it so a later call in the same process re-fetches.
+        self._project_fields_cache.pop((self.project_id, self.status_field_name), None)
+
+    def list_project_items(self) -> dict[int, str | None]:
+        """Map issue numbers to their current Status column for the project.
+
+        Used by backfill to skip items already in the correct column and to
+        reconcile the reverse (column -> label) direction without an API call
+        per board card. Items that are not issues, or lack a Status value, are
+        omitted (or mapped to ``None``) respectively.
+
+        Returns:
+            Mapping of issue number to Status option name (or ``None`` when the
+            card has no Status value).
+
+        Raises:
+            GitHubClientError: If the GraphQL query fails.
+        """
+        if not self.project_id:
+            return {}
+
+        statuses: dict[int, str | None] = {}
+        after: str | None = None
+
+        while True:
+            query = """
+            query ProjectItems($projectId: ID!, $first: Int!, $after: String) {
+              node(id: $projectId) {
+                ... on ProjectV2 {
+                  items(first: $first, after: $after) {
+                    pageInfo {
+                      hasNextPage
+                      endCursor
+                    }
+                    nodes {
+                      content {
+                        ... on Issue {
+                          number
+                        }
+                      }
+                      fieldValues(first: 50) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            name
+                            field {
+                              name
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """
+            res = self._graphql(
+                query,
+                {"projectId": self.project_id, "first": 100, "after": after},
+            )
+            if "errors" in res:
+                raise GitHubClientError(
+                    f"GraphQL error listing project items: {res['errors']}"
+                )
+
+            node = (res.get("data") or {}).get("node") or {}
+            items = ((node.get("items") or {}).get("nodes")) or []
+
+            for item in items:
+                content = item.get("content") or {}
+                number = content.get("number")
+                if content.get("__typename") != "Issue" or number is None:
+                    continue
+                status: str | None = None
+                for field_value in ((item.get("fieldValues") or {}).get("nodes")) or []:
+                    field = (field_value.get("field") or {}).get("name")
+                    if field == self.status_field_name:
+                        status = field_value.get("name")
+                statuses[int(number)] = status
+
+            page_info = ((node.get("items") or {}).get("pageInfo")) or {}
+            if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+                break
+            after = page_info["endCursor"]
+
+        return statuses

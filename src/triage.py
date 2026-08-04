@@ -14,6 +14,7 @@ import re
 import sys
 from typing import Any
 
+from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
 from jobgitops.fit_grades import FIT_GRADE_A_MIN, FIT_GRADE_A_PLUS_MIN, FIT_GRADE_B_MIN
 from jobgitops.git_ops import (
     commit_changes,
@@ -26,6 +27,7 @@ from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings, render_resume_yaml
 from jobgitops.renderer import compile_resume
+from jobgitops.status_model import LABEL_TO_STATUS
 from jobgitops.web import WebClient
 
 logger = logging.getLogger("jobgitops.triage")
@@ -479,8 +481,13 @@ def _handle_mismatch(
 
     # Update Projects V2
     if issue_node_id and gh_client.project_id:
-        logger.info("Updating Project status to 'Mismatched/Closed'")
-        gh_client.update_project_status(issue_node_id, "Mismatched/Closed")
+        logger.info(
+            "Updating Project status to '%s'",
+            LABEL_TO_STATUS["triage-mismatched"],
+        )
+        gh_client.update_project_status(
+            issue_node_id, LABEL_TO_STATUS["triage-mismatched"]
+        )
 
 
 def _create_tailored_application_branch(
@@ -645,8 +652,13 @@ def _handle_approved_match(
 
         # Update Projects V2 status
         if issue_node_id and gh_client.project_id:
-            logger.info("Updating Project status to 'Ready to Apply'")
-            gh_client.update_project_status(issue_node_id, "Ready to Apply")
+            logger.info(
+                "Updating Project status to '%s'",
+                LABEL_TO_STATUS["ready-to-apply"],
+            )
+            gh_client.update_project_status(
+                issue_node_id, LABEL_TO_STATUS["ready-to-apply"]
+            )
 
     except Exception as e:
         logger.error("Error occurred during approved match tailoring: %s", e)
@@ -850,11 +862,7 @@ def run_all_pending(
 def main() -> None:
     """CLI entry point for triage and tailoring coordinator."""
     # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
+    setup_logging()
 
     parser = argparse.ArgumentParser(description="Triage and tailoring coordinator.")
     parser.add_argument(
@@ -870,15 +878,10 @@ def main() -> None:
         type=str,
         help="Path to GitHub webhook event JSON file (e.g. GITHUB_EVENT_PATH).",
     )
-    parser.add_argument(
-        "--repo-path",
-        type=str,
-        default=".",
-        help="Path to the local git repository (defaults to '.').",
-    )
+    add_repo_path_argument(parser)
     args = parser.parse_args()
 
-    repo_path = pathlib.Path(args.repo_path).resolve()
+    repo_path = resolve_repo_path(args.repo_path)
 
     # Load configurations and base resume
     try:

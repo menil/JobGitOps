@@ -10,10 +10,13 @@ permissions:
 
 jobs:
   transition:
+    # Any lifecycle label addition owns a column move (label -> column). The
+    # reverse direction lives in project-status-sync.yml; together they converge
+    # because re-setting an already-set column emits no `edited` event.
+    # This list MUST stay in sync with `LIFECYCLE_LABELS` in
+    # src/jobgitops/status_model.py (the single source of truth).
     if: |
-      github.event.label.name == 'applied' ||
-      github.event.label.name == 'interviewing' ||
-      github.event.label.name == 'rejected'
+      contains(fromJSON('["triage-pending","ready-to-apply","applied","in-loop","offer-received","rejected","triage-mismatched"]'), github.event.label.name)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository

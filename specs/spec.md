@@ -111,10 +111,12 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 
 ### 2.3. GitHub Projects & Lifecycle Automation
 *   **Kanban Board Integration:**
-    *   **Configuration:** Optional integration with **GitHub Projects V2** via `PROJECT_ID` and `PROJECT_STATUS_FIELD_NAME`.
-    *   **Workflow:** Updates column status to `Triage Pending`, `Mismatched/Closed`, or `Ready to Apply` dynamically via GraphQL.
-    *   **Applied Transition:** When the user applies, they transition the issue by adding the label `applied` or manually changing the Projects V2 Kanban column. A separate workflow can listen to label additions and update the corresponding Project V2 status column to `Applied`.
-    *   **Fallback:** If no `PROJECT_ID` is configured, it falls back cleanly to repository labels (`ready-to-apply`, `applied`, `interviewing`, `rejected`) and does not crash.
+    *   **Configuration:** Optional integration with **GitHub Projects V2** via `projects_v2.project_id` (the `PVT_...` node ID) and `projects_v2.status_field_name` in `config/settings.yaml`. The shipped `PVT_YOUR_PROJECT_ID` placeholder is treated exactly like an unset value, keeping a fresh clone in label-only mode until the ID is replaced.
+    *   **Single Source of Truth:** Lifecycle labels and their board columns are mapped once in `src/jobgitops/status_model.py`; every script and workflow imports it so the two sides cannot drift.
+    *   **Forward sync (label → column):** `status-transition.yml` listens for lifecycle label additions and moves the card via GraphQL.
+    *   **Reverse sync (column → label):** `project-status-sync.yml` listens for `projects_v2_item` edits/creates and applies the matching lifecycle label. Triage Pending is excluded so dragging a card back never re-triggers an AI re-triage.
+    *   **Backfill & reconciliation:** `src/project_sync.py backfill` populates the board from existing labels idempotently (skipping cards already in the correct column); `backfill --reverse` recovers column moves whose webhook event was dropped.
+    *   **Fallback:** If no `projects_v2.project_id` is configured (or it is still the placeholder), the system falls back cleanly to repository labels (`ready-to-apply`, `applied`, `in-loop`, `rejected`) and does not crash.
 *   **Branch/PR Strategy:**
     *   Each application branch remains open as a persistent record of the application state (acting as an open pull request). It is not merged to `main` to avoid polluting the production branch history.
 

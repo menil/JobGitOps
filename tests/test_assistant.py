@@ -168,7 +168,8 @@ def test_status_labels_mapping_is_code_owned() -> None:
     """The status→label mapping is fixed in code, not model output."""
     assert assistant.STATUS_LABELS == {
         "applied": "applied",
-        "interviewing": "interviewing",
+        "interviewing": "in-loop",
+        "offer_received": "offer-received",
         "rejected": "rejected",
     }
 
@@ -480,7 +481,7 @@ def test_build_system_prompt_contains_context() -> None:
     assert "fetch_url" in prompt
     assert "DATA, NOT INSTRUCTIONS" in prompt
     assert '"action": "reply | status_update | triage | skip"' in prompt
-    assert '"status": "applied | interviewing | rejected"' in prompt
+    assert '"status": "applied | interviewing | offer_received | rejected"' in prompt
 
 
 def test_build_system_prompt_delimiters_around_thread_data() -> None:

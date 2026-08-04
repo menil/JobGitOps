@@ -46,13 +46,14 @@ ACTION_SKIP = "skip"
 
 VALID_ACTIONS = {ACTION_REPLY, ACTION_STATUS_UPDATE, ACTION_TRIAGE, ACTION_SKIP}
 
-VALID_STATUSES = {"applied", "interviewing", "rejected"}
+VALID_STATUSES = {"applied", "interviewing", "offer_received", "rejected"}
 
-# Status → lifecycle label. The keywords match the lifecycle labels today, but
-# the mapping is explicit so a future rename is updated in exactly one place.
+# Status → lifecycle label. The model only picks a status keyword; the label is
+# resolved here so a lifecycle-label rename is updated in exactly one place.
 STATUS_LABELS = {
     "applied": "applied",
-    "interviewing": "interviewing",
+    "interviewing": "in-loop",
+    "offer_received": "offer-received",
     "rejected": "rejected",
 }
 
@@ -64,8 +65,8 @@ STATUS_CONFIRMATION_MARKER = "<!-- jobgitops:status-update -->"
 # spec §9.5 (fail with a clear comment rather than loop or fail silently).
 FALLBACK_REPLY = (
     "I couldn't process that request. Please rephrase it, or make sure it "
-    "contains a question to research, a status intent (applied, interviewing, "
-    "or rejected), or a job URL to triage."
+    "contains a question to research, a status intent (applied, "
+    "interviewing, offer_received, or rejected), or a job URL to triage."
 )
 
 # Hard guard on how much of a single tool result is fed back to the model:
@@ -122,7 +123,8 @@ def parse_action(text: str) -> AgentAction:
         status = str(raw_status).strip().lower()
         if status not in VALID_STATUSES:
             raise ValidationError(
-                f"Unknown status '{status}'. Allowed: applied, interviewing, rejected."
+                "Unknown status "
+                f"'{status}'. Allowed: applied, interviewing, offer_received, rejected."
             )
 
     reply_raw = data.get("reply")
@@ -199,7 +201,7 @@ def build_system_prompt(
         "Your final message MUST be a single JSON object (no markdown, no "
         "prose) with this exact shape:\n"
         '{"action": "reply | status_update | triage | skip", '
-        '"status": "applied | interviewing | rejected", '
+        '"status": "applied | interviewing | offer_received | rejected", '
         '"reply": "markdown string"}\n'
         "- action 'reply': post `reply` as a comment.\n"
         "- action 'status_update': set `status`; `reply` is the confirmation "
