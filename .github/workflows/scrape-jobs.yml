@@ -29,7 +29,32 @@ permissions:
   pull-requests: write
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check-enabled.outputs.enabled }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check if Scraper is Enabled
+        id: check-enabled
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          ENABLED=$(yq '.search.enabled' config/settings.yaml)
+          if [ "$ENABLED" = "false" ]; then
+            echo "enabled=false" >> $GITHUB_OUTPUT
+          else
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          fi
+
   scrape:
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

@@ -136,6 +136,7 @@ class SearchConfig:
         default_factory=lambda: ["linkedin", "indeed", "zip_recruiter"]
     )
     hours_old: int = 24
+    enabled: bool = True
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SearchConfig":
@@ -189,11 +190,20 @@ class SearchConfig:
             if hours_old <= 0:
                 raise ValidationError("search.hours_old must be greater than zero.")
 
+            enabled_val = data.get("enabled")
+            if enabled_val is None:
+                enabled = True
+            elif isinstance(enabled_val, str):
+                enabled = enabled_val.lower() not in ("false", "0", "no", "")
+            else:
+                enabled = bool(enabled_val)
+
             return cls(
                 location=location,
                 job_type=job_type,
                 platforms=platforms,
                 hours_old=hours_old,
+                enabled=enabled,
             )
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse SearchConfig: {e}") from e
