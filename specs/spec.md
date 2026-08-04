@@ -202,4 +202,4 @@ To enforce quality standards, local validation, and runner test checks:
         ruff format --check .
         pytest --cov=src --cov-fail-under=90 tests/
     ```
-*   **CI Pipeline Validation (`.github/workflows/test.yml`)**: Launches on every push and pull request to run `just validate` within the `devenv` shell environment before any changes can be merged.
+*   **CI Pipeline Validation (`.github/workflows/ci.yml`)**: Launches on every push and pull request to run `just validate` within the pre-built Docker container environment before any changes can be merged.

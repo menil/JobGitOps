@@ -205,11 +205,11 @@ Add the following under **Settings > Secrets and variables > Actions** in your f
 | `respond-issue.yml` | Issue comment created or issue opened | Runs the Issue Assistant: answers thread questions with web research, applies status labels from conversational intents, and auto-triages bare job-URL submissions |
 | `status-transition.yml` | Issue labeled `applied`, `in-loop`, or `rejected` | Moves the issue card to the matching Projects V2 column |
 | `project-status-sync.yml` | Projects V2 item created/edited | Reverse sync: applies the label matching a card's new column (skips Triage Pending) |
-| `test.yml` | Push/PR to `main` | Runs `just validate` (lint + format + 90% coverage tests) in the devenv shell |
+| `ci.yml` | Push/PR to `main` | Runs `just validate` (lint + format + 90% coverage tests) inside the pre-built container |
 | `pr-review.yml` | PR opened, reopened, or marked ready for review (dependabot skipped) | Automated code review via OpenRouter |
 | `sync-labels.yml` | Push to `main` | Applies issue labels from `.github/labels.yml` and migrates renamed labels (e.g. `interviewing` → `in-loop`) |
 
-The scrape, triage, status-transition, and test workflows run inside the reproducible Nix/devenv environment, avoiding runner `apt-get` library-install delays.
+These workflows run inside a pre-built Docker container hosting WeasyPrint libraries and uv, avoiding runner bootstrap delays.
 
 ## Troubleshooting
 

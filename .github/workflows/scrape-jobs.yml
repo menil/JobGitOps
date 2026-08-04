@@ -27,6 +27,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  packages: read
 
 jobs:
   check:
@@ -56,21 +57,20 @@ jobs:
     needs: check
     if: needs.check.outputs.enabled == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: ${{ vars.RUNNER_IMAGE }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
     timeout-minutes: 30
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v30
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-
-      - name: Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@v8
-
-      - name: Install Devenv
-        run: nix profile install nixpkgs#devenv
+      - name: Sync Dependencies
+        run: uv sync --frozen --no-install-project
 
       - name: Run Job Scraper
         env:
@@ -96,4 +96,4 @@ jobs:
               ARGS+=("--dry-run")
             fi
           fi
-          devenv shell python src/scrape.py "${ARGS[@]}"
+          python src/scrape.py "${ARGS[@]}"
