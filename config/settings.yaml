@@ -45,7 +45,7 @@ custom_queries:
 # When unset, the workflows fall back to GITHUB_TOKEN and Projects V2
 # automation degrades to label-only tracking.
 projects_v2:
-  project_id: "PVT_YOUR_PROJECT_ID"
+  project_id: "PVT_kwHOAArOl84BfSji"
   status_field_name: "Status"
 
 # Research settings for the Issue Assistant agent (respond.py web tools).
