@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   issues: write
+  packages: read
 
 jobs:
   transition:
@@ -18,23 +19,22 @@ jobs:
       github.event.action == 'closed' ||
       (github.event.action == 'labeled' && contains(fromJSON('["triage-pending","ready-to-apply","applied","in-loop","offer-received","rejected","triage-mismatched"]'), github.event.label.name))
     runs-on: ubuntu-latest
+    container:
+      image: ${{ vars.RUNNER_IMAGE }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v30
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-
-      - name: Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@v8
-
-      - name: Install Devenv
-        run: nix profile install nixpkgs#devenv
+      - name: Sync Dependencies
+        run: uv sync --frozen --no-install-project
 
       - name: Run Status Transition Script
-        run: devenv shell python src/status_transition.py --event-path "$GITHUB_EVENT_PATH"
+        run: python src/status_transition.py --event-path "$GITHUB_EVENT_PATH"
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
