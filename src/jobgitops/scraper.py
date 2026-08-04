@@ -425,6 +425,11 @@ def run_scraper(
     """
     logger.info("Loading settings from: %s", settings_path)
     settings = load_settings(settings_path)
+
+    if not settings.search.enabled:
+        logger.info("Scraper is disabled in settings.yaml. Skipping execution.")
+        return
+
     resume = load_resume(resume_path) if not settings.custom_queries else None
 
     # 1. Resolve GitHub client (with dependency injection fallback)

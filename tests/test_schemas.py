@@ -822,3 +822,30 @@ def test_boolean_string_validation_raises() -> None:
         ValidationError, match="basics.phone must be a string, not a boolean"
     ):
         Resume.from_dict(data)
+
+
+def test_search_config_enabled_parsing() -> None:
+    """Test parsing the enabled flag in search config under various types."""
+    # Test default is True
+    s1 = Settings.from_dict({"search": {}})
+    assert s1.search.enabled is True
+
+    # Test explicit True
+    s2 = Settings.from_dict({"search": {"enabled": True}})
+    assert s2.search.enabled is True
+
+    # Test explicit False
+    s3 = Settings.from_dict({"search": {"enabled": False}})
+    assert s3.search.enabled is False
+
+    # Test string 'false' coercion
+    s4 = Settings.from_dict({"search": {"enabled": "false"}})
+    assert s4.search.enabled is False
+
+    # Test string '0' coercion
+    s5 = Settings.from_dict({"search": {"enabled": "0"}})
+    assert s5.search.enabled is False
+
+    # Test string 'true' coercion
+    s6 = Settings.from_dict({"search": {"enabled": "true"}})
+    assert s6.search.enabled is True

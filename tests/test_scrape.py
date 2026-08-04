@@ -619,3 +619,29 @@ def test_run_scraper_skips_hybrid(
     _, kwargs = mock_github_client.create_issue.call_args
     assert "Remote Co" in kwargs["title"]
     assert "Remote Engineer" in kwargs["title"]
+
+
+@patch("jobgitops.scraper.load_settings")
+@patch("jobgitops.scraper.load_resume")
+def test_run_scraper_disabled(
+    mock_load_resume,
+    mock_load_settings,
+) -> None:
+    """Verify run_scraper exits early and does nothing if search is disabled."""
+    mock_settings = MagicMock()
+    mock_settings.search.enabled = False
+    mock_load_settings.return_value = mock_settings
+
+    mock_github_client = MagicMock()
+    mock_scrape_jobs = MagicMock()
+
+    run_scraper(
+        dry_run=False,
+        github_client=mock_github_client,
+        scrape_fn=mock_scrape_jobs,
+    )
+
+    # Scraper functions and GitHub client should never have been invoked
+    assert mock_load_resume.call_count == 0
+    assert mock_scrape_jobs.call_count == 0
+    assert mock_github_client.create_issue.call_count == 0

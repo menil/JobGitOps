@@ -6,6 +6,9 @@ fit_threshold: 3.5
 
 # Search settings for the job scraper bot (scrape.py)
 search:
+  # Enable or disable the daily automated scraping action (set to false to pause search)
+  enabled: false
+
   # Target location for job listings (e.g., "Remote", "Seattle, WA", "Sunnyvale, CA")
   location: "Remote"
 
