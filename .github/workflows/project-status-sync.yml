@@ -41,5 +41,6 @@ jobs:
       - name: Run Project Status Sync
         run: python src/project_sync.py event --event-path "$GITHUB_EVENT_PATH"
         env:
-          GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

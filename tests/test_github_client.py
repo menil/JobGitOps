@@ -60,6 +60,46 @@ def test_github_client_repr() -> None:
     assert "***" in repr_str
 
 
+def test_github_client_project_token_init(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test project_token initialization and fallback to environment variable."""
+    # Provided explicitly
+    client = GitHubClient(
+        token="main-token", repo="owner/repo", project_token="proj-token"
+    )
+    assert client.token == "main-token"
+    assert client.project_token == "proj-token"
+
+    # Fallback to environment variable
+    monkeypatch.setenv("PROJECT_V2_TOKEN", "env-proj-token")
+    client_env = GitHubClient(token="main-token", repo="owner/repo")
+    assert client_env.token == "main-token"
+    assert client_env.project_token == "env-proj-token"
+
+
+@mock.patch("urllib.request.urlopen")
+def test_github_client_graphql_uses_project_token(
+    mock_urlopen: mock.MagicMock,
+) -> None:
+    """Test that GraphQL requests use project_token instead of token if provided."""
+    resp = {"data": {"node": {"id": "123"}}}
+    mock_urlopen.return_value = make_mock_response(
+        body=json.dumps(resp).encode("utf-8")
+    )
+
+    client = GitHubClient(
+        token="main-token",
+        repo="owner/repo",
+        project_id="proj-id",
+        project_token="proj-token",
+    )
+    client._graphql("query { node(id: 1) { id } }")
+
+    # Verify authorization header in request
+    args, kwargs = mock_urlopen.call_args
+    req = args[0]
+    assert req.headers["Authorization"] == "Bearer proj-token"
+
+
 @mock.patch("urllib.request.urlopen")
 def test_post_comment(mock_urlopen: mock.MagicMock) -> None:
     """Test posting a comment to an issue."""
@@ -486,6 +526,26 @@ def test_update_project_status_graphql_errors(mock_urlopen: mock.MagicMock) -> N
         client.update_project_status("issue-node-id", "Applied")
 
     assert "GraphQL error adding item to project" in str(exc_info.value)
+
+
+@mock.patch("urllib.request.urlopen")
+def test_update_project_status_forbidden_graceful(mock_urlopen: mock.MagicMock) -> None:
+    """Test that FORBIDDEN GraphQL errors are handled gracefully and logged."""
+    resp_err = {
+        "errors": [
+            {
+                "type": "FORBIDDEN",
+                "message": "Resource not accessible by integration",
+            }
+        ]
+    }
+    mock_urlopen.return_value = make_mock_response(
+        body=json.dumps(resp_err).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    # Should not raise any exception and degrade gracefully
+    client.update_project_status("issue-node-id", "Applied")
 
 
 @mock.patch("urllib.request.urlopen")

@@ -1,12 +1,16 @@
 """GitHub API client wrapper for JobGitOps."""
 
 import json
+import logging
+import os
 import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+
+logger = logging.getLogger("jobgitops.github_client")
 
 
 class GitHubClientError(Exception):
@@ -28,6 +32,10 @@ class GitHubClientError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.response_body = response_body
+
+
+class GitHubProjectPermissionError(GitHubClientError):
+    """Raised when a Projects V2 operation fails due to insufficient permissions."""
 
 
 def extract_label_names(labels_raw: list) -> list[str]:
@@ -59,6 +67,7 @@ class GitHubClient:
         project_id: str | None = None,
         status_field_name: str = "Status",
         timeout: int = 10,
+        project_token: str | None = None,
     ) -> None:
         """Initialize the GitHub client.
 
@@ -69,6 +78,7 @@ class GitHubClient:
             status_field_name: Name of the Projects V2 single-select field
                 for column status.
             timeout: Network request timeout in seconds.
+            project_token: Optional separate token for Projects V2 mutations.
 
         Raises:
             ValueError: If the repository identifier format is invalid.
@@ -83,6 +93,7 @@ class GitHubClient:
         self.project_id = project_id
         self.status_field_name = status_field_name
         self.timeout = timeout
+        self.project_token = project_token or os.environ.get("PROJECT_V2_TOKEN")
 
         # Number of attempts for transient failures (429/5xx), including the
         # initial try. Kept as an instance attribute so tests can shrink it.
@@ -211,7 +222,37 @@ class GitHubClient:
         data: dict[str, Any] = {"query": query}
         if variables:
             data["variables"] = variables
-        return self._request("POST", url, data=data)
+
+        headers = {}
+        if self.project_token:
+            headers["Authorization"] = f"Bearer {self.project_token}"
+        return self._request("POST", url, data=data, headers=headers)
+
+    def _raise_graphql_error(self, errors: list[Any], context: str) -> None:
+        """Helper to inspect GraphQL errors and raise the appropriate exception.
+
+        Args:
+            errors: List of error dictionaries returned by the GraphQL endpoint.
+            context: Description of the action (e.g. "adding item to project").
+
+        Raises:
+            GitHubProjectPermissionError: If the error represents a permission
+                failure (FORBIDDEN / Resource not accessible).
+            GitHubClientError: For all other GraphQL errors.
+        """
+        is_forbidden = any(
+            isinstance(err, dict)
+            and (
+                err.get("type") == "FORBIDDEN"
+                or "Resource not accessible" in err.get("message", "")
+            )
+            for err in errors
+        )
+        if is_forbidden:
+            raise GitHubProjectPermissionError(
+                f"GraphQL project permission denied: {errors}"
+            )
+        raise GitHubClientError(f"GraphQL error {context}: {errors}")
 
     def post_comment(self, issue_number: int, body: str) -> dict[str, Any]:
         """Post a comment to a GitHub issue.
@@ -328,9 +369,7 @@ class GitHubClient:
         """
         res = self._graphql(query, {"nodeId": node_id})
         if "errors" in res:
-            raise GitHubClientError(
-                f"GraphQL error resolving issue node ID: {res['errors']}"
-            )
+            self._raise_graphql_error(res["errors"], "resolving issue node ID")
 
         node = (res.get("data") or {}).get("node") or {}
         number = node.get("number")
@@ -445,76 +484,87 @@ class GitHubClient:
         if not self.project_id:
             return
 
-        # 1. Add/retrieve the item in the project
-        add_mutation = """
-        mutation AddProjectV2Item($projectId: ID!, $contentId: ID!) {
-          addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-            item {
-              id
+        try:
+            # 1. Add/retrieve the item in the project
+            add_mutation = """
+            mutation AddProjectV2Item($projectId: ID!, $contentId: ID!) {
+              addProjectV2ItemById(input: {
+                projectId: $projectId,
+                contentId: $contentId
+              }) {
+                item {
+                  id
+                }
+              }
             }
-          }
-        }
-        """
-        res = self._graphql(
-            add_mutation,
-            {"projectId": self.project_id, "contentId": issue_node_id},
-        )
-        if "errors" in res:
-            raise GitHubClientError(
-                f"GraphQL error adding item to project: {res['errors']}"
+            """
+            res = self._graphql(
+                add_mutation,
+                {"projectId": self.project_id, "contentId": issue_node_id},
             )
+            if "errors" in res:
+                self._raise_graphql_error(res["errors"], "adding item to project")
 
-        data = res.get("data") or {}
-        add_res = data.get("addProjectV2ItemById") or {}
-        item = add_res.get("item") or {}
-        item_id = item.get("id")
-        if not item_id:
-            raise GitHubClientError("Failed to add or retrieve item ID from project.")
+            data = res.get("data") or {}
+            add_res = data.get("addProjectV2ItemById") or {}
+            item = add_res.get("item") or {}
+            item_id = item.get("id")
+            if not item_id:
+                raise GitHubClientError(
+                    "Failed to add or retrieve item ID from project."
+                )
 
-        # 2. Get status field ID and option ID
-        field_id, options_map = self._resolve_status_field()
+            # 2. Get status field ID and option ID
+            field_id, options_map = self._resolve_status_field()
 
-        option_id = (options_map.get(status_name) or {}).get("id")
-        if not option_id:
-            raise GitHubClientError(
-                f"Status option '{status_name}' not found in status field options."
-            )
+            option_id = (options_map.get(status_name) or {}).get("id")
+            if not option_id:
+                raise GitHubClientError(
+                    f"Status option '{status_name}' not found in status field options."
+                )
 
-        # 3. Update the field value
-        update_mutation = """
-        mutation UpdateProjectV2ItemFieldValue(
-          $projectId: ID!,
-          $itemId: ID!,
-          $fieldId: ID!,
-          $optionId: String!
-        ) {
-          updateProjectV2ItemFieldValue(input: {
-            projectId: $projectId,
-            itemId: $itemId,
-            fieldId: $fieldId,
-            value: {
-              singleSelectOptionId: $optionId
+            # 3. Update the field value
+            update_mutation = """
+            mutation UpdateProjectV2ItemFieldValue(
+              $projectId: ID!,
+              $itemId: ID!,
+              $fieldId: ID!,
+              $optionId: String!
+            ) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId,
+                itemId: $itemId,
+                fieldId: $fieldId,
+                value: {
+                  singleSelectOptionId: $optionId
+                }
+              }) {
+                projectV2Item {
+                  id
+                }
+              }
             }
-          }) {
-            projectV2Item {
-              id
-            }
-          }
-        }
-        """
-        update_res = self._graphql(
-            update_mutation,
-            {
-                "projectId": self.project_id,
-                "itemId": item_id,
-                "fieldId": field_id,
-                "optionId": option_id,
-            },
-        )
-        if "errors" in update_res:
-            raise GitHubClientError(
-                f"GraphQL error updating project status: {update_res['errors']}"
+            """
+            update_res = self._graphql(
+                update_mutation,
+                {
+                    "projectId": self.project_id,
+                    "itemId": item_id,
+                    "fieldId": field_id,
+                    "optionId": option_id,
+                },
             )
+            if "errors" in update_res:
+                self._raise_graphql_error(
+                    update_res["errors"], "updating project status"
+                )
+        except GitHubProjectPermissionError as e:
+            logger.warning(
+                "GitHub Projects V2 permission denied: %s. "
+                "Degrading to label-only tracking.",
+                e,
+            )
+            return
 
     def _resolve_status_field(self) -> tuple[str, dict[str, str]]:
         """Resolve the status field ID and its option-name-to-ID map.
@@ -560,9 +610,7 @@ class GitHubClient:
         """
         fields_res = self._graphql(fields_query, {"projectId": self.project_id})
         if "errors" in fields_res:
-            raise GitHubClientError(
-                f"GraphQL error fetching project fields: {fields_res['errors']}"
-            )
+            self._raise_graphql_error(fields_res["errors"], "fetching project fields")
 
         node = fields_res.get("data") or {}
         node = node.get("node")
@@ -663,9 +711,7 @@ class GitHubClient:
         """
         res = self._graphql(mutation, {"fieldId": field_id, "options": options})
         if "errors" in res:
-            raise GitHubClientError(
-                f"GraphQL error updating status field options: {res['errors']}"
-            )
+            self._raise_graphql_error(res["errors"], "updating status field options")
 
         # The mutation changed the option set, so the cached option map is
         # stale; drop it so a later call in the same process re-fetches.
@@ -732,9 +778,7 @@ class GitHubClient:
                 {"projectId": self.project_id, "first": 100, "after": after},
             )
             if "errors" in res:
-                raise GitHubClientError(
-                    f"GraphQL error listing project items: {res['errors']}"
-                )
+                self._raise_graphql_error(res["errors"], "listing project items")
 
             node = (res.get("data") or {}).get("node") or {}
             items = ((node.get("items") or {}).get("nodes")) or []

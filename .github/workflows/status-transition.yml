@@ -36,5 +36,6 @@ jobs:
       - name: Run Status Transition Script
         run: python src/status_transition.py --event-path "$GITHUB_EVENT_PATH"
         env:
-          GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
