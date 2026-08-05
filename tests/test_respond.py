@@ -22,7 +22,7 @@ from jobgitops.assistant import (
     AgentAction,
 )
 from jobgitops.llm import QuotaExceededError
-from jobgitops.schema import Resume, Settings
+from jobgitops.schema import ProjectsV2Config, Resume, Settings
 
 DEFAULT_ENV = {"GITHUB_TOKEN": "test_token", "GITHUB_REPOSITORY": "owner/repo"}
 
@@ -369,14 +369,38 @@ def test_execute_action_reply_empty_is_noop() -> None:
 
 @pytest.mark.parametrize("status", ["applied", "interviewing", "rejected"])
 def test_execute_action_status_update(status: str) -> None:
-    """A status_update adds the label and posts a marker-prefixed confirmation.
-
-    The Projects V2 column move is delegated to status-transition.yml: the
-    responder must never call update_project_status itself.
-    """
+    """A status_update adds the label, updates the project, and posts confirmation."""
     gh = FakeGitHubClient()
+    settings = sample_settings()
+    settings.projects_v2 = ProjectsV2Config(
+        project_id="PVT_123", status_field_name="Status"
+    )
     respond.execute_action(
         AgentAction(action="status_update", status=status, reply="Marked."),
+        issue_number=5,
+        issue_title="t",
+        issue_body="b",
+        issue_node_id="ND",
+        repo_path=Path(),
+        gh_client=gh,
+        settings=settings,
+        resume=sample_resume(),
+        llm_client=MagicMock(),
+        web_client=MagicMock(),
+    )
+    assert gh.added_labels == [(5, [STATUS_LABELS[status]])]
+    assert len(gh.posted_comments) == 1
+    body = gh.posted_comments[0][1]
+    assert body.startswith(STATUS_CONFIRMATION_MARKER)
+    assert "Marked." in body
+    assert gh.project_statuses == [("ND", status)]
+
+
+def test_execute_action_status_update_fallback_without_projects() -> None:
+    """Verify status_update defaults to fallback when Projects V2 is unconfigured."""
+    gh = FakeGitHubClient()
+    respond.execute_action(
+        AgentAction(action="status_update", status="applied", reply="Marked."),
         issue_number=5,
         issue_title="t",
         issue_body="b",
@@ -388,7 +412,7 @@ def test_execute_action_status_update(status: str) -> None:
         llm_client=MagicMock(),
         web_client=MagicMock(),
     )
-    assert gh.added_labels == [(5, [STATUS_LABELS[status]])]
+    assert gh.added_labels == [(5, [STATUS_LABELS["applied"]])]
     assert len(gh.posted_comments) == 1
     body = gh.posted_comments[0][1]
     assert body.startswith(STATUS_CONFIRMATION_MARKER)

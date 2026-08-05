@@ -37,10 +37,10 @@ from jobgitops.assistant import (
     run_agent,
 )
 from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
-from jobgitops.github_client import GitHubClient, extract_label_names
+from jobgitops.github_client import GitHubClient, GitHubClientError, extract_label_names
 from jobgitops.llm import QuotaExceededError, get_llm_client
 from jobgitops.loader import load_resume, load_settings
-from jobgitops.status_model import LIFECYCLE_LABELS
+from jobgitops.status_model import LIFECYCLE_LABELS, sync_lifecycle_label
 from jobgitops.web import WebClient
 
 logger = logging.getLogger("jobgitops.respond")
@@ -193,13 +193,22 @@ def execute_action(
 
     if action.action == ACTION_STATUS_UPDATE:
         label = STATUS_LABELS[action.status]
-        gh_client.add_labels(issue_number, [label])
+        sync_lifecycle_label(gh_client, issue_number, label)
+        if issue_node_id and settings.projects_v2 and settings.projects_v2.project_id:
+            try:
+                gh_client.update_project_status(issue_node_id, action.status)
+                logger.info(
+                    "Directly updated Projects V2 status to %s for issue #%d.",
+                    action.status,
+                    issue_number,
+                )
+            except GitHubClientError as e:
+                logger.warning(
+                    "Could not update Projects V2 status directly for issue #%d: %s",
+                    issue_number,
+                    e,
+                )
         gh_client.post_comment(issue_number, _confirmation_comment(action.reply))
-        logger.info(
-            "Added label '%s' to issue #%d; status-transition.yml owns the column.",
-            label,
-            issue_number,
-        )
         return
 
     if action.action == ACTION_TRIAGE:
