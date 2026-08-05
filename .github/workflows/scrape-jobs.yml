@@ -74,7 +74,8 @@ jobs:
 
       - name: Run Job Scraper
         env:
-          GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           INPUT_LOCATION: ${{ github.event.inputs.location }}
           INPUT_JOB_TYPE: ${{ github.event.inputs.job_type }}
