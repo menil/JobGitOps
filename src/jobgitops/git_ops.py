@@ -31,6 +31,11 @@ class GitOpsError(Exception):
     pass
 
 
+def _git_base_args(cwd: pathlib.Path) -> list[str]:
+    """Return the base git command list with safe.directory override."""
+    return ["git", "-c", f"safe.directory={cwd.resolve()}"]
+
+
 def run_git(args: list[str], cwd: pathlib.Path) -> str:
     """Execute a Git command and return its stdout.
 
@@ -46,7 +51,7 @@ def run_git(args: list[str], cwd: pathlib.Path) -> str:
     """
     try:
         res = subprocess.run(
-            ["git"] + args,
+            _git_base_args(cwd) + args,
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -54,40 +59,11 @@ def run_git(args: list[str], cwd: pathlib.Path) -> str:
         )
         return res.stdout.strip()
     except subprocess.CalledProcessError as e:
-        stderr_msg = e.stderr.strip() if e.stderr else "No stderr message"
-        if "detected dubious ownership" in stderr_msg or "safe.directory" in stderr_msg:
-            # Self-heal: set safe.directory to the specific repository path
-            # to allow Git commands to run in container runners.
-            try:
-                subprocess.run(
-                    [
-                        "git",
-                        "config",
-                        "--global",
-                        "--add",
-                        "safe.directory",
-                        str(cwd.resolve()),
-                    ],
-                    cwd=cwd,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                # Retry the original command
-                res = subprocess.run(
-                    ["git"] + args,
-                    cwd=cwd,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                return res.stdout.strip()
-            except Exception as retry_err:
-                logger.warning(
-                    "Attempted to resolve dubious ownership error by "
-                    "setting safe.directory but failed: %s",
-                    retry_err,
-                )
+        stderr_msg = (
+            redact_sensitive_string(e.stderr.strip())
+            if e.stderr
+            else "No stderr message"
+        )
         # Mask potentially sensitive remote access tokens from command args
         # in the error log.
         masked_cmd = " ".join(redact_sensitive_string(arg) for arg in args)
@@ -191,10 +167,6 @@ def build_commit_message(company: str, role: str) -> str:
     if len(combined) <= max_len:
         return prefix + combined
 
-    # Allocate space dynamically (deducting 3 characters for the " - " separator)
-    available = max_len - 3
-    limit_c, limit_r = allocate_lengths(len(company_clean), len(role_clean), available)
-
     def truncate(s: str, limit: int) -> str:
         if len(s) <= limit:
             return s
@@ -202,10 +174,19 @@ def build_commit_message(company: str, role: str) -> str:
             return s[:limit]
         return s[: limit - 2] + ".."
 
-    company_trunc = truncate(company_clean, limit_c)
-    role_trunc = truncate(role_clean, limit_r)
-
-    return f"{prefix}{company_trunc} - {role_trunc}"
+    if company_clean and role_clean:
+        # Allocate space dynamically (deducting 3 characters for the " - " separator)
+        available = max_len - 3
+        limit_c, limit_r = allocate_lengths(
+            len(company_clean), len(role_clean), available
+        )
+        company_trunc = truncate(company_clean, limit_c)
+        role_trunc = truncate(role_clean, limit_r)
+        return f"{prefix}{company_trunc} - {role_trunc}"
+    else:
+        single = company_clean or role_clean
+        single_trunc = truncate(single, max_len)
+        return f"{prefix}{single_trunc}"
 
 
 def create_or_checkout_branch(
@@ -223,7 +204,8 @@ def create_or_checkout_branch(
     """
     # Verify local heads to check branch existence without raising exceptions.
     res = subprocess.run(
-        ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"],
+        _git_base_args(repo_path)
+        + ["show-ref", "--verify", f"refs/heads/{branch_name}"],
         cwd=repo_path,
         capture_output=True,
         text=True,
@@ -233,7 +215,8 @@ def create_or_checkout_branch(
     else:
         # Check if base branch exists locally or on remote to avoid checkout crashes.
         base_res = subprocess.run(
-            ["git", "show-ref", "--verify", f"refs/heads/{base_branch}"],
+            _git_base_args(repo_path)
+            + ["show-ref", "--verify", f"refs/heads/{base_branch}"],
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -270,6 +253,10 @@ def commit_changes(
         run_git(["config", "user.name"], cwd=repo_path)
     except GitOpsError:
         run_git(["config", "user.name", "github-actions[bot]"], cwd=repo_path)
+
+    try:
+        run_git(["config", "user.email"], cwd=repo_path)
+    except GitOpsError:
         run_git(
             [
                 "config",
@@ -285,7 +272,7 @@ def commit_changes(
 
     # Perform a dry-run check to prevent empty commits which raise git errors.
     diff_res = subprocess.run(
-        ["git", "diff", "--cached", "--quiet"],
+        _git_base_args(repo_path) + ["diff", "--cached", "--quiet"],
         cwd=repo_path,
     )
     if diff_res.returncode == 0:
