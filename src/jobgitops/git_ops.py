@@ -11,6 +11,19 @@ logger = logging.getLogger("jobgitops.git_ops")
 # Pre-compiled regex for slugify to optimize performance in loops.
 SLUG_REGEX = re.compile(r"[^a-z0-9]+")
 
+# Pre-compiled regexes for sensitive info masking
+URL_AUTH_RE = re.compile(r"(https?://)([^:@\s]+)(:[^@\s]+)?@")
+TOKEN_RE = re.compile(r"\b(ghp|gho|ghu|ghs|github_pat)_[a-zA-Z0-9_]{36,255}\b")
+
+
+def redact_sensitive_string(s: str) -> str:
+    """Redact sensitive tokens and basic authentication from a string."""
+    # Redact URLs: replace user:pass or token with ***
+    s = URL_AUTH_RE.sub(r"\1***@", s)
+    # Redact raw GitHub tokens
+    s = TOKEN_RE.sub("***", s)
+    return s
+
 
 class GitOpsError(Exception):
     """Raised when a Git operation fails."""
@@ -42,11 +55,42 @@ def run_git(args: list[str], cwd: pathlib.Path) -> str:
         return res.stdout.strip()
     except subprocess.CalledProcessError as e:
         stderr_msg = e.stderr.strip() if e.stderr else "No stderr message"
+        if "detected dubious ownership" in stderr_msg or "safe.directory" in stderr_msg:
+            # Self-heal: set safe.directory to the specific repository path
+            # to allow Git commands to run in container runners.
+            try:
+                subprocess.run(
+                    [
+                        "git",
+                        "config",
+                        "--global",
+                        "--add",
+                        "safe.directory",
+                        str(cwd.resolve()),
+                    ],
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                # Retry the original command
+                res = subprocess.run(
+                    ["git"] + args,
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                return res.stdout.strip()
+            except Exception as retry_err:
+                logger.warning(
+                    "Attempted to resolve dubious ownership error by "
+                    "setting safe.directory but failed: %s",
+                    retry_err,
+                )
         # Mask potentially sensitive remote access tokens from command args
         # in the error log.
-        masked_cmd = " ".join(
-            "***" if "token" in arg or "@" in arg else arg for arg in args
-        )
+        masked_cmd = " ".join(redact_sensitive_string(arg) for arg in args)
         raise GitOpsError(
             f"Git command failed: git {masked_cmd}. Error: {stderr_msg}"
         ) from e

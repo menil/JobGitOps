@@ -485,3 +485,87 @@ def test_push_branch_force_with_lease_failure(
     assert "force-with-lease" in error_msg
     assert "Permission denied" in error_msg
     assert "fetch first" in error_msg
+
+
+@mock.patch("subprocess.run")
+def test_run_git_dubious_ownership_self_heal(mock_run: mock.MagicMock) -> None:
+    """Test that run_git self-heals when encountering a dubious ownership error."""
+    dubious_err = subprocess.CalledProcessError(
+        returncode=128,
+        cmd=["git", "status"],
+        stderr=(
+            "fatal: detected dubious ownership in repository "
+            "at '/__w/JobGitOps/JobGitOps'"
+        ),
+    )
+    # Second call (inside config safe.dir): succeed
+    mock_config = mock.MagicMock(returncode=0)
+    # Third call (retry git status): succeed with stdout
+    mock_retry = mock.MagicMock(returncode=0, stdout="on-branch-main")
+
+    mock_run.side_effect = [dubious_err, mock_config, mock_retry]
+
+    repo = pathlib.Path("/repo")
+    res = run_git(["status"], repo)
+    assert res == "on-branch-main"
+
+    # Verify calls
+    assert mock_run.call_count == 3
+    mock_run.assert_has_calls(
+        [
+            mock.call(
+                ["git", "status"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ),
+            mock.call(
+                [
+                    "git",
+                    "config",
+                    "--global",
+                    "--add",
+                    "safe.directory",
+                    str(repo.resolve()),
+                ],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ),
+            mock.call(
+                ["git", "status"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ),
+        ]
+    )
+
+
+@mock.patch("subprocess.run")
+def test_run_git_dubious_ownership_config_fails(mock_run: mock.MagicMock) -> None:
+    """Test that run_git propagates the original error when git config fails."""
+    dubious_err = subprocess.CalledProcessError(
+        returncode=128,
+        cmd=["git", "status"],
+        stderr=(
+            "fatal: detected dubious ownership in repository "
+            "at '/__w/JobGitOps/JobGitOps'"
+        ),
+    )
+    config_err = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["git", "config", "--global", "--add", "safe.directory", "/repo"],
+        stderr="failed to write config",
+    )
+    mock_run.side_effect = [dubious_err, config_err]
+
+    repo = pathlib.Path("/repo")
+    with pytest.raises(GitOpsError) as exc_info:
+        run_git(["status"], repo)
+
+    assert "detected dubious ownership" in str(exc_info.value)
+    assert mock_run.call_count == 2
