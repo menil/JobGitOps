@@ -140,7 +140,7 @@ def test_run_git_success(mock_run: mock.MagicMock) -> None:
     res = run_git(["status"], pathlib.Path("/tmp"))
     assert res == "my-output"
     mock_run.assert_called_once_with(
-        ["git", "status"],
+        ["git", "-c", f"safe.directory={pathlib.Path('/tmp').resolve()}", "status"],
         cwd=pathlib.Path("/tmp"),
         capture_output=True,
         text=True,
@@ -203,13 +203,20 @@ def test_create_or_checkout_branch_exists(mock_run: mock.MagicMock) -> None:
     mock_run.assert_has_calls(
         [
             mock.call(
-                ["git", "show-ref", "--verify", "refs/heads/my-branch"],
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "show-ref",
+                    "--verify",
+                    "refs/heads/my-branch",
+                ],
                 cwd=repo,
                 capture_output=True,
                 text=True,
             ),
             mock.call(
-                ["git", "checkout", "my-branch"],
+                ["git", "-c", "safe.directory=/repo", "checkout", "my-branch"],
                 cwd=repo,
                 capture_output=True,
                 text=True,
@@ -236,19 +243,42 @@ def test_create_or_checkout_branch_new_with_base(mock_run: mock.MagicMock) -> No
     mock_run.assert_has_calls(
         [
             mock.call(
-                ["git", "show-ref", "--verify", "refs/heads/my-branch"],
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "show-ref",
+                    "--verify",
+                    "refs/heads/my-branch",
+                ],
                 cwd=repo,
                 capture_output=True,
                 text=True,
             ),
             mock.call(
-                ["git", "show-ref", "--verify", "refs/heads/main"],
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "show-ref",
+                    "--verify",
+                    "refs/heads/main",
+                ],
                 cwd=repo,
                 capture_output=True,
                 text=True,
             ),
             mock.call(
-                ["git", "checkout", "-b", "my-branch", "main", "--"],
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "checkout",
+                    "-b",
+                    "my-branch",
+                    "main",
+                    "--",
+                ],
                 cwd=repo,
                 capture_output=True,
                 text=True,
@@ -275,19 +305,41 @@ def test_create_or_checkout_branch_new_no_base(mock_run: mock.MagicMock) -> None
     mock_run.assert_has_calls(
         [
             mock.call(
-                ["git", "show-ref", "--verify", "refs/heads/my-branch"],
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "show-ref",
+                    "--verify",
+                    "refs/heads/my-branch",
+                ],
                 cwd=repo,
                 capture_output=True,
                 text=True,
             ),
             mock.call(
-                ["git", "show-ref", "--verify", "refs/heads/main"],
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "show-ref",
+                    "--verify",
+                    "refs/heads/main",
+                ],
                 cwd=repo,
                 capture_output=True,
                 text=True,
             ),
             mock.call(
-                ["git", "checkout", "-b", "my-branch", "--"],
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "checkout",
+                    "-b",
+                    "my-branch",
+                    "--",
+                ],
                 cwd=repo,
                 capture_output=True,
                 text=True,
@@ -301,14 +353,22 @@ def test_create_or_checkout_branch_new_no_base(mock_run: mock.MagicMock) -> None
 def test_commit_changes_success(mock_run: mock.MagicMock) -> None:
     """Test successful commit workflow with changes staged."""
     # 1. git config user.name (returns 0)
-    # 2. git add --force -- file1 file2 (returns 0)
-    # 3. git diff --cached --quiet (staged changes exist; returns 1)
-    # 4. git commit -m msg (returns 0)
-    mock_config = mock.MagicMock(returncode=0, stdout="my-user")
+    # 2. git config user.email (returns 0)
+    # 3. git add --force -- file1 file2 (returns 0)
+    # 4. git diff --cached --quiet (staged changes exist; returns 1)
+    # 5. git commit -m msg (returns 0)
+    mock_config_name = mock.MagicMock(returncode=0, stdout="my-user")
+    mock_config_email = mock.MagicMock(returncode=0, stdout="my-email")
     mock_add = mock.MagicMock(returncode=0, stdout="")
     mock_diff = mock.MagicMock(returncode=1)  # 1 indicates differences exist
     mock_commit = mock.MagicMock(returncode=0, stdout="")
-    mock_run.side_effect = [mock_config, mock_add, mock_diff, mock_commit]
+    mock_run.side_effect = [
+        mock_config_name,
+        mock_config_email,
+        mock_add,
+        mock_diff,
+        mock_commit,
+    ]
 
     repo = pathlib.Path("/repo")
     commit_changes(repo, ["file1", "file2"], "Google", "Engineer")
@@ -316,26 +376,44 @@ def test_commit_changes_success(mock_run: mock.MagicMock) -> None:
     mock_run.assert_has_calls(
         [
             mock.call(
-                ["git", "config", "user.name"],
+                ["git", "-c", "safe.directory=/repo", "config", "user.name"],
                 cwd=repo,
                 capture_output=True,
                 text=True,
                 check=True,
             ),
             mock.call(
-                ["git", "add", "--force", "--", "file1", "file2"],
+                ["git", "-c", "safe.directory=/repo", "config", "user.email"],
                 cwd=repo,
                 capture_output=True,
                 text=True,
                 check=True,
             ),
             mock.call(
-                ["git", "diff", "--cached", "--quiet"],
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "add",
+                    "--force",
+                    "--",
+                    "file1",
+                    "file2",
+                ],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ),
+            mock.call(
+                ["git", "-c", "safe.directory=/repo", "diff", "--cached", "--quiet"],
                 cwd=repo,
             ),
             mock.call(
                 [
                     "git",
+                    "-c",
+                    "safe.directory=/repo",
                     "commit",
                     "--no-verify",
                     "-m",
@@ -362,20 +440,34 @@ def test_commit_changes_no_files(mock_run: mock.MagicMock) -> None:
 def test_commit_changes_no_staged_changes(mock_run: mock.MagicMock) -> None:
     """Test commit_changes returns early if no staged changes exist (diff returns 0)."""
     # 1. git config user.name (returns 0)
-    # 2. git add --force -- file1 file2 (returns 0)
-    # 3. git diff --cached --quiet (no changes; returns 0)
-    mock_config = mock.MagicMock(returncode=0, stdout="my-user")
+    # 2. git config user.email (returns 0)
+    # 3. git add --force -- file1 file2 (returns 0)
+    # 4. git diff --cached --quiet (no changes; returns 0)
+    mock_config_name = mock.MagicMock(returncode=0, stdout="my-user")
+    mock_config_email = mock.MagicMock(returncode=0, stdout="my-email")
     mock_add = mock.MagicMock(returncode=0, stdout="")
     mock_diff = mock.MagicMock(returncode=0)
-    mock_run.side_effect = [mock_config, mock_add, mock_diff]
+    mock_run.side_effect = [
+        mock_config_name,
+        mock_config_email,
+        mock_add,
+        mock_diff,
+    ]
 
     repo = pathlib.Path("/repo")
     commit_changes(repo, ["file1"], "Google", "Engineer")
 
     # Verify commit is not invoked
-    assert mock_run.call_count == 3
+    assert mock_run.call_count == 4
     last_call = mock_run.call_args_list[-1]
-    assert last_call[0][0] == ["git", "diff", "--cached", "--quiet"]
+    assert last_call[0][0] == [
+        "git",
+        "-c",
+        "safe.directory=/repo",
+        "diff",
+        "--cached",
+        "--quiet",
+    ]
 
 
 @mock.patch("subprocess.run")
@@ -387,7 +479,15 @@ def test_push_branch(mock_run: mock.MagicMock) -> None:
     push_branch(repo, "my-branch", "origin")
 
     mock_run.assert_called_once_with(
-        ["git", "push", "--set-upstream", "origin", "my-branch"],
+        [
+            "git",
+            "-c",
+            "safe.directory=/repo",
+            "push",
+            "--set-upstream",
+            "origin",
+            "my-branch",
+        ],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -420,9 +520,26 @@ def test_push_branch_retries_force_with_lease_on_collision(
     push_branch(repo, "my-branch", "origin")
 
     assert [c.args[0] for c in mock_run.call_args_list] == [
-        ["git", "push", "--set-upstream", "origin", "my-branch"],
-        ["git", "fetch", "origin", "my-branch"],
-        ["git", "push", "--force-with-lease", "--set-upstream", "origin", "my-branch"],
+        [
+            "git",
+            "-c",
+            "safe.directory=/repo",
+            "push",
+            "--set-upstream",
+            "origin",
+            "my-branch",
+        ],
+        ["git", "-c", "safe.directory=/repo", "fetch", "origin", "my-branch"],
+        [
+            "git",
+            "-c",
+            "safe.directory=/repo",
+            "push",
+            "--force-with-lease",
+            "--set-upstream",
+            "origin",
+            "my-branch",
+        ],
     ]
 
 
@@ -488,33 +605,42 @@ def test_push_branch_force_with_lease_failure(
 
 
 @mock.patch("subprocess.run")
-def test_run_git_dubious_ownership_self_heal(mock_run: mock.MagicMock) -> None:
-    """Test that run_git self-heals when encountering a dubious ownership error."""
-    dubious_err = subprocess.CalledProcessError(
-        returncode=128,
-        cmd=["git", "status"],
-        stderr=(
-            "fatal: detected dubious ownership in repository "
-            "at '/__w/JobGitOps/JobGitOps'"
-        ),
+def test_commit_changes_config_fallback(mock_run: mock.MagicMock) -> None:
+    """Test commit_changes fallbacks to github-actions[bot] if identity is not set."""
+    # 1. git config user.name -> raises CalledProcessError (returns GitOpsError)
+    # 2. git config user.name github-actions[bot] (returns 0)
+    # 3. git config user.email -> raises CalledProcessError (returns GitOpsError)
+    # 4. git config user.email github-actions[bot]@users.noreply.github.com (returns 0)
+    # 5. git add --force -- file1 (returns 0)
+    # 6. git diff --cached --quiet (returns 1)
+    # 7. git commit -m msg (returns 0)
+    name_check_fail = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["git", "config", "user.name"],
+        stderr="key not found",
     )
-    # Second call (inside config safe.dir): succeed
-    mock_config = mock.MagicMock(returncode=0)
-    # Third call (retry git status): succeed with stdout
-    mock_retry = mock.MagicMock(returncode=0, stdout="on-branch-main")
-
-    mock_run.side_effect = [dubious_err, mock_config, mock_retry]
+    email_check_fail = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["git", "config", "user.email"],
+        stderr="key not found",
+    )
+    mock_run.side_effect = [
+        name_check_fail,
+        mock.MagicMock(returncode=0),
+        email_check_fail,
+        mock.MagicMock(returncode=0),
+        mock.MagicMock(returncode=0),
+        mock.MagicMock(returncode=1),
+        mock.MagicMock(returncode=0),
+    ]
 
     repo = pathlib.Path("/repo")
-    res = run_git(["status"], repo)
-    assert res == "on-branch-main"
+    commit_changes(repo, ["file1"], "Google", "Engineer")
 
-    # Verify calls
-    assert mock_run.call_count == 3
     mock_run.assert_has_calls(
         [
             mock.call(
-                ["git", "status"],
+                ["git", "-c", "safe.directory=/repo", "config", "user.name"],
                 cwd=repo,
                 capture_output=True,
                 text=True,
@@ -523,11 +649,11 @@ def test_run_git_dubious_ownership_self_heal(mock_run: mock.MagicMock) -> None:
             mock.call(
                 [
                     "git",
+                    "-c",
+                    "safe.directory=/repo",
                     "config",
-                    "--global",
-                    "--add",
-                    "safe.directory",
-                    str(repo.resolve()),
+                    "user.name",
+                    "github-actions[bot]",
                 ],
                 cwd=repo,
                 capture_output=True,
@@ -535,7 +661,21 @@ def test_run_git_dubious_ownership_self_heal(mock_run: mock.MagicMock) -> None:
                 check=True,
             ),
             mock.call(
-                ["git", "status"],
+                ["git", "-c", "safe.directory=/repo", "config", "user.email"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ),
+            mock.call(
+                [
+                    "git",
+                    "-c",
+                    "safe.directory=/repo",
+                    "config",
+                    "user.email",
+                    "github-actions[bot]@users.noreply.github.com",
+                ],
                 cwd=repo,
                 capture_output=True,
                 text=True,
@@ -545,27 +685,21 @@ def test_run_git_dubious_ownership_self_heal(mock_run: mock.MagicMock) -> None:
     )
 
 
-@mock.patch("subprocess.run")
-def test_run_git_dubious_ownership_config_fails(mock_run: mock.MagicMock) -> None:
-    """Test that run_git propagates the original error when git config fails."""
-    dubious_err = subprocess.CalledProcessError(
-        returncode=128,
-        cmd=["git", "status"],
-        stderr=(
-            "fatal: detected dubious ownership in repository "
-            "at '/__w/JobGitOps/JobGitOps'"
-        ),
-    )
-    config_err = subprocess.CalledProcessError(
-        returncode=1,
-        cmd=["git", "config", "--global", "--add", "safe.directory", "/repo"],
-        stderr="failed to write config",
-    )
-    mock_run.side_effect = [dubious_err, config_err]
+def test_build_commit_message_single_asymmetric_long() -> None:
+    """Test build_commit_message with long inputs to verify no dangling separators."""
+    long_company = "Google" * 20
+    long_role = "Software Engineer" * 10
 
-    repo = pathlib.Path("/repo")
-    with pytest.raises(GitOpsError) as exc_info:
-        run_git(["status"], repo)
+    # 1. Company is long, role is empty
+    msg1 = build_commit_message(long_company, "")
+    assert msg1.startswith("feat(application): tailor resume for ")
+    assert " - " not in msg1
+    assert not msg1.endswith(" - ")
+    assert len(msg1) <= 71
 
-    assert "detected dubious ownership" in str(exc_info.value)
-    assert mock_run.call_count == 2
+    # 2. Company is empty, role is long
+    msg2 = build_commit_message("", long_role)
+    assert msg2.startswith("feat(application): tailor resume for ")
+    assert " - " not in msg2
+    assert not msg2.startswith("feat(application): tailor resume for  - ")
+    assert len(msg2) <= 71

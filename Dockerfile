@@ -31,9 +31,6 @@ ENV UV_PROJECT_ENVIRONMENT=/usr/local
 # Expose src directory to PYTHONPATH so python modules are discoverable at runtime
 ENV PYTHONPATH=/workspace/src:/github/workspace/src
 
-# Disable Git's safe.directory checks so GHA-mounted checkouts don't trigger ownership errors
-RUN git config --global --add safe.directory '*'
-
 WORKDIR /workspace
 
 # Copy dependency files to bake them into the image
