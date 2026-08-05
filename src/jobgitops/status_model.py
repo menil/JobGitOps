@@ -45,6 +45,39 @@ REVERSE_SYNC_STATUSES: frozenset[str] = frozenset(STATUS_TO_LABEL) - frozenset(
     {"Triage Pending"}
 )
 
+# Maps each triage fit dimension to the label applied when its score is too low.
+FIT_CATEGORY_MISMATCH_LABELS: dict[str, str] = {
+    "tech_stack_fit": "tech-stack-mismatch",
+    "experience_fit": "experience-mismatch",
+    "location_fit": "location-mismatch",
+    "salary_fit": "salary-mismatch",
+    "industry_fit": "industry-mismatch",
+}
+
+# Mismatch reason labels applied by triage.py when scoring below threshold.
+MISMATCH_REASON_LABELS: frozenset[str] = frozenset(
+    FIT_CATEGORY_MISMATCH_LABELS.values()
+)
+
+
+def is_lifecycle_label_satisfied(target_label: str, current_labels: set[str]) -> bool:
+    """Check if the target lifecycle label is satisfied by the current labels.
+
+    For 'triage-mismatched', it is satisfied if 'triage-mismatched' or any
+    specific mismatch reason label is present, and no other lifecycle labels
+    are present. For other labels, it requires the exact label and no siblings.
+    """
+    if target_label == "triage-mismatched":
+        has_mismatch = (
+            "triage-mismatched" in current_labels
+            or not MISMATCH_REASON_LABELS.isdisjoint(current_labels)
+        )
+        siblings_to_remove = LIFECYCLE_LABELS & current_labels - {"triage-mismatched"}
+        return has_mismatch and not siblings_to_remove
+    return target_label in current_labels and not (
+        LIFECYCLE_LABELS & current_labels - {target_label}
+    )
+
 
 def sync_lifecycle_label(
     gh_client: object,
@@ -79,6 +112,14 @@ def sync_lifecycle_label(
     )
     for label in stale:
         gh_client.remove_label(issue_number, label)
+
+    # Skip adding the generic 'triage-mismatched' label if a specific mismatch reason
+    # is already present to prevent redundant label clutter.
+    if target_label == "triage-mismatched" and not MISMATCH_REASON_LABELS.isdisjoint(
+        current_labels
+    ):
+        return
+
     if target_label not in current_labels:
         gh_client.add_labels(issue_number, [target_label])
 
@@ -86,9 +127,22 @@ def sync_lifecycle_label(
 def resolve_closed_lifecycle_label(labels: set[str]) -> str:
     """Resolve the lifecycle label for a closed issue.
 
-    Returns 'triage-mismatched' if that label is present; otherwise defaults to
-    'rejected'.
+    Returns 'triage-mismatched' if that label or any specific mismatch label is
+    present; otherwise defaults to 'rejected'.
     """
-    if "triage-mismatched" in labels:
+    if "triage-mismatched" in labels or not MISMATCH_REASON_LABELS.isdisjoint(labels):
         return "triage-mismatched"
     return "rejected"
+
+
+def get_updated_lifecycle_labels(
+    target_label: str, current_labels: set[str]
+) -> set[str]:
+    """Calculate the updated set of labels after applying target lifecycle label."""
+    updated = current_labels - LIFECYCLE_LABELS
+    if not (
+        target_label == "triage-mismatched"
+        and not MISMATCH_REASON_LABELS.isdisjoint(updated)
+    ):
+        updated.add(target_label)
+    return updated

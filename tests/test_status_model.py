@@ -5,6 +5,8 @@ from jobgitops.status_model import (
     LIFECYCLE_LABELS,
     REVERSE_SYNC_STATUSES,
     STATUS_TO_LABEL,
+    get_updated_lifecycle_labels,
+    resolve_closed_lifecycle_label,
     sync_lifecycle_label,
 )
 
@@ -106,3 +108,56 @@ def test_sync_lifecycle_label_accepts_prefetched_labels() -> None:
     assert client.labels == {"fit:A", "applied"}
     assert client.removed == ["in-loop"]
     assert client.added == ["applied"]
+
+
+def test_resolve_closed_lifecycle_label_with_mismatch_reasons() -> None:
+    assert resolve_closed_lifecycle_label({"triage-mismatched"}) == "triage-mismatched"
+    assert resolve_closed_lifecycle_label({"location-mismatch"}) == "triage-mismatched"
+    assert (
+        resolve_closed_lifecycle_label({"salary-mismatch", "experience-mismatch"})
+        == "triage-mismatched"
+    )
+    assert resolve_closed_lifecycle_label({"applied"}) == "rejected"
+    assert resolve_closed_lifecycle_label(set()) == "rejected"
+
+
+def test_sync_lifecycle_label_skips_generic_mismatch() -> None:
+    # Skip adding triage-mismatched if a specific mismatch reason is present.
+    client = FakeClient(["location-mismatch"])
+    sync_lifecycle_label(client, 12, "triage-mismatched")
+    assert client.labels == {"location-mismatch"}
+    assert client.added == []
+    assert client.removed == []
+
+    # Add triage-mismatched if no specific reason is present.
+    client = FakeClient([])
+    sync_lifecycle_label(client, 12, "triage-mismatched")
+    assert client.labels == {"triage-mismatched"}
+    assert client.added == ["triage-mismatched"]
+    assert client.removed == []
+
+    # Verify that stale lifecycle labels are removed even when adding the target
+    # label is skipped.
+    client = FakeClient(["triage-pending", "location-mismatch"])
+    sync_lifecycle_label(client, 12, "triage-mismatched")
+    assert client.labels == {"location-mismatch"}
+    assert "triage-pending" in client.removed
+    assert "triage-mismatched" not in client.added
+
+
+def test_get_updated_lifecycle_labels() -> None:
+    # Adding triage-mismatched when specific mismatch label is present
+    assert get_updated_lifecycle_labels("triage-mismatched", {"location-mismatch"}) == {
+        "location-mismatch"
+    }
+
+    # Adding triage-mismatched when no specific mismatch label is present
+    assert get_updated_lifecycle_labels("triage-mismatched", set()) == {
+        "triage-mismatched"
+    }
+
+    # Adding active lifecycle label, removing stale ones
+    assert get_updated_lifecycle_labels("applied", {"triage-pending", "fit:A"}) == {
+        "applied",
+        "fit:A",
+    }

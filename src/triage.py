@@ -27,7 +27,7 @@ from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings, render_resume_yaml
 from jobgitops.renderer import compile_resume
-from jobgitops.status_model import LABEL_TO_STATUS
+from jobgitops.status_model import FIT_CATEGORY_MISMATCH_LABELS, LABEL_TO_STATUS
 from jobgitops.web import WebClient
 
 logger = logging.getLogger("jobgitops.triage")
@@ -52,14 +52,6 @@ DEFAULT_ROLE = "Unknown Role"
 DEFAULT_LOCATION = "Remote"
 DEFAULT_SALARY = "Not specified"
 
-# Maps each triage fit dimension to the label applied when its score is too low.
-FIT_CATEGORY_MISMATCH_LABELS: dict[str, str] = {
-    "tech_stack_fit": "tech-stack-mismatch",
-    "experience_fit": "experience-mismatch",
-    "location_fit": "location-mismatch",
-    "salary_fit": "salary-mismatch",
-    "industry_fit": "industry-mismatch",
-}
 
 # Pre-compiled regex patterns for robust job detail parsing
 COMPANY_REGEX = re.compile(r"\*\*[Cc]ompany:?\*\*:?\s*(.*)")
@@ -474,7 +466,10 @@ def _handle_mismatch(
     # Update labels
     if "triage-pending" in issue_labels:
         gh_client.remove_label(issue_number, "triage-pending")
-    gh_client.add_labels(issue_number, ["triage-mismatched"] + mismatch_labels)
+    # Prefer specific mismatch reason labels over the generic one
+    # to reduce issue label clutter.
+    labels_to_add = mismatch_labels if mismatch_labels else ["triage-mismatched"]
+    gh_client.add_labels(issue_number, labels_to_add)
 
     # Close issue
     gh_client.close_issue(issue_number)
