@@ -279,6 +279,38 @@ def test_transition_from_closed_event_payload_triage_mismatched(
 
 
 @patch("status_transition.GitHubClient")
+def test_transition_from_closed_event_payload_with_specific_mismatch_reason(
+    mock_github_client_class,
+) -> None:
+    """Verify closed event maps to triage-mismatched if specific mismatch is present."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.get_labels.return_value = ["location-mismatch"]
+
+    event_data = {
+        "action": "closed",
+        "issue": {
+            "number": 101,
+            "node_id": "ND_EVENT_999",
+            "labels": [{"name": "triage-pending"}, {"name": "location-mismatch"}],
+        },
+        "repository": {"full_name": "event_owner/event_repo"},
+    }
+
+    with (
+        in_memory_event(event_data),
+        patch.dict(os.environ, {"GITHUB_TOKEN": "test_token"}, clear=True),
+        patch("sys.argv", ["status_transition.py", "--event-path", "event.json"]),
+    ):
+        main()
+
+    # Should update status to Mismatched/Closed
+    mock_client.update_project_status.assert_called_once_with(
+        "ND_EVENT_999", "Mismatched/Closed"
+    )
+
+
+@patch("status_transition.GitHubClient")
 def test_transition_cli_label_overrides_event_payload(
     mock_github_client_class,
 ) -> None:

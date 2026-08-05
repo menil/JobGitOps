@@ -20,8 +20,11 @@ from jobgitops.loader import load_settings
 from jobgitops.status_model import (
     LABEL_TO_STATUS,
     LIFECYCLE_LABELS,
+    MISMATCH_REASON_LABELS,
     REVERSE_SYNC_STATUSES,
     STATUS_TO_LABEL,
+    get_updated_lifecycle_labels,
+    is_lifecycle_label_satisfied,
     resolve_closed_lifecycle_label,
     sync_lifecycle_label,
 )
@@ -200,11 +203,9 @@ def _run_event(
         logger.error("Failed to read labels for issue #%d: %s", issue_number, e)
         sys.exit(1)
 
-    if target_label in current_labels and not (
-        LIFECYCLE_LABELS & current_labels - {target_label}
-    ):
+    if is_lifecycle_label_satisfied(target_label, current_labels):
         logger.info(
-            "Issue #%d already carries label %r and no stale siblings; nothing to do.",
+            "Issue #%d already satisfies label %r; nothing to do.",
             issue_number,
             target_label,
         )
@@ -361,16 +362,13 @@ def _reverse_reconcile(
             continue
         target_label = STATUS_TO_LABEL[status]
         current = labels_by_number.get(int(issue_number))
-        if current is None or (
-            target_label in current
-            and not (LIFECYCLE_LABELS & current - {target_label})
-        ):
+        if current is None or is_lifecycle_label_satisfied(target_label, current):
             continue
         try:
             sync_lifecycle_label(gh_client, int(issue_number), target_label, current)
-            labels_by_number[int(issue_number)] = (current - LIFECYCLE_LABELS) | {
-                target_label
-            }
+            labels_by_number[int(issue_number)] = get_updated_lifecycle_labels(
+                target_label, current
+            )
             reconciled += 1
         except Exception as e:
             logger.exception(
@@ -391,6 +389,9 @@ def _target_status(issue_number: int, state: str, labels: set[str]) -> str | Non
     if state == "closed":
         target_label = resolve_closed_lifecycle_label(labels)
         return LABEL_TO_STATUS[target_label]
+
+    if "triage-mismatched" in labels or not MISMATCH_REASON_LABELS.isdisjoint(labels):
+        return LABEL_TO_STATUS["triage-mismatched"]
 
     lifecycle = sorted(label for label in labels if label in LIFECYCLE_LABELS)
 

@@ -440,7 +440,7 @@ def test_run_triage_mismatch(
 
     mock_gh_client.remove_label.assert_called_once_with(12, "triage-pending")
     mock_gh_client.add_labels.assert_called_once_with(
-        12, ["triage-mismatched", "location-mismatch", "salary-mismatch"]
+        12, ["location-mismatch", "salary-mismatch"]
     )
     mock_gh_client.close_issue.assert_called_once_with(12)
     mock_gh_client.update_project_status.assert_called_once_with(

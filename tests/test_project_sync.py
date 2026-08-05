@@ -562,6 +562,36 @@ def test_sync_backfill_closed_with_lifecycle_label_wins(
 
 
 @patch("project_sync.GitHubClient")
+def test_sync_backfill_closed_with_specific_mismatch_label_wins(
+    mock_github_client_class,
+) -> None:
+    """Verify specific mismatch label maps closed issue to Mismatched/Closed."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.list_issues.side_effect = [
+        [
+            {
+                "number": 8,
+                "node_id": "ND_8",
+                "state": "closed",
+                "labels": [{"name": "salary-mismatch"}],
+            }
+        ],
+        [],
+    ]
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", ["project_sync.py", "backfill"]),
+    ):
+        main()
+
+    mock_client.update_project_status.assert_called_once_with(
+        "ND_8", "Mismatched/Closed"
+    )
+
+
+@patch("project_sync.GitHubClient")
 def test_sync_backfill_closed_with_triage_pending_resolves_to_rejected(
     mock_github_client_class,
 ) -> None:
