@@ -41,9 +41,9 @@ jobs:
       - name: Run Triage Coordinator
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            python src/triage.py --all-pending
+            python -m jobgitops.cli.triage --all-pending
           else
-            python src/triage.py --event-path "$GITHUB_EVENT_PATH"
+            python -m jobgitops.cli.triage --event-path "$GITHUB_EVENT_PATH"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from jobgitops.cli.project_sync import main
 from jobgitops.schema import Settings
-from project_sync import main
 
 # Standard environment used by most tests; per-test overrides focus on the
 # single failure condition under test.
@@ -35,9 +35,9 @@ def run_main(
 def in_memory_event(event_data=None, json_side_effect=None):
     """Serve a webhook payload in memory instead of writing a JSON file."""
     with (
-        patch("project_sync.pathlib.Path.open"),
+        patch("jobgitops.cli.project_sync.pathlib.Path.open"),
         patch(
-            "project_sync.json.load",
+            "jobgitops.cli.project_sync.json.load",
             return_value=event_data,
             side_effect=json_side_effect,
         ),
@@ -82,7 +82,7 @@ def mock_settings() -> Settings:
 @pytest.fixture(autouse=True)
 def mock_load_settings(mock_settings) -> MagicMock:
     """Patch load_settings to return Projects V2-configured settings by default."""
-    with patch("project_sync.load_settings") as mocked:
+    with patch("jobgitops.cli.project_sync.load_settings") as mocked:
         mocked.return_value = mock_settings
         yield mocked
 
@@ -94,7 +94,7 @@ def test_sync_no_projects_v2_configured(mock_load_settings) -> None:
     run_main(env={}, expected_code=0)
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_missing_token(mock_github_client_class, caplog) -> None:
     """Verify script exits with error if GITHUB_TOKEN is missing."""
     run_main(env={"GITHUB_REPOSITORY": "owner/repo"})
@@ -103,7 +103,7 @@ def test_sync_missing_token(mock_github_client_class, caplog) -> None:
     mock_github_client_class.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_missing_repository(mock_github_client_class, caplog) -> None:
     """Verify script exits with error if GITHUB_REPOSITORY is missing."""
     run_main(env={"GITHUB_TOKEN": "test_token"})
@@ -112,7 +112,7 @@ def test_sync_missing_repository(mock_github_client_class, caplog) -> None:
     mock_github_client_class.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_path_rejected_for_backfill(mock_github_client_class) -> None:
     """Verify --event-path is rejected for commands that do not read events."""
     run_main(
@@ -121,7 +121,7 @@ def test_sync_event_path_rejected_for_backfill(mock_github_client_class) -> None
     )
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_missing_payload(mock_github_client_class, caplog) -> None:
     """Verify script exits when no event payload is provided."""
     run_main(argv=["project_sync.py", "event"])
@@ -129,7 +129,7 @@ def test_sync_event_missing_payload(mock_github_client_class, caplog) -> None:
     assert "No event path specified for the 'event' command." in caplog.text
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_applies_reverse_label(
     mock_github_client_class,
 ) -> None:
@@ -157,7 +157,7 @@ def test_sync_event_applies_reverse_label(
     mock_client.add_labels.assert_called_once_with(42, ["applied"])
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_cleans_up_stale_sibling_label(
     mock_github_client_class,
 ) -> None:
@@ -183,7 +183,7 @@ def test_sync_event_cleans_up_stale_sibling_label(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_ignores_missing_project_node(
     mock_github_client_class,
 ) -> None:
@@ -202,7 +202,7 @@ def test_sync_event_ignores_missing_project_node(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_ignores_non_string_status(
     mock_github_client_class,
 ) -> None:
@@ -224,7 +224,7 @@ def test_sync_event_ignores_non_string_status(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_noop_when_label_present(
     mock_github_client_class,
 ) -> None:
@@ -247,7 +247,7 @@ def test_sync_event_noop_when_label_present(
     mock_client.remove_label.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_ignores_triage_pending(
     mock_github_client_class,
 ) -> None:
@@ -267,7 +267,7 @@ def test_sync_event_ignores_triage_pending(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_ignores_non_issue_item(
     mock_github_client_class,
 ) -> None:
@@ -286,7 +286,7 @@ def test_sync_event_ignores_non_issue_item(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_ignores_other_project(
     mock_github_client_class,
 ) -> None:
@@ -305,7 +305,7 @@ def test_sync_event_ignores_other_project(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_ignores_other_field_edit(
     mock_github_client_class,
 ) -> None:
@@ -327,7 +327,7 @@ def test_sync_event_ignores_other_field_edit(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_created_reads_current_value(
     mock_github_client_class,
 ) -> None:
@@ -352,7 +352,7 @@ def test_sync_event_created_reads_current_value(
     mock_client.add_labels.assert_called_once_with(42, ["in-loop"])
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_created_ignores_unknown_status(
     mock_github_client_class,
 ) -> None:
@@ -376,7 +376,7 @@ def test_sync_event_created_ignores_unknown_status(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_resolve_failure(
     mock_github_client_class,
     caplog,
@@ -399,7 +399,7 @@ def test_sync_event_resolve_failure(
     assert "Failed to resolve issue for node ND_EVENT_999: graphql down" in caplog.text
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_missing_content_node(
     mock_github_client_class,
     caplog,
@@ -421,7 +421,7 @@ def test_sync_event_missing_content_node(
     assert "missing content_node_id" in caplog.text
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_moves_issues(
     mock_github_client_class,
 ) -> None:
@@ -463,7 +463,7 @@ def test_sync_backfill_moves_issues(
     )
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_skips_pull_requests(
     mock_github_client_class,
 ) -> None:
@@ -497,7 +497,7 @@ def test_sync_backfill_skips_pull_requests(
     mock_client.update_project_status.assert_called_once_with("ND_1", "Triage Pending")
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_continues_on_failure(
     mock_github_client_class,
     caplog,
@@ -531,7 +531,7 @@ def test_sync_backfill_continues_on_failure(
     assert "Backfill failed for issue #1: api down" in caplog.text
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_closed_with_lifecycle_label_wins(
     mock_github_client_class,
 ) -> None:
@@ -561,7 +561,7 @@ def test_sync_backfill_closed_with_lifecycle_label_wins(
     )
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_closed_with_specific_mismatch_label_wins(
     mock_github_client_class,
 ) -> None:
@@ -591,7 +591,7 @@ def test_sync_backfill_closed_with_specific_mismatch_label_wins(
     )
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_closed_with_triage_pending_resolves_to_rejected(
     mock_github_client_class,
 ) -> None:
@@ -619,7 +619,7 @@ def test_sync_backfill_closed_with_triage_pending_resolves_to_rejected(
     mock_client.update_project_status.assert_called_once_with("ND_6", "Rejected")
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_closed_with_multiple_lifecycle_labels_resolves_to_rejected(
     mock_github_client_class,
 ) -> None:
@@ -647,7 +647,7 @@ def test_sync_backfill_closed_with_multiple_lifecycle_labels_resolves_to_rejecte
     mock_client.update_project_status.assert_called_once_with("ND_7", "Rejected")
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_skips_already_correct_columns(
     mock_github_client_class,
 ) -> None:
@@ -677,7 +677,7 @@ def test_sync_backfill_skips_already_correct_columns(
     mock_client.update_project_status.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_reverse_reconciles_labels(
     mock_github_client_class,
 ) -> None:
@@ -710,7 +710,7 @@ def test_sync_backfill_reverse_reconciles_labels(
     mock_client.update_project_status.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_reverse_skips_aligned_and_excluded(
     mock_github_client_class,
 ) -> None:
@@ -745,7 +745,7 @@ def test_sync_backfill_reverse_skips_aligned_and_excluded(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_paginates_full_pages(
     mock_github_client_class,
 ) -> None:
@@ -772,7 +772,7 @@ def test_sync_backfill_paginates_full_pages(
     assert mock_client.update_project_status.call_count == 101
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_field_options_adds_missing_only(
     mock_github_client_class,
 ) -> None:
@@ -807,7 +807,7 @@ def test_sync_field_options_adds_missing_only(
     )
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_field_options_adds_missing_noop_when_complete(
     mock_github_client_class,
 ) -> None:
@@ -833,7 +833,7 @@ def test_sync_field_options_adds_missing_noop_when_complete(
     mock_client.update_status_field_options.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_field_options_prunes_stale(
     mock_github_client_class,
 ) -> None:
@@ -867,7 +867,7 @@ def test_sync_field_options_prunes_stale(
     )
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_field_options_prune_noop_when_aligned(
     mock_github_client_class,
 ) -> None:
@@ -893,7 +893,7 @@ def test_sync_field_options_prune_noop_when_aligned(
     mock_client.update_status_field_options.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_label_read_failure(
     mock_github_client_class,
     caplog,
@@ -918,7 +918,7 @@ def test_sync_event_label_read_failure(
     mock_client.add_labels.assert_not_called()
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_label_apply_failure(
     mock_github_client_class,
     caplog,
@@ -943,7 +943,7 @@ def test_sync_event_label_apply_failure(
     assert "Failed to apply label 'applied' to issue #42" in caplog.text
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_field_options_error_exits(
     mock_github_client_class,
     caplog,
@@ -964,7 +964,7 @@ def test_sync_field_options_error_exits(
     assert "Failed to sync status field options: graphql down" in caplog.text
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_dict_status_value_edited(
     mock_github_client_class,
 ) -> None:
@@ -990,7 +990,7 @@ def test_sync_event_dict_status_value_edited(
     mock_client.add_labels.assert_called_once_with(42, ["applied"])
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_event_dict_status_value_created(
     mock_github_client_class,
 ) -> None:
@@ -1097,12 +1097,12 @@ def test_sync_event_dict_status_value_created(
 )
 def test_changed_status_unit(event, item, status_field_name, expected) -> None:
     """Verify _changed_status extracts status correctly under various schemas."""
-    from project_sync import _changed_status
+    from jobgitops.cli.project_sync import _changed_status
 
     assert _changed_status(event, item, status_field_name) == expected
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_reverse_failure_exits_with_one(
     mock_github_client_class,
     caplog: pytest.LogCaptureFixture,
@@ -1135,7 +1135,7 @@ def test_sync_backfill_reverse_failure_exits_with_one(
     assert "Reverse reconcile failed for issue #1: network error" in caplog.text
 
 
-@patch("project_sync.GitHubClient")
+@patch("jobgitops.cli.project_sync.GitHubClient")
 def test_sync_backfill_reverse_success_returns_zero_failures(
     mock_github_client_class,
 ) -> None:

@@ -58,7 +58,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 > **Issue Assistant:** The conversational responder, status-transition intents, and URL triage are specified separately in [`specs/assistant-agent.md`](assistant-agent.md).
 
 ### 2.1. Job Scraper Bot
-*   **Location:** `src/scrape.py`
+*   **Location:** `src/jobgitops/cli/scrape.py` (run via `python -m jobgitops.cli.scrape`)
 *   **Role:** Runs on a scheduled GitHub Actions cron (daily at 8:00 AM) or manual dispatch (`workflow_dispatch`).
 *   **Scraper Interface:** Uses the `jobspy` Python library to search LinkedIn, Indeed, and ZipRecruiter.
 *   **Resume-Driven Query Generation:**
@@ -78,12 +78,12 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
     *   **Body:** Pre-structured markdown containing the job description, location, source, application URL, and salary.
 
 ### 2.2. AI Triage & Tailoring Engine
-*   **Location:** Modular structure in `src/` to separate concerns:
-    *   `src/triage.py`: Main event handler (parses issues, coordinates triage/tailor workflow).
-    *   `src/llm.py`: Pluggable LLM wrapper (Gemini / OpenRouter) enforcing structured JSON schema parsing.
-    *   `src/renderer.py`: Compiles the resume YAML using Jinja2 HTML templates and triggers WeasyPrint for PDF generation.
-    *   `src/git_ops.py`: Encapsulates Git branch creation, checkout, staging, committing, and pushing.
-    *   `src/github_client.py`: Interacts with the GitHub API (posting comments, labels, and Projects V2 board state updates).
+*   **Location:** Modular structure in `src/jobgitops/` to separate concerns:
+    *   `src/jobgitops/cli/triage.py`: Main event handler (parses issues, coordinates triage/tailor workflow).
+    *   `src/jobgitops/llm.py`: Pluggable LLM wrapper (Gemini / OpenRouter) enforcing structured JSON schema parsing.
+    *   `src/jobgitops/renderer.py`: Compiles the resume YAML using Jinja2 HTML templates and triggers WeasyPrint for PDF generation.
+    *   `src/jobgitops/git_ops.py`: Encapsulates Git branch creation, checkout, staging, committing, and pushing.
+    *   `src/jobgitops/github_client.py`: Interacts with the GitHub API (posting comments, labels, and Projects V2 board state updates).
 *   **Two-Pass LLM Strategy (Token-Saving):**
     *   **Triage Stage:**
     *   Evaluates the job description against the base resume `resumes/resume.yaml`.
@@ -115,7 +115,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
     *   **Single Source of Truth:** Lifecycle labels and their board columns are mapped once in `src/jobgitops/status_model.py`; every script and workflow imports it so the two sides cannot drift.
     *   **Forward sync (label → column):** `status-transition.yml` listens for lifecycle label additions and moves the card via GraphQL.
     *   **Reverse sync (column → label):** `project-status-sync.yml` listens for `projects_v2_item` edits/creates and applies the matching lifecycle label. Triage Pending is excluded so dragging a card back never re-triggers an AI re-triage.
-    *   **Backfill & reconciliation:** `src/project_sync.py backfill` populates the board from existing labels idempotently (skipping cards already in the correct column); `backfill --reverse` recovers column moves whose webhook event was dropped.
+    *   **Backfill & reconciliation:** `python -m jobgitops.cli.project_sync backfill` populates the board from existing labels idempotently (skipping cards already in the correct column); `backfill --reverse` recovers column moves whose webhook event was dropped.
     *   **Fallback:** If no `projects_v2.project_id` is configured (or it is still the placeholder), the system falls back cleanly to repository labels (`ready-to-apply`, `applied`, `in-loop`, `rejected`) and does not crash.
 *   **Branch/PR Strategy:**
     *   Each application branch remains open as a persistent record of the application state (acting as an open pull request). It is not merged to `main` to avoid polluting the production branch history.
@@ -170,13 +170,13 @@ Both workflows run inside our reproducible Nix/devenv environment, avoiding runn
 *   **Trigger:** Daily cron schedule (`0 8 * * *`) or manual dispatch (`workflow_dispatch`). Manual runs support optional inputs (e.g., override location or custom search queries) for ad-hoc debugging and manual runs, defaulting to standard configuration files if left blank.
 *   **Jobs:**
     1.  Sets up Nix and devenv using `cachix/install-nix-action` and `cachix/devenv-action` with caching enabled (caching the Nix store and virtual environment dependencies).
-    2.  Runs the scraper task: `devenv shell python src/scrape.py`.
+    2.  Runs the scraper task: `devenv shell python -m jobgitops.cli.scrape`.
 
 ### 4.2. `triage-issue.yml`
 *   **Trigger:** `issues` opened with `triage-pending` label.
 *   **Jobs:**
     1.  Sets up Nix and devenv using `cachix/install-nix-action` and `cachix/devenv-action` with caching enabled.
-    2.  Runs triage: `devenv shell python src/triage.py` with `GEMINI_API_KEY` or `OPENROUTER_API_KEY`, and `GITHUB_TOKEN`.
+    2.  Runs triage: `devenv shell python -m jobgitops.cli.triage` with `GEMINI_API_KEY` or `OPENROUTER_API_KEY`, and `GITHUB_TOKEN`.
 
 ---
 

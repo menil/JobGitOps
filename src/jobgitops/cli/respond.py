@@ -25,7 +25,6 @@ import re
 import sys
 from typing import Any
 
-import triage
 from jobgitops.assistant import (
     ACTION_REPLY,
     ACTION_SKIP,
@@ -46,6 +45,8 @@ from jobgitops.status_model import (
     sync_lifecycle_label,
 )
 from jobgitops.web import WebClient
+
+from . import triage
 
 logger = logging.getLogger("jobgitops.respond")
 

@@ -89,11 +89,11 @@ Two new Python entry points and one generalized transition module:
 
 | Artifact | Role |
 | --- | --- |
-| `src/respond.py` | Webhook handler for `issue_comment` and `issues:opened`; orchestrates the agent loop and side effects. |
+| `src/jobgitops/cli/respond.py` | Webhook handler for `issue_comment` and `issues:opened`; orchestrates the agent loop and side effects. |
 | `src/jobgitops/assistant.py` | Agent loop + intent/action parsing; pure, testable orchestration. |
 | `src/jobgitops/web.py` | Web tools: `web_search` (provider-agnostic) and `fetch_url` (plain fetch + Jina Reader fallback). |
-| `src/status_transition.py` | Generalizes `applied_transition.py` to map any lifecycle label → Projects V2 column. |
-| `triage.py` (extended) | Becomes URL-aware: fetches `apply_url` when the body has no job-description section. |
+| `src/jobgitops/cli/status_transition.py` | Generalizes `applied_transition.py` to map any lifecycle label → Projects V2 column. |
+| `src/jobgitops/cli/triage.py` (extended) | Becomes URL-aware: fetches `apply_url` when the body has no job-description section. |
 
 ---
 
@@ -170,7 +170,7 @@ transitions:
 - Trigger: `issues: labeled` where `github.event.label.name` is one of
   `applied`, `in-loop`, `rejected` (the full lifecycle list lives in
   `src/jobgitops/status_model.py`).
-- `src/applied_transition.py` → `src/status_transition.py`: a `LABEL_TO_STATUS`
+- `src/applied_transition.py` → `src/jobgitops/cli/status_transition.py`: a `LABEL_TO_STATUS`
   map (single-sourced from `src/jobgitops/status_model.py`); the script updates
   the Projects V2 column for the matching status and no-ops when
   `projects_v2` is unconfigured (label-only fallback).
@@ -179,7 +179,7 @@ transitions:
 
 ### 4.3.1. Reverse sync: `project-status-sync.yml`
 
-The reverse direction (column → label) is owned by `src/project_sync.py`,
+The reverse direction (column → label) is owned by `src/jobgitops/cli/project_sync.py`,
 triggered by the `projects_v2_item` (`edited`, `created`) workflow:
 
 - Only `Issue` content types are handled; the event's `project_node_id` must
@@ -203,9 +203,9 @@ never race on the column: one owner, one GraphQL write.
 
 ## 5. Component Specifications
 
-### 5.1. `src/respond.py` — event handler
+### 5.1. `src/jobgitops/cli/respond.py` — event handler
 
-Mirrors the structure of `triage.py` / `applied_transition.py`:
+Mirrors the structure of `triage.py` / `status_transition.py`:
 
 - CLI: `--event-path`, `--repo-path`, plus event payload reading from
   `GITHUB_EVENT_PATH`.
@@ -413,7 +413,7 @@ the URL and substitutes the extracted text as `description` before evaluation:
 - No other changes; `post_comment`, `add_labels`, `remove_label`,
   `close_issue`, `update_project_status` are reused as-is.
 
-### 5.7. `src/status_transition.py` (generalized)
+### 5.7. `src/jobgitops/cli/status_transition.py` (generalized)
 
 - `LABEL_TO_STATUS = {"applied": "Applied", "interviewing": "Interviewing",
   "rejected": "Rejected"}`.

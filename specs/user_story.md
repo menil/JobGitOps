@@ -33,13 +33,13 @@ Instead, he maintains his base resume in his Git repository in a clean YAML form
 With this foundation established, the daily automated workflows of JobGitOps can seamlessly read, evaluate, and tailor his profile. For Martin, the ideal day looks like this:
 
 ### 1. Automated Role Discovery (Scraping)
-Every morning, while Martin is brewing his first cup of coffee, a scheduled GitHub Actions cron job runs a Python script (`src/scrape.py`). 
+Every morning, while Martin is brewing his first cup of coffee, a scheduled GitHub Actions cron job runs the scraper module (`python -m jobgitops.cli.scrape`). 
 - Using his base resume (`resumes/resume.yaml`) to infer his core skills and latest title—or utilizing custom queries defined in `config/settings.yaml` if he wants to target a new stack or specific domain—the bot generates search queries and scrapes platforms like LinkedIn, Indeed, and ZipRecruiter.
 - To prevent duplicate work, it queries his own repository to deduplicate against roles he has already seen or applied to.
 - It automatically creates new candidates as **GitHub Issues**, labeling them `triage-pending` and filling the issue body with structured markdown containing the job description, company, salary range, and source.
 
 ### 2. AI Triage
-Instead of wading through hundreds of irrelevant jobs, Martin lets the AI Triage Engine (`src/triage.py`) do the initial filter.
+Instead of wading through hundreds of irrelevant jobs, Martin lets the AI Triage Engine (`python -m jobgitops.cli.triage`) do the initial filter.
 - The bot evaluates each scraped job description against Martin’s base resume across five dimensions: tech stack, experience, location, salary, and domain.
 - If a job doesn't meet his threshold (e.g., fit score < 4.0), the engine automatically posts a breakdown of the mismatches on the issue, adds a `triage-mismatched` label, and closes it.
 - If it's a great match (score >= 4.0), the issue is labeled `ready-to-apply` and moves to the next phase.

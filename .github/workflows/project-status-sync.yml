@@ -39,7 +39,7 @@ jobs:
         run: uv sync --frozen --no-install-project
 
       - name: Run Project Status Sync
-        run: python src/project_sync.py backfill --reverse
+        run: python -m jobgitops.cli.project_sync backfill --reverse
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
