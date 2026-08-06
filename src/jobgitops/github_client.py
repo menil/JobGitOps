@@ -725,6 +725,10 @@ class GitHubClient:
         per board card. Items that are not issues, or lack a Status value, are
         omitted (or mapped to ``None``) respectively.
 
+        Only issue cards belonging to this repository (matching nameWithOwner)
+        are returned to prevent status collisions when the project board tracks
+        issues across multiple repositories.
+
         Returns:
             Mapping of issue number to Status option name (or ``None`` when the
             card has no Status value).
@@ -753,6 +757,9 @@ class GitHubClient:
                         __typename
                         ... on Issue {
                           number
+                          repository {
+                            nameWithOwner
+                          }
                         }
                       }
                       fieldValues(first: 50) {
@@ -787,6 +794,11 @@ class GitHubClient:
                 content = item.get("content") or {}
                 number = content.get("number")
                 if content.get("__typename") != "Issue" or number is None:
+                    continue
+                # Filter by repository to prevent collisions/overwriting
+                # if the board tracks multiple repos
+                repo_name = (content.get("repository") or {}).get("nameWithOwner")
+                if repo_name and repo_name.lower() != self.repo.lower():
                     continue
                 status: str | None = None
                 for field_value in ((item.get("fieldValues") or {}).get("nodes")) or []:
