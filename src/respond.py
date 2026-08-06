@@ -40,7 +40,11 @@ from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_loggi
 from jobgitops.github_client import GitHubClient, GitHubClientError, extract_label_names
 from jobgitops.llm import QuotaExceededError, get_llm_client
 from jobgitops.loader import load_resume, load_settings
-from jobgitops.status_model import LIFECYCLE_LABELS, sync_lifecycle_label
+from jobgitops.status_model import (
+    LABEL_TO_STATUS,
+    LIFECYCLE_LABELS,
+    sync_lifecycle_label,
+)
 from jobgitops.web import WebClient
 
 logger = logging.getLogger("jobgitops.respond")
@@ -163,6 +167,52 @@ def _confirmation_comment(reply: str) -> str:
     return STATUS_CONFIRMATION_MARKER
 
 
+# Regex to match a URL surrounded by optional brackets, quotes, or whitespace
+_BARE_URL_REGEX = re.compile(
+    r'^[\'"`<\(\[\{]*\s*(https?://[^\s<>]+?)\s*[\'"`>\)\]\}]*$', re.IGNORECASE
+)
+
+# Regex to match a single markdown link: [Link Title](https://...)
+_MARKDOWN_LINK_REGEX = re.compile(
+    r"^\[([^\]]*)\]\(\s*(https?://[^\s\)]+?)\s*\)$", re.IGNORECASE
+)
+
+# Keywords indicating conversational status/lifecycle intent
+STATUS_KEYWORDS = {"applied", "interview", "loop", "screen", "offer", "reject"}
+
+
+def _is_bare_url_submission(body: str, title: str) -> bool:
+    """Check if the opened issue is a bare URL submission.
+
+    A bare URL submission has a body that consists of only a URL (and optional
+    surrounding brackets, quotes, or markdown link wrapper) and does not
+    have conversational status intent in the title or markdown link text.
+    """
+    body_clean = body.strip()
+
+    # Try matching as a bare URL
+    bare_match = _BARE_URL_REGEX.match(body_clean)
+    if bare_match:
+        url = bare_match.group(1)
+    else:
+        # Try matching as a single markdown link
+        md_match = _MARKDOWN_LINK_REGEX.match(body_clean)
+        if md_match:
+            # Check the markdown link title for status keywords
+            link_title = md_match.group(1).lower()
+            if any(kw in link_title for kw in STATUS_KEYWORDS):
+                return False
+            url = md_match.group(2)
+        else:
+            return False
+
+    if not url:
+        return False
+
+    title_lower = title.lower()
+    return not any(kw in title_lower for kw in STATUS_KEYWORDS)
+
+
 def execute_action(
     action: AgentAction,
     *,
@@ -176,12 +226,12 @@ def execute_action(
     resume: Any,
     llm_client: Any,
     web_client: Any,
+    current_labels: list[str] | None = None,
 ) -> None:
     """Execute the side effects of an agent action (spec 7).
 
-    The column move for ``status_update`` is deliberately not performed here:
-    the label-add emits ``issues: labeled``, which triggers
-    ``status-transition.yml`` — the single owner of Projects V2 (§4.3).
+    Directly updates the Projects V2 status when config is available to minimize
+    latency, while status-transition.yml remains the eventual consistency owner.
     """
     if action.action == ACTION_SKIP:
         return
@@ -193,13 +243,18 @@ def execute_action(
 
     if action.action == ACTION_STATUS_UPDATE:
         label = STATUS_LABELS[action.status]
-        sync_lifecycle_label(gh_client, issue_number, label)
+        sync_lifecycle_label(
+            gh_client,
+            issue_number,
+            label,
+            current_labels=set(current_labels) if current_labels is not None else None,
+        )
         if issue_node_id and settings.projects_v2 and settings.projects_v2.project_id:
             try:
-                gh_client.update_project_status(issue_node_id, action.status)
+                gh_client.update_project_status(issue_node_id, LABEL_TO_STATUS[label])
                 logger.info(
                     "Directly updated Projects V2 status to %s for issue #%d.",
-                    action.status,
+                    LABEL_TO_STATUS[label],
                     issue_number,
                 )
             except GitHubClientError as e:
@@ -212,8 +267,12 @@ def execute_action(
         return
 
     if action.action == ACTION_TRIAGE:
-        current_labels = gh_client.get_labels(issue_number)
-        if "triage-pending" in current_labels:
+        c_labels = (
+            current_labels
+            if current_labels is not None
+            else gh_client.get_labels(issue_number)
+        )
+        if "triage-pending" in c_labels:
             logger.info(
                 "Issue #%d is labeled triage-pending; the triage webhook owns it.",
                 issue_number,
@@ -224,7 +283,7 @@ def execute_action(
             issue_title=issue_title,
             issue_body=issue_body,
             issue_node_id=issue_node_id,
-            issue_labels=current_labels,
+            issue_labels=c_labels,
             repo_path=repo_path,
             gh_client=gh_client,
             settings=settings,
@@ -295,6 +354,7 @@ def handle_comment_event(
         comments=comments,
         resume=resume,
     )
+
     logger.info("Agent chose action %r for issue #%d.", action.action, issue_number)
     execute_action(
         action,
@@ -308,6 +368,7 @@ def handle_comment_event(
         resume=resume,
         llm_client=llm_client,
         web_client=web_client,
+        current_labels=labels,
     )
 
 
@@ -345,11 +406,53 @@ def handle_opened_event(
             issue_number,
         )
         return
+
     if not should_auto_detect(issue_body, labels):
         logger.info(
             "Issue #%d does not match the auto-detect guard; skipping.", issue_number
         )
         return
+
+    # Check if this is a bare URL submission to skip LLM classification.
+    if _is_bare_url_submission(issue_body, issue_title):
+        logger.info(
+            "Issue #%d is a bare URL submission; skipping intent classification.",
+            issue_number,
+        )
+    else:
+        # Run the agent loop to classify the user's intent
+        # (e.g. status transition vs triage) using LLM instructions.
+        action = run_agent(
+            llm_client,
+            web_client,
+            settings.research,
+            issue_title=issue_title,
+            issue_body=issue_body,
+            labels=labels,
+            trigger_text=issue_body or issue_title,
+            comments=[],
+            resume=resume,
+        )
+        logger.info(
+            "Agent chose action %r for opened issue #%d.", action.action, issue_number
+        )
+
+        if action.action in (ACTION_STATUS_UPDATE, ACTION_SKIP, ACTION_REPLY):
+            execute_action(
+                action,
+                issue_number=issue_number,
+                issue_title=issue_title,
+                issue_body=issue_body,
+                issue_node_id=issue_node_id,
+                repo_path=repo_path,
+                gh_client=gh_client,
+                settings=settings,
+                resume=resume,
+                llm_client=llm_client,
+                web_client=web_client,
+                current_labels=labels,
+            )
+            return
 
     url = _extract_url(issue_body) or ""
     try:

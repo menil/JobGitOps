@@ -7,6 +7,7 @@ and the quota-exit ``75`` behavior.
 """
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -21,7 +22,8 @@ from jobgitops.assistant import (
     STATUS_LABELS,
     AgentAction,
 )
-from jobgitops.llm import QuotaExceededError
+from jobgitops.github_client import GitHubClientError
+from jobgitops.llm import ChatMessage, QuotaExceededError
 from jobgitops.schema import ProjectsV2Config, Resume, Settings
 
 DEFAULT_ENV = {"GITHUB_TOKEN": "test_token", "GITHUB_REPOSITORY": "owner/repo"}
@@ -303,6 +305,49 @@ def test_comment_flow_loads_context_and_runs_agent() -> None:
     assert kwargs["comments"] == ["prior question", "the trigger"]
 
 
+def test_handle_comment_event_with_applied_intent() -> None:
+    """Verify comment with applied intent triggers a status update to applied."""
+    gh = FakeGitHubClient()
+    settings = sample_settings()
+    settings.projects_v2 = ProjectsV2Config(
+        project_id="proj-123", status_field_name="Status"
+    )
+
+    event = comment_event(body="I applied to this job yesterday!")
+
+    mock_llm = MagicMock()
+
+    mock_llm.chat.return_value = ChatMessage(
+        role="assistant",
+        content=json.dumps(
+            {
+                "action": "status_update",
+                "status": "applied",
+                "reply": "Marked as applied.",
+            }
+        ),
+    )
+
+    with patch("respond.execute_action") as execute_mock:
+        respond.handle_comment_event(
+            event,
+            gh_client=gh,
+            web_client=MagicMock(),
+            llm_client=mock_llm,
+            settings=settings,
+            resume=sample_resume(),
+            repo_path=Path("/repo"),
+            bot_logins=set(),
+        )
+
+    # We should execute ACTION_STATUS_UPDATE to applied directly
+    execute_mock.assert_called_once()
+    args = execute_mock.call_args.args
+    assert args[0].action == "status_update"
+    assert args[0].status == "applied"
+    assert execute_mock.call_args.kwargs["issue_number"] == 5
+
+
 # --- Side-effect execution ---------------------------------------------------
 
 
@@ -393,7 +438,8 @@ def test_execute_action_status_update(status: str) -> None:
     body = gh.posted_comments[0][1]
     assert body.startswith(STATUS_CONFIRMATION_MARKER)
     assert "Marked." in body
-    assert gh.project_statuses == [("ND", status)]
+    expected_status = respond.LABEL_TO_STATUS[STATUS_LABELS[status]]
+    assert gh.project_statuses == [("ND", expected_status)]
 
 
 def test_execute_action_status_update_fallback_without_projects() -> None:
@@ -418,6 +464,39 @@ def test_execute_action_status_update_fallback_without_projects() -> None:
     assert body.startswith(STATUS_CONFIRMATION_MARKER)
     assert "Marked." in body
     assert gh.project_statuses == []
+
+
+def test_execute_action_status_update_warning_on_project_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify GitHubClientError in update_project_status is logged as a warning."""
+
+    class FailingClient(FakeGitHubClient):
+        def update_project_status(self, issue_node_id: str, status_name: str) -> None:
+            raise GitHubClientError("GitHub API error")
+
+    settings = sample_settings()
+    settings.projects_v2 = ProjectsV2Config(
+        project_id="PVT_123", status_field_name="Status"
+    )
+    with caplog.at_level(logging.WARNING):
+        respond.execute_action(
+            AgentAction(action="status_update", status="applied", reply="Marked."),
+            issue_number=5,
+            issue_title="t",
+            issue_body="b",
+            issue_node_id="ND",
+            repo_path=Path(),
+            gh_client=FailingClient(),
+            settings=settings,
+            resume=sample_resume(),
+            llm_client=MagicMock(),
+            web_client=MagicMock(),
+        )
+    assert (
+        "Could not update Projects V2 status directly for issue #5: GitHub API error"
+        in caplog.text
+    )
 
 
 def test_execute_action_status_update_marker_only_without_reply() -> None:
@@ -621,6 +700,7 @@ def test_handle_opened_event_fetch_failure_posts_comment() -> None:
     """A fetch failure posts an explanatory comment and never closes the issue."""
     gh = FakeGitHubClient()
     with (
+        patch("respond.run_agent", return_value=AgentAction(action="triage")),
         patch("respond.triage.run_triage") as mocked_run,
         patch(
             "respond.triage.fetch_job_page",
@@ -660,6 +740,7 @@ def test_handle_opened_event_runs_triage_with_canonical_body() -> None:
         "description": "Acme hires Python engineers.",
     }
     with (
+        patch("respond.run_agent", return_value=AgentAction(action="triage")),
         patch("respond.triage.fetch_job_page", return_value=fetched),
         patch("respond.triage.infer_job_details_from_page", return_value=details),
         patch("respond.triage.run_triage") as mocked_run,
@@ -686,6 +767,164 @@ def test_handle_opened_event_runs_triage_with_canonical_body() -> None:
     assert "**Source:** manual" in body
     assert "## Job Description" in body
     assert "Acme hires Python engineers." in body
+
+
+def test_is_bare_url_submission() -> None:
+    """Verify bare URL detection logic with various formatting inputs."""
+    # True cases
+    assert respond._is_bare_url_submission("https://acme.com/jobs/123", "Senior Job")
+    assert respond._is_bare_url_submission(
+        "  https://acme.com/jobs/123  ", "Senior Job"
+    )
+    assert respond._is_bare_url_submission("<https://acme.com/jobs/123>", "Acme Job")
+    assert respond._is_bare_url_submission(
+        "[Apply Here](https://acme.com/jobs/123)", "Acme Job"
+    )
+    assert respond._is_bare_url_submission("https://acme.com/jobs/123", "Acme Job")
+
+    # False cases: status intent in title
+    assert not respond._is_bare_url_submission(
+        "https://acme.com/jobs/123", "I applied to Acme"
+    )
+    # False cases: status intent in markdown link text
+    assert not respond._is_bare_url_submission(
+        "[I applied!](https://acme.com/jobs/123)", "Acme Job"
+    )
+    # False cases: extra text in body
+    assert not respond._is_bare_url_submission(
+        "Check this out https://acme.com/jobs/123", "Acme Job"
+    )
+    assert not respond._is_bare_url_submission(
+        "https://acme.com/jobs/123 and another", "Acme Job"
+    )
+
+
+def test_handle_opened_event_skips_intent_classification_for_bare_url() -> None:
+    """Verify that opened issue with a bare URL skips intent classification LLM call."""
+    gh = FakeGitHubClient()
+    fetched = {
+        "title": "Senior Python Engineer at Acme",
+        "description": "Acme hires Python engineers.",
+    }
+    details = {
+        "company": "Acme",
+        "role": "Senior Python Engineer",
+        "location": "Remote",
+        "salary": "Not specified",
+        "source": "manual",
+        "description": "Acme hires Python engineers.",
+    }
+
+    event = opened_event(body="https://acme.com/jobs/123")
+    event["issue"]["title"] = "Acme Job"
+
+    with (
+        patch("respond.run_agent") as mock_run_agent,
+        patch("respond.triage.fetch_job_page", return_value=fetched),
+        patch("respond.triage.infer_job_details_from_page", return_value=details),
+        patch("respond.triage.run_triage") as mocked_run,
+    ):
+        respond.handle_opened_event(
+            event,
+            gh_client=gh,
+            web_client=MagicMock(),
+            llm_client="llm",
+            settings=sample_settings(),
+            resume=sample_resume(),
+            repo_path=Path("/repo"),
+        )
+
+    mock_run_agent.assert_not_called()
+    mocked_run.assert_called_once()
+
+
+def test_handle_opened_event_runs_intent_classification_for_non_bare_url() -> None:
+    """Verify that opened issue with additional text calls intent classification."""
+    gh = FakeGitHubClient()
+    fetched = {
+        "title": "Senior Python Engineer at Acme",
+        "description": "Acme hires Python engineers.",
+    }
+    details = {
+        "company": "Acme",
+        "role": "Senior Python Engineer",
+        "location": "Remote",
+        "salary": "Not specified",
+        "source": "manual",
+        "description": "Acme hires Python engineers.",
+    }
+    event = opened_event(body="Please check out this job: https://acme.com/jobs/123")
+    event["issue"]["title"] = "Acme Job"
+
+    with (
+        patch(
+            "respond.run_agent", return_value=AgentAction(action="triage")
+        ) as mock_run_agent,
+        patch("respond.triage.fetch_job_page", return_value=fetched),
+        patch("respond.triage.infer_job_details_from_page", return_value=details),
+        patch("respond.triage.run_triage"),
+    ):
+        respond.handle_opened_event(
+            event,
+            gh_client=gh,
+            web_client=MagicMock(),
+            llm_client="llm",
+            settings=sample_settings(),
+            resume=sample_resume(),
+            repo_path=Path("/repo"),
+        )
+
+    mock_run_agent.assert_called_once()
+
+
+def test_handle_opened_event_with_applied_intent() -> None:
+    """Verify opened event with applied intent transitions status to applied."""
+    gh = FakeGitHubClient()
+    settings = sample_settings()
+    settings.projects_v2 = ProjectsV2Config(
+        project_id="proj-123", status_field_name="Status"
+    )
+
+    event = opened_event()
+    event["issue"]["title"] = "I applied to Software Engineer at Acme"
+    event["issue"]["body"] = "Here is the URL: https://acme.com/jobs/123"
+
+    mock_llm = MagicMock()
+
+    mock_llm.chat.return_value = ChatMessage(
+        role="assistant",
+        content=json.dumps(
+            {
+                "action": "status_update",
+                "status": "applied",
+                "reply": "Marked as applied.",
+            }
+        ),
+    )
+
+    with (
+        patch("respond.triage.fetch_job_page") as fetch_mock,
+        patch("respond.execute_action") as execute_mock,
+    ):
+        respond.handle_opened_event(
+            event,
+            gh_client=gh,
+            web_client=MagicMock(),
+            llm_client=mock_llm,
+            settings=settings,
+            resume=sample_resume(),
+            repo_path=Path("/repo"),
+        )
+
+    # We should not fetch or triage
+    fetch_mock.assert_not_called()
+
+    # We should execute ACTION_STATUS_UPDATE to applied directly
+    execute_mock.assert_called_once()
+    args = execute_mock.call_args.args
+    assert args[0].action == "status_update"
+    assert args[0].status == "applied"
+    assert execute_mock.call_args.kwargs["issue_number"] == 6
 
 
 def test_handle_opened_event_missing_issue_number() -> None:
