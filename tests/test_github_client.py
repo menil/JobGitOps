@@ -1019,7 +1019,11 @@ def test_list_project_items(mock_urlopen: mock.MagicMock) -> None:
                     "pageInfo": {"hasNextPage": False, "endCursor": "cur-1"},
                     "nodes": [
                         {
-                            "content": {"__typename": "Issue", "number": 1},
+                            "content": {
+                                "__typename": "Issue",
+                                "number": 1,
+                                "repository": {"nameWithOwner": "owner/repo"},
+                            },
                             "fieldValues": {
                                 "nodes": [
                                     {"name": "Applied", "field": {"name": "Status"}},
@@ -1028,12 +1032,32 @@ def test_list_project_items(mock_urlopen: mock.MagicMock) -> None:
                             },
                         },
                         {
-                            "content": {"__typename": "PullRequest", "number": 2},
+                            "content": {
+                                "__typename": "PullRequest",
+                                "number": 2,
+                                "repository": {"nameWithOwner": "owner/repo"},
+                            },
                             "fieldValues": {"nodes": []},
                         },
                         {
-                            "content": {"__typename": "Issue", "number": 3},
+                            "content": {
+                                "__typename": "Issue",
+                                "number": 3,
+                                "repository": {"nameWithOwner": "owner/repo"},
+                            },
                             "fieldValues": {"nodes": []},
+                        },
+                        {
+                            "content": {
+                                "__typename": "Issue",
+                                "number": 4,
+                                "repository": {"nameWithOwner": "other/repo"},
+                            },
+                            "fieldValues": {
+                                "nodes": [
+                                    {"name": "Applied", "field": {"name": "Status"}},
+                                ]
+                            },
                         },
                     ],
                 }
@@ -1063,7 +1087,11 @@ def test_list_project_items_pagination(mock_urlopen: mock.MagicMock) -> None:
                     "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
                     "nodes": [
                         {
-                            "content": {"__typename": "Issue", "number": 1},
+                            "content": {
+                                "__typename": "Issue",
+                                "number": 1,
+                                "repository": {"nameWithOwner": "owner/repo"},
+                            },
                             "fieldValues": {"nodes": []},
                         }
                     ],
@@ -1078,7 +1106,11 @@ def test_list_project_items_pagination(mock_urlopen: mock.MagicMock) -> None:
                     "pageInfo": {"hasNextPage": False, "endCursor": "cursor-2"},
                     "nodes": [
                         {
-                            "content": {"__typename": "Issue", "number": 2},
+                            "content": {
+                                "__typename": "Issue",
+                                "number": 2,
+                                "repository": {"nameWithOwner": "owner/repo"},
+                            },
                             "fieldValues": {
                                 "nodes": [
                                     {"name": "Rejected", "field": {"name": "Status"}}

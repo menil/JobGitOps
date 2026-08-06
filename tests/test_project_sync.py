@@ -968,10 +968,7 @@ def test_sync_field_options_error_exits(
 def test_sync_event_dict_status_value_edited(
     mock_github_client_class,
 ) -> None:
-    """Verify dictionary status values are parsed correctly in edited events.
-
-    Single select custom field values are represented as dictionary objects.
-    """
+    """Verify dictionary status values are parsed in edited events."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
     mock_client.resolve_issue_number.return_value = 42
@@ -997,7 +994,7 @@ def test_sync_event_dict_status_value_edited(
 def test_sync_event_dict_status_value_created(
     mock_github_client_class,
 ) -> None:
-    """Verify dictionary status values are parsed correctly in created events."""
+    """Verify dict status values are parsed in created events."""
     mock_client = MagicMock()
     mock_github_client_class.return_value = mock_client
     mock_client.resolve_issue_number.return_value = 42
@@ -1103,3 +1100,65 @@ def test_changed_status_unit(event, item, status_field_name, expected) -> None:
     from project_sync import _changed_status
 
     assert _changed_status(event, item, status_field_name) == expected
+
+
+@patch("project_sync.GitHubClient")
+def test_sync_backfill_reverse_failure_exits_with_one(
+    mock_github_client_class,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify that if reverse reconciliation fails, the script exits with code 1."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.list_issues.side_effect = [
+        [
+            {
+                "number": 1,
+                "node_id": "ND_1",
+                "state": "open",
+                "labels": [{"name": "in-loop"}],
+            },
+        ],
+        [],
+    ]
+    mock_client.list_project_items.return_value = {1: "Applied"}
+    mock_client.add_labels.side_effect = RuntimeError("network error")
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", ["project_sync.py", "backfill", "--reverse"]),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        main()
+
+    assert exc_info.value.code == 1
+    assert "Reverse reconcile failed for issue #1: network error" in caplog.text
+
+
+@patch("project_sync.GitHubClient")
+def test_sync_backfill_reverse_success_returns_zero_failures(
+    mock_github_client_class,
+) -> None:
+    """Verify that if reverse reconciliation succeeds, it exits cleanly."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.list_issues.side_effect = [
+        [
+            {
+                "number": 1,
+                "node_id": "ND_1",
+                "state": "open",
+                "labels": [{"name": "in-loop"}],
+            },
+        ],
+        [],
+    ]
+    mock_client.list_project_items.return_value = {1: "Applied"}
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", ["project_sync.py", "backfill", "--reverse"]),
+    ):
+        main()
+
+    mock_client.add_labels.assert_called_once_with(1, ["applied"])

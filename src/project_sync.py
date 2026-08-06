@@ -282,12 +282,12 @@ def _run_backfill(gh_client: GitHubClient, reverse: bool) -> None:
     board_statuses = gh_client.list_project_items()
     labels_by_number = _collect_labels(issues)
 
+    failed = 0
     if reverse:
-        _reverse_reconcile(gh_client, labels_by_number, board_statuses)
+        failed += _reverse_reconcile(gh_client, labels_by_number, board_statuses)
 
     processed = 0
     moved = 0
-    failed = 0
 
     for issue in issues:
         processed += 1
@@ -357,7 +357,7 @@ def _reverse_reconcile(
     gh_client: GitHubClient,
     labels_by_number: dict[int, set[str]],
     board_statuses: dict[int, str | None],
-) -> None:
+) -> int:
     """Make issue labels match their board column for lifecycle statuses.
 
     Only ``REVERSE_SYNC_STATUSES`` columns are acted on (Triage Pending is
@@ -367,8 +367,12 @@ def _reverse_reconcile(
     aborting the run. The passed-in ``labels_by_number`` map is updated in
     place, so the forward pass that follows sees the reconciled labels instead
     of stale snapshots.
+
+    Returns:
+        Number of failed reconciliations.
     """
     reconciled = 0
+    failed = 0
     for issue_number, status in board_statuses.items():
         if status not in REVERSE_SYNC_STATUSES:
             continue
@@ -388,8 +392,10 @@ def _reverse_reconcile(
                 issue_number,
                 e,
             )
+            failed += 1
 
     logger.info("Reverse reconcile complete: %d label(s) applied.", reconciled)
+    return failed
 
 
 def _target_status(issue_number: int, state: str, labels: set[str]) -> str | None:

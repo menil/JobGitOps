@@ -1,6 +1,9 @@
 name: Sync Project Status to Label
 
 on:
+  schedule:
+    - cron: '*/30 * * * *'  # Runs every 30 minutes
+  workflow_dispatch:
   projects_v2_item:
     types: [edited, created]
 
@@ -21,7 +24,10 @@ jobs:
     # status-transition.yml; together they converge because re-setting an
     # already-set column emits no `edited` event, and the script no-ops when
     # the target label is already present.
-    if: github.event.projects_v2_item.content_type == 'Issue'
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'projects_v2_item' && github.event.projects_v2_item.content_type == 'Issue')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container:
@@ -38,8 +44,17 @@ jobs:
       - name: Sync Dependencies
         run: uv sync --frozen --no-install-project
 
-      - name: Run Project Status Sync
+      - name: Run Project Status Sync (Event)
+        if: github.event_name == 'projects_v2_item'
         run: python src/project_sync.py event --event-path "$GITHUB_EVENT_PATH"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Run Project Status Sync (Reconcile Backfill)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: python src/project_sync.py backfill --reverse
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
