@@ -1,9 +1,7 @@
-"""Shared CLI bootstrap helpers for the job-search pipeline scripts.
+"""Shared CLI bootstrap helpers and entry points for the job-search pipeline.
 
-Every entry point (``respond.py``, ``triage.py``, ``status_transition.py``,
-``project_sync.py``) used to copy the same logging setup, ``--repo-path``
-argument, and repository path resolution. Centralizing them keeps the CLI
-surface consistent so the scripts cannot drift apart.
+Every entry point (respond, triage, status_transition, project_sync)
+imports these logging setup and repository path resolution helpers.
 """
 
 import argparse

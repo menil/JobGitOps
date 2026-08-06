@@ -9,11 +9,7 @@ from unittest import mock
 
 import pytest
 
-from jobgitops.github_client import GitHubClient
-from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
-from jobgitops.schema import Resume, Settings, ValidationError
-from jobgitops.web import PageContent
-from triage import (
+from jobgitops.cli.triage import (
     BATCH_PAGE_SIZE,
     EXIT_QUOTA_EXCEEDED,
     FIT_CATEGORY_MISMATCH_LABELS,
@@ -28,6 +24,10 @@ from triage import (
     run_all_pending,
     run_triage,
 )
+from jobgitops.github_client import GitHubClient
+from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
+from jobgitops.schema import Resume, Settings, ValidationError
+from jobgitops.web import PageContent
 
 
 @pytest.fixture
@@ -500,11 +500,11 @@ def test_run_triage_mismatch_no_reason_labels(
     mock_gh_client.update_project_status.assert_not_called()
 
 
-@mock.patch("triage.compile_resume")
-@mock.patch("triage.commit_changes")
-@mock.patch("triage.push_branch")
-@mock.patch("triage.create_or_checkout_branch")
-@mock.patch("triage.run_git")
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.commit_changes")
+@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
 @pytest.mark.parametrize(
     ("fit_score", "expected_label"),
     [
@@ -613,9 +613,9 @@ def test_run_triage_match_approved(
     )
 
 
-@mock.patch("triage.compile_resume")
-@mock.patch("triage.create_or_checkout_branch")
-@mock.patch("triage.run_git")
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
 def test_run_triage_tailoring_failure(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -680,11 +680,11 @@ def test_run_triage_tailoring_failure(
     mock_run_git.assert_any_call(["checkout", "-f", "main-branch"], cwd=tmp_path)
 
 
-@mock.patch("triage.compile_resume")
-@mock.patch("triage.commit_changes")
-@mock.patch("triage.push_branch")
-@mock.patch("triage.create_or_checkout_branch")
-@mock.patch("triage.run_git")
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.commit_changes")
+@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
 def test_run_triage_bare_url_body_fetches_and_substitutes(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -914,11 +914,11 @@ def test_run_triage_full_body_skips_fetch(
     )
 
 
-@mock.patch("triage.get_llm_client")
-@mock.patch("triage.load_settings")
-@mock.patch("triage.load_resume")
-@mock.patch("triage.GitHubClient")
-@mock.patch("triage.run_triage")
+@mock.patch("jobgitops.cli.triage.get_llm_client")
+@mock.patch("jobgitops.cli.triage.load_settings")
+@mock.patch("jobgitops.cli.triage.load_resume")
+@mock.patch("jobgitops.cli.triage.GitHubClient")
+@mock.patch("jobgitops.cli.triage.run_triage")
 def test_main_cli_args(
     mock_run_triage: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -986,11 +986,11 @@ def test_main_cli_args(
     )
 
 
-@mock.patch("triage.get_llm_client")
-@mock.patch("triage.load_settings")
-@mock.patch("triage.load_resume")
-@mock.patch("triage.GitHubClient")
-@mock.patch("triage.run_triage")
+@mock.patch("jobgitops.cli.triage.get_llm_client")
+@mock.patch("jobgitops.cli.triage.load_settings")
+@mock.patch("jobgitops.cli.triage.load_resume")
+@mock.patch("jobgitops.cli.triage.GitHubClient")
+@mock.patch("jobgitops.cli.triage.run_triage")
 def test_main_event_path(
     mock_run_triage: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -1059,7 +1059,7 @@ def test_main_event_path(
     )
 
 
-@mock.patch("triage.load_settings")
+@mock.patch("jobgitops.cli.triage.load_settings")
 def test_main_load_settings_failure(mock_load_settings: mock.MagicMock) -> None:
     """Test main exits with sys.exit(1) when loading configuration settings fails."""
     mock_load_settings.side_effect = ValueError("Invalid YAML")
@@ -1074,11 +1074,11 @@ def test_main_load_settings_failure(mock_load_settings: mock.MagicMock) -> None:
     assert exc_info.value.code == 1
 
 
-@mock.patch("triage.get_llm_client")
-@mock.patch("triage.load_settings")
-@mock.patch("triage.load_resume")
-@mock.patch("triage.GitHubClient")
-@mock.patch("triage.run_triage")
+@mock.patch("jobgitops.cli.triage.get_llm_client")
+@mock.patch("jobgitops.cli.triage.load_settings")
+@mock.patch("jobgitops.cli.triage.load_resume")
+@mock.patch("jobgitops.cli.triage.GitHubClient")
+@mock.patch("jobgitops.cli.triage.run_triage")
 def test_main_issue_number_env(
     mock_run_triage: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -1134,11 +1134,11 @@ def test_main_issue_number_env(
     )
 
 
-@mock.patch("triage.get_llm_client")
-@mock.patch("triage.load_settings")
-@mock.patch("triage.load_resume")
-@mock.patch("triage.GitHubClient")
-@mock.patch("triage.run_triage")
+@mock.patch("jobgitops.cli.triage.get_llm_client")
+@mock.patch("jobgitops.cli.triage.load_settings")
+@mock.patch("jobgitops.cli.triage.load_resume")
+@mock.patch("jobgitops.cli.triage.GitHubClient")
+@mock.patch("jobgitops.cli.triage.run_triage")
 def test_main_quota_exceeded(
     mock_run_triage: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -1182,7 +1182,7 @@ def test_main_quota_exceeded(
     assert exc_info.value.code == EXIT_QUOTA_EXCEEDED
 
 
-@mock.patch("triage.run_triage")
+@mock.patch("jobgitops.cli.triage.run_triage")
 def test_run_all_pending_triages_each_labeled_issue(
     mock_run_triage: mock.MagicMock,
     mock_resume: Resume,
@@ -1259,7 +1259,7 @@ def test_run_all_pending_triages_each_labeled_issue(
     )
 
 
-@mock.patch("triage.run_triage")
+@mock.patch("jobgitops.cli.triage.run_triage")
 def test_run_all_pending_paginates_through_all_pending_issues(
     mock_run_triage: mock.MagicMock,
     mock_resume: Resume,
@@ -1314,7 +1314,7 @@ def test_run_all_pending_paginates_through_all_pending_issues(
     ]
 
 
-@mock.patch("triage.run_triage")
+@mock.patch("jobgitops.cli.triage.run_triage")
 def test_run_all_pending_continues_on_individual_failure(
     mock_run_triage: mock.MagicMock,
     mock_resume: Resume,
@@ -1353,7 +1353,7 @@ def test_run_all_pending_continues_on_individual_failure(
     assert mock_run_triage.call_count == 2
 
 
-@mock.patch("triage.run_triage")
+@mock.patch("jobgitops.cli.triage.run_triage")
 def test_run_all_pending_returns_quota_exit_code(
     mock_run_triage: mock.MagicMock,
     mock_resume: Resume,
@@ -1392,11 +1392,11 @@ def test_run_all_pending_returns_quota_exit_code(
     assert mock_run_triage.call_count == 1
 
 
-@mock.patch("triage.get_llm_client")
-@mock.patch("triage.load_settings")
-@mock.patch("triage.load_resume")
-@mock.patch("triage.GitHubClient")
-@mock.patch("triage.run_all_pending")
+@mock.patch("jobgitops.cli.triage.get_llm_client")
+@mock.patch("jobgitops.cli.triage.load_settings")
+@mock.patch("jobgitops.cli.triage.load_resume")
+@mock.patch("jobgitops.cli.triage.GitHubClient")
+@mock.patch("jobgitops.cli.triage.run_all_pending")
 def test_main_all_pending_mode(
     mock_run_all_pending: mock.MagicMock,
     mock_gh_class: mock.MagicMock,

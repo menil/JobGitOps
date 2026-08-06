@@ -4,10 +4,10 @@ A serverless, GitOps-driven job application and tracking system. JobGitOps treat
 
 ## Features
 
-- 🤖 **Automated Role Discovery**: A scheduled Actions cron (`src/scrape.py`) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
-- 🧠 **AI Triage & Tailoring**: A two-pass LLM engine (`src/triage.py`) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
+- 🤖 **Automated Role Discovery**: A scheduled Actions cron (`python -m jobgitops.cli.scrape`) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
+- 🧠 **AI Triage & Tailoring**: A two-pass LLM engine (`python -m jobgitops.cli.triage`) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
 - 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to HTML and print-ready PDFs with Jinja2 + WeasyPrint on dedicated application branches — every version you send is a clean, reviewable Git diff.
-- 💬 **Issue Assistant**: A tool-using agent (`src/respond.py`) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
+- 💬 **Issue Assistant**: A tool-using agent (`python -m jobgitops.cli.respond`) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
 - 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → In Loop → Rejected`) with label-based automation and a label-only fallback.
 - ❄️ **Hermetic Nix Environment**: Reproducible Python 3.12 + `devenv` shell with all WeasyPrint native deps (`cairo`, `pango`, `glib`, `gdk-pixbuf`, `harfbuzz`, `libffi`) and fonts mapped cleanly.
 - 🛠️ **Local Task Runner (`Justfile`)**: Standardized commands for formatting, linting, and validating with a 90% coverage gate.
@@ -130,8 +130,8 @@ custom_queries:                        # Top-level override for resume-based que
 3. **Sync the board and options** — the lifecycle columns (`Triage Pending`, `Ready to Apply`, `Applied`, `In Loop`, `Offer Received`, `Rejected`, `Mismatched/Closed`) must exist on your Status field before cards can move. Run:
 
    ```bash
-   devenv shell python src/project_sync.py field-options   # create missing options
-   devenv shell python src/project_sync.py backfill --reverse   # one-time label/board reconciliation
+    devenv shell python -m jobgitops.cli.project_sync field-options   # create missing options
+    devenv shell python -m jobgitops.cli.project_sync backfill --reverse   # one-time label/board reconciliation
    ```
 
    > **Warning:** `backfill` moves every card to the column its labels dictate,
@@ -217,7 +217,7 @@ These workflows run inside a pre-built Docker container hosting WeasyPrint libra
 - **Scraping works but nothing is triaged**: confirm at least one of `GEMINI_API_KEY` / `OPENROUTER_API_KEY` is set; otherwise triage fails on every run.
 - **LLM quota / rate limit**: the daily scraper stops triaging for the day (exit 75) when the LLM provider reports quota exhaustion; per-issue failures post a comment on the issue.
 - **`applied` label set but the board card never moves**: the Projects V2 move only happens when `projects_v2` is configured in `config/settings.yaml` with a real `PVT_...` node ID; otherwise the label alone tracks state.
-- **Board moves but the label never updates (or vice-versa)**: verify `PROJECT_V2_TOKEN` is set and `src/jobgitops/status_model.py` still matches your board's column names; then run `devenv shell python src/project_sync.py backfill --reverse` to converge both directions.
+- **Board moves but the label never updates (or vice-versa)**: verify `PROJECT_V2_TOKEN` is set and `src/jobgitops/status_model.py` still matches your board's column names; then run `devenv shell python -m jobgitops.cli.project_sync backfill --reverse` to converge both directions.
 - **`custom_queries` / `fit_threshold` seem ignored**: verify `custom_queries` is a top-level key in `config/settings.yaml` (a sibling of `search`), not nested under it.
 
 ## Issue Labels
@@ -243,11 +243,8 @@ just format     # auto-format code and resumes/resume.yaml
 ```
 config/settings.yaml          # Search + triage configuration
 resumes/                      # resume.yaml (base), template.html, style.css
-src/scrape.py                 # Job discovery bot
-src/triage.py                 # AI triage & tailoring coordinator
-src/status_transition.py      # Label -> Projects V2 column (forward sync)
-src/project_sync.py           # Column -> label (reverse), backfill, option sync
-src/jobgitops/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper, status_model, cli)
+src/jobgitops/cli/            # CLI entry points (scrape, triage, respond, status_transition, project_sync)
+src/jobgitops/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper, status_model)
 scripts/format_resume.py      # Canonical resume.yaml formatter
 specs/                        # Architecture spec + user story
 tests/                        # pytest suite (90% coverage enforced)

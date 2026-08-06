@@ -515,7 +515,7 @@ def test_run_scraper_overrides(
     )
 
 
-@patch("scrape.run_scraper")
+@patch("jobgitops.cli.scrape.run_scraper")
 @patch(
     "sys.argv",
     [
@@ -531,7 +531,7 @@ def test_run_scraper_overrides(
 )
 def test_scrape_cli_args(mock_run_scraper) -> None:
     """Verify scrape.py CLI entry point parses overrides correctly."""
-    from scrape import main as cli_main
+    from jobgitops.cli.scrape import main as cli_main
 
     cli_main()
     mock_run_scraper.assert_called_once_with(

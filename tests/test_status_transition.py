@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from jobgitops.cli.status_transition import LABEL_TO_STATUS, main
 from jobgitops.schema import Settings
-from status_transition import LABEL_TO_STATUS, main
 
 # Standard environment and CLI args used by most tests. centralizing these keeps
 # the per-test setup focused on the single failure condition under test.
@@ -35,9 +35,9 @@ def run_main(
 def in_memory_event(event_data=None, json_side_effect=None):
     """Serve a webhook payload in memory instead of writing a JSON file."""
     with (
-        patch("status_transition.pathlib.Path.open"),
+        patch("jobgitops.cli.status_transition.pathlib.Path.open"),
         patch(
-            "status_transition.json.load",
+            "jobgitops.cli.status_transition.json.load",
             return_value=event_data,
             side_effect=json_side_effect,
         ),
@@ -61,7 +61,7 @@ def mock_load_settings(mock_settings) -> MagicMock:
     Individual tests override ``return_value`` / ``side_effect`` to exercise
     specific load or configuration branches.
     """
-    with patch("status_transition.load_settings") as mocked:
+    with patch("jobgitops.cli.status_transition.load_settings") as mocked:
         mocked.return_value = mock_settings
         yield mocked
 
@@ -86,7 +86,7 @@ def test_transition_no_projects_v2_configured(mock_load_settings) -> None:
     run_main(env={}, expected_code=0)
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_missing_token(
     mock_github_client_class,
     caplog,
@@ -111,7 +111,7 @@ def test_transition_missing_token(
         ("triage-mismatched", "Mismatched/Closed"),
     ],
 )
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_from_cli_args(
     mock_github_client_class,
     label,
@@ -144,7 +144,7 @@ def test_transition_from_cli_args(
     mock_client.update_project_status.assert_called_once_with("ND_123", expected_status)
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_removes_stale_sibling_lifecycle_labels(
     mock_github_client_class,
 ) -> None:
@@ -168,7 +168,7 @@ def test_transition_removes_stale_sibling_lifecycle_labels(
     mock_client.update_project_status.assert_called_once_with("ND_123", "Applied")
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_from_event_payload(
     mock_github_client_class,
 ) -> None:
@@ -213,7 +213,7 @@ def test_transition_from_event_payload(
     )
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_from_closed_event_payload_default_rejected(
     mock_github_client_class,
 ) -> None:
@@ -245,7 +245,7 @@ def test_transition_from_closed_event_payload_default_rejected(
     )
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_from_closed_event_payload_triage_mismatched(
     mock_github_client_class,
 ) -> None:
@@ -278,7 +278,7 @@ def test_transition_from_closed_event_payload_triage_mismatched(
     )
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_from_closed_event_payload_with_specific_mismatch_reason(
     mock_github_client_class,
 ) -> None:
@@ -310,7 +310,7 @@ def test_transition_from_closed_event_payload_with_specific_mismatch_reason(
     )
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_cli_label_overrides_event_payload(
     mock_github_client_class,
 ) -> None:
@@ -344,7 +344,7 @@ def test_transition_cli_label_overrides_event_payload(
     mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "In Loop")
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_cli_label_fills_missing_payload_label(
     mock_github_client_class,
 ) -> None:
@@ -377,7 +377,7 @@ def test_transition_cli_label_fills_missing_payload_label(
     mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "In Loop")
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_cli_issue_and_label_override_payload(
     mock_github_client_class,
 ) -> None:
@@ -416,7 +416,7 @@ def test_transition_cli_issue_and_label_override_payload(
     mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "In Loop")
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_payload_number_coerced_to_int(
     mock_github_client_class,
 ) -> None:
@@ -443,7 +443,7 @@ def test_transition_payload_number_coerced_to_int(
     mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "Applied")
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_invalid_payload_number(
     mock_github_client_class,
     caplog,
@@ -466,7 +466,7 @@ def test_transition_invalid_payload_number(
     mock_github_client_class.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_missing_label(
     mock_github_client_class,
     caplog,
@@ -478,7 +478,7 @@ def test_transition_missing_label(
     mock_github_client_class.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_unknown_label(
     mock_github_client_class,
     caplog,
@@ -490,7 +490,7 @@ def test_transition_unknown_label(
     mock_github_client_class.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_settings_load_failure(
     mock_github_client_class,
     mock_load_settings,
@@ -505,7 +505,7 @@ def test_transition_settings_load_failure(
     mock_github_client_class.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_invalid_event_payload(
     mock_github_client_class,
     caplog,
@@ -518,7 +518,7 @@ def test_transition_invalid_event_payload(
     mock_github_client_class.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_invalid_event_payload_from_env(
     mock_github_client_class,
     caplog,
@@ -532,7 +532,7 @@ def test_transition_invalid_event_payload_from_env(
     mock_github_client_class.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_missing_repository(
     mock_github_client_class,
     caplog,
@@ -545,7 +545,7 @@ def test_transition_missing_repository(
     mock_github_client_class.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_missing_issue_number(
     mock_github_client_class,
     caplog,
@@ -569,7 +569,7 @@ def test_transition_client_init_failure(caplog) -> None:
     assert "Failed to initialize GitHubClient: Invalid repository format" in caplog.text
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_get_issue_failure(
     mock_github_client_class,
     caplog,
@@ -585,7 +585,7 @@ def test_transition_get_issue_failure(
     mock_client.update_project_status.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_missing_node_id(
     mock_github_client_class,
     caplog,
@@ -601,7 +601,7 @@ def test_transition_missing_node_id(
     mock_client.update_project_status.assert_not_called()
 
 
-@patch("status_transition.GitHubClient")
+@patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_update_status_failure(
     mock_github_client_class,
     caplog,

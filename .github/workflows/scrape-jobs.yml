@@ -97,4 +97,4 @@ jobs:
               ARGS+=("--dry-run")
             fi
           fi
-          python src/scrape.py "${ARGS[@]}"
+          python -m jobgitops.cli.scrape "${ARGS[@]}"
