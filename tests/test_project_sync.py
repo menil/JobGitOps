@@ -962,3 +962,144 @@ def test_sync_field_options_error_exits(
 
     assert exc_info.value.code == 1
     assert "Failed to sync status field options: graphql down" in caplog.text
+
+
+@patch("project_sync.GitHubClient")
+def test_sync_event_dict_status_value_edited(
+    mock_github_client_class,
+) -> None:
+    """Verify dictionary status values are parsed correctly in edited events.
+
+    Single select custom field values are represented as dictionary objects.
+    """
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.resolve_issue_number.return_value = 42
+    mock_client.get_labels.return_value = ["fit:A"]
+    mock_client.project_id = "PVT_TEST_123"
+
+    dict_status = {"id": "opt_applied", "name": "Applied"}
+    event = project_item_event(dict_status)
+    # Ensure fallback value is different so we strictly verify the delta branch
+    event["projects_v2_item"]["field_value_by_name"]["Status"]["value"] = "In progress"
+
+    with (
+        in_memory_event(event),
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", DEFAULT_ARGV),
+    ):
+        main()
+
+    mock_client.add_labels.assert_called_once_with(42, ["applied"])
+
+
+@patch("project_sync.GitHubClient")
+def test_sync_event_dict_status_value_created(
+    mock_github_client_class,
+) -> None:
+    """Verify dictionary status values are parsed correctly in created events."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.resolve_issue_number.return_value = 42
+    mock_client.get_labels.return_value = []
+    mock_client.project_id = "PVT_TEST_123"
+
+    dict_status = {"id": "opt_in_loop", "name": "In Loop"}
+    event = project_item_event(dict_status)
+    event["action"] = "created"
+    del event["changes"]
+
+    with (
+        in_memory_event(event),
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", DEFAULT_ARGV),
+    ):
+        main()
+
+    mock_client.add_labels.assert_called_once_with(42, ["in-loop"])
+
+
+@pytest.mark.parametrize(
+    "event, item, status_field_name, expected",
+    [
+        # Edited: status field changed to dict value
+        (
+            {
+                "changes": {
+                    "field_value": {
+                        "field_name": "Status",
+                        "to": {"id": "1", "name": "Applied"},
+                    }
+                }
+            },
+            {},
+            "Status",
+            "Applied",
+        ),
+        # Edited: status field changed to string value
+        (
+            {"changes": {"field_value": {"field_name": "Status", "to": "Applied"}}},
+            {},
+            "Status",
+            "Applied",
+        ),
+        # Edited: status field changed to None (cleared)
+        (
+            {"changes": {"field_value": {"field_name": "Status", "to": None}}},
+            {},
+            "Status",
+            None,
+        ),
+        # Edited: unrelated field changed (Priority), should ignore entirely
+        (
+            {"changes": {"field_value": {"field_name": "Priority", "to": "High"}}},
+            {"field_value_by_name": {"Status": {"value": "Applied"}}},
+            "Status",
+            None,
+        ),
+        # Edited: unrelated field cleared (to is None), should ignore entirely
+        (
+            {"changes": {"field_value": {"field_name": "Priority", "to": None}}},
+            {"field_value_by_name": {"Status": {"value": "Applied"}}},
+            "Status",
+            None,
+        ),
+        # Created/Fallback: Status field is dict value
+        (
+            {},
+            {
+                "field_value_by_name": {
+                    "Status": {"value": {"id": "2", "name": "In Loop"}}
+                }
+            },
+            "Status",
+            "In Loop",
+        ),
+        # Created/Fallback: Status field is string value
+        (
+            {},
+            {"field_value_by_name": {"Status": {"value": "In Loop"}}},
+            "Status",
+            "In Loop",
+        ),
+        # Created/Fallback: Status field value is missing name key in dict
+        (
+            {},
+            {"field_value_by_name": {"Status": {"value": {"id": "3"}}}},
+            "Status",
+            None,
+        ),
+        # Created/Fallback: Status field value is unexpected type
+        (
+            {},
+            {"field_value_by_name": {"Status": {"value": 123}}},
+            "Status",
+            None,
+        ),
+    ],
+)
+def test_changed_status_unit(event, item, status_field_name, expected) -> None:
+    """Verify _changed_status extracts status correctly under various schemas."""
+    from project_sync import _changed_status
+
+    assert _changed_status(event, item, status_field_name) == expected

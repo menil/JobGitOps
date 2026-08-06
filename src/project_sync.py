@@ -229,6 +229,19 @@ def _run_event(
         sys.exit(1)
 
 
+def _extract_status_name(val: Any) -> str | None:
+    """Extract a string status name from a string or dictionary representation.
+
+    For single select custom fields, GitHub represents status values as objects
+    containing an 'id' and 'name'. If the value is a dictionary, the 'name'
+    property is returned if it is a string. Otherwise, if it is already a string,
+    it is returned directly.
+    """
+    if isinstance(val, dict):
+        val = val.get("name")
+    return val if isinstance(val, str) else None
+
+
 def _changed_status(
     event: dict[str, Any], item: dict[str, Any], status_field_name: str
 ) -> str | None:
@@ -238,17 +251,16 @@ def _changed_status(
     have no delta, so the current value is read from ``field_value_by_name``.
     """
     changes = event.get("changes") or {}
-    field_value = changes.get("field_value") or {}
-    new_status = field_value.get("to")
-    if new_status is not None:
+    if "field_value" in changes:
+        field_value = changes["field_value"] or {}
         field_name = field_value.get("field_name")
         if field_name and field_name != status_field_name:
             return None
-        return new_status
+        return _extract_status_name(field_value.get("to"))
 
     field_values = item.get("field_value_by_name") or {}
     status_field = field_values.get(status_field_name) or {}
-    return status_field.get("value")
+    return _extract_status_name(status_field.get("value"))
 
 
 def _run_backfill(gh_client: GitHubClient, reverse: bool) -> None:
