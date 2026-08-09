@@ -22,11 +22,19 @@ on:
         type: boolean
         required: false
         default: false
+  # Bootstrap trigger: replacing the placeholder resume and pushing to main
+  # fires the first scrape. config/** changes intentionally never trigger (S3).
+  push:
+    branches:
+      - main
+    paths:
+      - 'resumes/resume.yaml'
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
+  actions: write
   packages: read
 
 jobs:
@@ -41,16 +49,39 @@ jobs:
       - name: Check if Scraper is Enabled
         id: check-enabled
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "enabled=true" >> $GITHUB_OUTPUT
+          # S4: a placeholder resume means setup is pending — never scrape on
+          # it. Applies to every event type (dispatch, schedule, push).
+          if [ -f resumes/resume.yaml ] && grep -q '__JOBGITOPS_SETUP_PENDING__' resumes/resume.yaml; then
+            echo "Setup pending — replace resumes/resume.yaml and push to main. Skipping scrape."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          # S2: the bootstrap trigger (push on resumes/resume.yaml) is one-time.
+          # Once a scrape succeeds, JOBGITOPS_INITIALIZED is set and later
+          # resume pushes no longer fire a scrape; self-healing if unset.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            INITIALIZED=$(gh variable get JOBGITOPS_INITIALIZED 2>/dev/null || echo "false")
+            if [ "$INITIALIZED" = "true" ]; then
+              echo "Bootstrap scrape already completed; skipping."
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # Manual dispatch always runs once setup is done, overriding
+          # search.enabled for a one-off sweep.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # schedule / push: honor the user's search.enabled setting.
           ENABLED=$(yq '.search.enabled' config/settings.yaml)
           if [ "$ENABLED" = "false" ]; then
-            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
-            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
   scrape:
@@ -90,3 +121,16 @@ jobs:
             fi
           fi
           python -m jobgitops.cli.scrape "${ARGS[@]}"
+
+      # Mark the bootstrap as complete (one-time). PATCH 404s when the variable
+      # doesn't exist yet, so fall back to create. If both fail, the step fails
+      # loudly and the bootstrap re-fires on the next resume push (S3) — the
+      # scrape itself already succeeded, so jobs are never dropped.
+      - name: Set Bootstrap Initialized
+        run: |
+          gh api --method PATCH "repos/${{ github.repository }}/actions/variables/JOBGITOPS_INITIALIZED" \
+            -f value=true \
+            || gh api --method POST "repos/${{ github.repository }}/actions/variables" \
+                 -f name=JOBGITOPS_INITIALIZED -f value=true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
