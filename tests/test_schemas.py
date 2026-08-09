@@ -730,9 +730,9 @@ def test_loader_exceptions(tmp_path: pathlib.Path) -> None:
 
 
 def test_repo_defaults_integration() -> None:
-    """Test actual committed repository config and resume files."""
-    # Load and assert repository default settings
-    settings = load_settings("config/settings.yaml")
+    """Test the committed config and resume fixtures."""
+    # Load and assert fixture settings
+    settings = load_settings("tests/fixtures/settings.yaml")
     assert settings.fit_threshold == 3.5
     assert settings.search.location == "Remote"
     assert settings.search.job_type == "fulltime"
@@ -751,8 +751,8 @@ def test_repo_defaults_integration() -> None:
     assert settings.research.block_private_ips is True
     assert settings.research.model == ""
 
-    # Load and assert repository default resume
-    resume = load_resume("resumes/resume.yaml")
+    # Load and assert fixture resume
+    resume = load_resume("tests/fixtures/resume.yaml")
     assert resume.basics.name == "Martin Birkenbaum"
     assert resume.basics.email == "martin.birkenbaum@initech.example.com"
     assert resume.basics.location is not None

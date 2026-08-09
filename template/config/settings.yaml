@@ -1,0 +1,75 @@
+# JobGitOps System Configuration
+
+# Minimum fit score (1.0 to 5.0) required to tailor a resume and apply.
+# The AI Triage evaluates fit across tech stack, experience, location, salary, and domain.
+fit_threshold: 3.5
+
+# Search settings for the job scraper bot (scrape.py)
+search:
+  # Enable or disable the daily automated scraping action (set to false to pause search)
+  enabled: true
+
+  # Target location for job listings (e.g., "Remote", "Seattle, WA", "Sunnyvale, CA")
+  location: "Remote"
+
+  # Employment type: "fulltime", "contract", "parttime", "internship"
+  job_type: "fulltime"
+
+  # Job boards to search on
+  platforms:
+    - linkedin
+
+  # Search only for jobs posted within the last N hours
+  hours_old: 24
+
+# Custom queries override resume-based query generation.
+# If empty or commented out, queries are auto-generated from skills and recent position title in resume.yaml.
+custom_queries: []
+
+# Optional GitHub Projects V2 integration settings for automated status tracking.
+# Disabled by default (commented out) -> label-only tracking. To enable, uncomment
+# and set project_id to a real node ID (PVT_...) and add a PROJECT_V2_TOKEN secret.
+# projects_v2:
+#   project_id: "PVT_YOUR_PROJECT_ID"
+#   status_field_name: "Status"
+
+# Research settings for the Issue Assistant agent (respond.py web tools).
+research:
+  # Search provider: duckduckgo (default, no key) | tavily (TAVILY_API_KEY) | brave (BRAVE_API_KEY)
+  search_provider: duckduckgo
+
+  # Top-N results returned by web_search
+  max_results: 5
+
+  # Agent tool-loop iteration cap
+  max_iterations: 6
+
+  # Recent comments fed to the model as issue context
+  max_context_comments: 10
+
+  # Per-request fetch timeout (seconds)
+  timeout_seconds: 15
+
+  # Total request budget including redirects (seconds)
+  total_timeout_seconds: 30
+
+  # Maximum redirects followed per fetch
+  max_redirects: 5
+
+  # Maximum response body size (1 MiB)
+  max_content_bytes: 1048576
+
+  # Politeness delay between DuckDuckGo requests (seconds)
+  request_delay: 1.0
+
+  # Use the Jina Reader fallback (r.jina.ai) for JS-heavy / blocked pages.
+  use_jina_reader: true
+
+  # Jina fallback fetches allowed per agent run
+  max_jina_calls: 5
+
+  # Reject localhost, loopback, private (RFC1918) and link-local addresses
+  block_private_ips: true
+
+  # Optional model override for the responder agent only.
+  model: ""

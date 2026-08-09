@@ -1,0 +1,9 @@
+# __JOBGITOPS_SETUP_PENDING__   # sentinel
+# Replace this placeholder with your real resume, then commit & push to main.
+# It is a YAML file in JSON Resume format — see https://jsonresume.org/schema.
+basics:
+  name: "Your Name Here"
+work: []
+education: []
+skills: []
+projects: []

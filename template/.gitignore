@@ -1,0 +1,17 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Generated artifacts (written to application branches, never to main)
+*.pdf
+resumes/resume.json
+
+# Local environment / Secrets
+.env
+.env.local

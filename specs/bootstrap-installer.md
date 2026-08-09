@@ -8,7 +8,7 @@ This spec defines a one-command `curl | sh` onboarding path for JobGitOps. Goal:
 
 Resolved design decisions (from alignment session) — the five that frame the architecture:
 
-- Template distribution: a `template/` **subtree** in this repo, materialized by `install.sh` (single source of truth, no drift).
+- Template distribution: shared shell-plane files are copied **verbatim from the repo root** (single source of truth, no drift); only intentionally-different files (settings defaults, placeholder resume, README, .gitignore) live in a `template/` subtree — both materialized by `install.sh`.
 - Template workflow scope: **runtime core only** (scrape, triage, respond, status-transition, project-status-sync, sync-labels); upstream shell updates via an optional manual script (§7.6).
 - Repo visibility: **private by default**.
 - Resume handling: install.sh ships a **placeholder** `resumes/resume.yaml`; the user replaces it later; the **first scrape fires once on the first real-resume commit**, later scrapes run via cron only.
@@ -65,25 +65,24 @@ flowchart LR
 Two planes:
 
 - **Engine plane** — everything that runs lives in the shared public image `ghcr.io/menil/jobgitops:latest` (Python package baked in). Users never build or host the engine.
-- **Shell plane** — per-user, per-repo files: workflows, labels, settings, resume, templates. Produced by `template/` + `install.sh`; updated from upstream via the optional manual `sync-template.sh` (§7.6).
+- **Shell plane** — per-user, per-repo files: workflows, labels, settings, resume, templates. Produced by `install.sh`: runtime workflows + labels copied verbatim from the repo root (the repo dogfoods them, §3), everything else from the `template/` subtree; updated from upstream via the optional manual `sync-template.sh` (§7.6).
 
 ---
 
-## 3. `template/` Subtree Layout
+## 3. Shell-Plane Files & `template/` Layout
 
-Single source of truth for a user repo, installed verbatim by `install.sh` (with settings interpolation).
+The user repo's shell plane (workflows, labels, settings, resume, templates) comes from two sources, both pulled from the release tarball:
+
+- **Copied verbatim from the repo root** — files the maintainer repo itself runs/uses (this repo dogfoods its own shell plane, per §2), so the root copy is the single source and there is no duplication to drift:
+  - `.github/labels.yml` — lifecycle labels (triage-pending, fit:*, applied, in-loop, rejected, ...)
+  - `.github/workflows/scrape-jobs.yml`, `triage-issue.yml`, `respond-issue.yml`, `status-transition.yml`, `project-status-sync.yml`, `sync-labels.yml` — the runtime-core workflows (§7)
+
+  `install.sh` copies these from the tarball's root paths rather than from `template/`, so there is exactly one file to maintain.
+
+- **`template/` — files that are pure user-repo content, installed verbatim by `install.sh`** (the maintainer repo does not render resumes or host user config, so these live only here, no root copy):
 
 ```text
 template/
-├── .github/
-│   ├── labels.yml                      # lifecycle labels (triage-pending, fit:*, applied, in-loop, rejected, ...)
-│   └── workflows/
-│       ├── scrape-jobs.yml             # cron + workflow_dispatch + one-time bootstrap trigger
-│       ├── triage-issue.yml            # issue labeled triage-pending
-│       ├── respond-issue.yml           # issue comment / issue opened
-│       ├── status-transition.yml       # issue labeled applied/in-loop/rejected
-│       ├── project-status-sync.yml     # Projects V2 item events (label-only if unconfigured)
-│       └── sync-labels.yml             # push to main -> apply labels.yml
 ├── config/
 │   └── settings.yaml                   # defaults; search.enabled: true; projects_v2 commented out
 ├── resumes/
@@ -94,7 +93,7 @@ template/
 └── .gitignore                          # minimal
 ```
 
-**Deliberately absent:** `src/`, `tests/`, `specs/`, `AGENTS.md`, `.beads/`, `.githooks/`, `.idea/`, `devenv*`, `Justfile`, `Dockerfile`, `pyproject.toml`, `uv.lock`, and maintainer workflows (`build-runner.yml`, `ci.yml`, `pr-review.yml`). The user repo contains **no code** — the engine is in the image.
+**Deliberately absent from the user repo:** `src/`, `tests/`, `specs/`, `AGENTS.md`, `.beads/`, `.githooks/`, `.idea/`, `devenv*`, `Justfile`, `Dockerfile`, `pyproject.toml`, `uv.lock`, and maintainer workflows (`build-runner.yml`, `ci.yml`, `pr-review.yml`). The user repo contains **no code** — the engine is in the image.
 
 **Interpolation point** (done by `install.sh`, never committed to `template/`):
 
@@ -158,8 +157,8 @@ The `--token`/`$GH_TOKEN` PAT fallback is for environments where the GitHub CLI 
 
 1. **Preflight** — verify `gh` is installed and authenticated (`gh auth status`) or a token was supplied; repo name is a valid slug. Fail fast with actionable messages.
 2. **Permission check** — confirm the token can do everything the install needs *before* creating the repo: `gh api user` returns the `X-OAuth-Scopes` response header; require `repo` (create repo + set secrets) and `workflow` (enable Actions/write permissions). Missing scopes → exit with an actionable error naming the exact scopes to add (`gh auth refresh -s repo,workflow`). Any later step that still fails on permissions aborts with the command and exit code (§5.4).
-3. **Fetch template** — resolve the latest release tag (`gh api repos/menil/jobgitops/releases/latest`), download its tarball from `codeload.github.com/menil/jobgitops/tar.gz/refs/tags/<tag>`, extract `template/` into a temp working dir. Trap-clean on exit.
-4. **Assemble** — write `config/settings.yaml` from defaults (`projects_v2` commented out, `search.enabled: true`, `search.location: Remote` as the documented default, `custom_queries` empty so queries derive from the resume, `fit_threshold: 3.5`). Confirm placeholder resume is present and untouched.
+3. **Fetch shell plane** — resolve the latest release tag (`gh api repos/menil/jobgitops/releases/latest`), download its tarball from `codeload.github.com/menil/jobgitops/tar.gz/refs/tags/<tag>`, extract into a temp working dir. Trap-clean on exit.
+4. **Assemble** — write `config/settings.yaml` from defaults (`projects_v2` commented out, `search.enabled: true`, `search.location: Remote` as the documented default, `custom_queries` empty so queries derive from the resume, `fit_threshold: 3.5`). Confirm placeholder resume is present and untouched. Copy the root-pinned files verbatim into the assembled tree: `.github/labels.yml` and the six runtime-core workflows (§7). Copy `template/resumes/template.html` and `template/resumes/style.css` alongside the placeholder resume.
 5. **Create empty repo** — `gh repo create <name> --<visibility> --confirm` (no `--source` yet; we control push ordering).
 6. **Set secrets** — `gh secret set GEMINI_API_KEY` / `OPENROUTER_API_KEY` for the chosen provider (read-hidden prompt; never echoed).
 7. **Enable Actions + write permissions** — one API call with the user's admin token (the thing an in-repo workflow can never do):
@@ -289,7 +288,7 @@ curl -fsSL https://raw.githubusercontent.com/menil/jobgitops/vX.Y.Z/scripts/sync
 The script runs the steps once:
 
 1. Resolve latest release tag: `gh api repos/menil/jobgitops/releases/latest` → tag.
-2. Download that tag's tarball, extract **`.github/` only** (workflows + labels.yml).
+2. Download that tag's tarball, extract **the shell-plane files only**: `.github/labels.yml` and the six runtime-core workflows (same allowlist as §3). Never copies maintainer workflows (`build-runner.yml`, `ci.yml`, `pr-review.yml`).
 3. Diff against the repo's local `.github/`. No diff → exit 0 silently.
 4. Else: create/update branch `sync/upstream-template`, commit the `.github/` changes, open a PR (body lists changed files + link to the release). **Never auto-merges**; never touches `config/`, `resumes/`, `status/`, or `README.md`.
 
