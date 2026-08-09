@@ -1,10 +1,13 @@
-"""Normalize resumes/resume.yaml to the canonical JobGitOps format.
+"""Normalize a resume YAML file to the canonical JobGitOps format.
 
 Usage:
     python scripts/format_resume.py [PATH]           # rewrite in place
     python scripts/format_resume.py [PATH] --check   # fail if not canonical
 
-PATH defaults to resumes/resume.yaml relative to the repository root.
+PATH defaults to the committed test fixture at tests/fixtures/resume.yaml
+(relative to the repository root), which is the only resume kept in this
+repository. Pass an explicit PATH (such as your own resumes/resume.yaml) to
+normalize any other file.
 """
 
 import argparse
@@ -13,7 +16,9 @@ import sys
 
 from jobgitops.loader import load_resume, render_resume_yaml, resume_yaml_is_canonical
 
-RESUME_PATH = pathlib.Path(__file__).resolve().parents[1] / "resumes" / "resume.yaml"
+RESUME_PATH = (
+    pathlib.Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "resume.yaml"
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -23,7 +28,11 @@ def main(argv: list[str] | None = None) -> int:
         nargs="?",
         default=RESUME_PATH,
         type=pathlib.Path,
-        help="Resume YAML file to normalize (default: %(default)s).",
+        help=(
+            "Resume YAML file to normalize (default: the committed fixture "
+            "tests/fixtures/resume.yaml). Pass any PATH, e.g. your own "
+            "resumes/resume.yaml, to normalize that file instead."
+        ),
     )
     parser.add_argument(
         "--check",

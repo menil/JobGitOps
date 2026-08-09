@@ -9,7 +9,7 @@ format:
     ruff format .
     just format-resume
 
-# Rewrite resumes/resume.yaml in canonical form
+# Rewrite the canonical resume fixture in canonical form
 format-resume:
     python scripts/format_resume.py
 
@@ -18,7 +18,7 @@ format-check:
     ruff format --check .
     just format-check-resume
 
-# Check resumes/resume.yaml is canonical without modifying it
+# Check the canonical resume fixture is canonical without modifying it
 format-check-resume:
     python scripts/format_resume.py --check
 

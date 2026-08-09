@@ -235,17 +235,18 @@ Enter the environment and run the standard task runner:
 ```bash
 devenv shell    # or `direnv allow` to auto-load
 just validate   # lint + format check + tests (90% coverage gate)
-just format     # auto-format code and resumes/resume.yaml
+just format     # auto-format code and the canonical resume fixture
 ```
 
 ### Repository Layout
 
 ```
-config/settings.yaml          # Search + triage configuration
-resumes/                      # resume.yaml (base), template.html, style.css
 src/jobgitops/cli/            # CLI entry points (scrape, triage, respond, status_transition, project_sync)
 src/jobgitops/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper, status_model)
 scripts/format_resume.py      # Canonical resume.yaml formatter
-specs/                        # Architecture spec + user story
+scripts/install.sh            # Bootstrap installer (see specs/bootstrap-installer.md)
+template/                     # Installer user-repo content: config defaults, placeholder resume, renderer templates, README, .gitignore
 tests/                        # pytest suite (90% coverage enforced)
+tests/fixtures/               # Committed fixture config + resume used by tests and the formatter
+specs/                        # Architecture spec + user story
 ```

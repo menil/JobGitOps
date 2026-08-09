@@ -1,4 +1,4 @@
-"""Ensure resumes/resume.yaml stays in the canonical JobGitOps format."""
+"""Ensure the committed resume fixture stays in the canonical JobGitOps format."""
 
 import pathlib
 
@@ -7,7 +7,7 @@ from jobgitops.loader import render_resume_yaml, resume_yaml_is_canonical
 from jobgitops.schema import Resume
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-RESUME_PATH = REPO_ROOT / "resumes" / "resume.yaml"
+RESUME_PATH = REPO_ROOT / "tests" / "fixtures" / "resume.yaml"
 
 
 def _write_canonical_resume(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -19,9 +19,9 @@ def _write_canonical_resume(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def test_resume_yaml_is_canonical() -> None:
-    """The committed base resume must match its canonical serialization."""
+    """The committed fixture resume must match its canonical serialization."""
     assert resume_yaml_is_canonical(RESUME_PATH), (
-        "resumes/resume.yaml is not in canonical format; "
+        "tests/fixtures/resume.yaml is not in canonical format; "
         "run `just format-resume` and commit the result."
     )
 
