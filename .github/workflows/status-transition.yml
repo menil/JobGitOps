@@ -20,18 +20,10 @@ jobs:
       (github.event.action == 'labeled' && contains(fromJSON('["triage-pending","ready-to-apply","applied","in-loop","offer-received","rejected","triage-mismatched"]'), github.event.label.name))
     runs-on: ubuntu-latest
     container:
-      image: ${{ vars.RUNNER_IMAGE }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    env:
-      PYTHONPATH: ${{ github.workspace }}/src
+      image: ghcr.io/menil/jobgitops:latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Sync Dependencies
-        run: uv sync --frozen --no-install-project
 
       - name: Run Status Transition Script
         run: python -m jobgitops.cli.status_transition --event-path "$GITHUB_EVENT_PATH"
