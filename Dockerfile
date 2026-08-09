@@ -28,13 +28,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Set the project environment to target system Python
 ENV UV_PROJECT_ENVIRONMENT=/usr/local
 
-# Expose src directory to PYTHONPATH so python modules are discoverable at runtime
-ENV PYTHONPATH=/workspace/src:/github/workspace/src
-
 WORKDIR /workspace
 
-# Copy dependency files to bake them into the image
-COPY pyproject.toml uv.lock ./
+# Copy the project so uv can build and install it. README.md is required:
+# pyproject.toml declares it as the package readme, so the build fails without it.
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
 
-# Sync dependencies (including dev groups) system-wide without installing the source project itself
-RUN uv sync --frozen --no-install-project
+# Sync dependencies AND install the project system-wide, so the jobgitops CLI
+# runs from any working directory without PYTHONPATH or a src/ checkout
+RUN uv sync --frozen
