@@ -1,0 +1,446 @@
+#!/bin/sh
+# JobGitOps installer (spec: specs/bootstrap-installer.md §5).
+#
+# Creates a private job-search repo from the release tarball, wires the
+# provider secret and Actions write permissions, then pushes the assembled
+# tree. Every mutating step is echoed and aborts on failure; --dry-run prints
+# the commands without running them. The pinned release tag is resolved from
+# the latest release (override with $JOBGITOPS_TAG for pre-release testing).
+
+set -u
+
+# ---------------------------------------------------------------------------
+# Defaults / interface
+# ---------------------------------------------------------------------------
+
+POSITIONAL_SEEN="0"
+REPO_NAME="job-search"
+VISIBILITY="private"
+PROVIDER=""
+GEMINI_KEY=""
+OPENROUTER_KEY=""
+TOKEN=""
+HAS_TOKEN="0"
+YES="0"
+DRY_RUN="0"
+TMPDIR=""
+
+# Never let git fall back to an interactive credential prompt inside a piped
+# installer; a missing helper must fail fast with an actionable message.
+export GIT_TERMINAL_PROMPT=0
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: install.sh <repo-name> [options]
+
+  <repo-name>            repository slug (default: job-search)
+  --visibility MODE      private | public (default: private)
+  --provider PROVIDER    gemini | openrouter (default: auto: gemini if its
+                         key is present, else openrouter)
+  --gemini-key KEY       Gemini API key (or $GEMINI_API_KEY)
+  --openrouter-key KEY   OpenRouter API key (or $OPENROUTER_API_KEY)
+  --token TOKEN          PAT fallback when gh is installed but not
+                         auth-configured (or $GH_TOKEN)
+  --yes                  non-interactive; fail instead of prompting
+  --dry-run              print every command, make no changes
+  -h, --help             show this help
+EOF
+    exit 1
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --visibility)
+            VISIBILITY="${2:-}"
+            shift 2
+            ;;
+        --provider)
+            PROVIDER="${2:-}"
+            shift 2
+            ;;
+        --gemini-key)
+            GEMINI_KEY="${2:-}"
+            shift 2
+            ;;
+        --openrouter-key)
+            OPENROUTER_KEY="${2:-}"
+            shift 2
+            ;;
+        --token)
+            TOKEN="${2:-}"
+            shift 2
+            ;;
+        --yes)
+            YES="1"
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN="1"
+            shift
+            ;;
+        --help | -h)
+            usage
+            ;;
+        -*)
+            echo "unknown option: $1" >&2
+            usage
+            ;;
+        *)
+            if [ "$POSITIONAL_SEEN" = "0" ]; then
+                REPO_NAME="$1"
+                POSITIONAL_SEEN="1"
+            else
+                echo "unexpected argument: $1" >&2
+                usage
+            fi
+            shift
+            ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+log() {
+    printf '%s\n' "$*" >&2
+}
+
+cleanup() {
+    # Restore terminal echo in case an interrupt caught us mid-prompt.
+    stty echo 2>/dev/null || true
+    if [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ]; then
+        rm -rf "$TMPDIR"
+    fi
+}
+
+die() {
+    printf 'ERROR: %s\n' "$1" >&2
+    cleanup
+    exit 1
+}
+
+# Echo the command, then run it; abort with the command and exit code on
+# failure. Under --dry-run the command is echoed and skipped.
+run() {
+    log "> $*"
+    [ "$DRY_RUN" = "1" ] && return 0
+    "$@"
+    rc=$?
+    [ "$rc" -eq 0 ] || die "command failed (exit $rc): $*"
+}
+
+validate_slug() {
+    case "$1" in
+        "" | *[!A-Za-z0-9._-]* | .* | *..* | *. | *- | *.git)
+            return 1
+            ;;
+        -*) return 1 ;;
+    esac
+    [ "${#1}" -le 100 ] || return 1
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Preflight (§5.3.1): tools, auth, repo slug
+# ---------------------------------------------------------------------------
+
+command -v gh >/dev/null 2>&1 ||
+    die "GitHub CLI not found — install it (https://cli.github.com/) or use --token with a PAT."
+command -v git >/dev/null 2>&1 || die "git not found."
+command -v curl >/dev/null 2>&1 || die "curl not found."
+command -v tar >/dev/null 2>&1 || die "tar not found."
+
+if [ "$VISIBILITY" != "private" ] && [ "$VISIBILITY" != "public" ]; then
+    die "--visibility must be 'private' or 'public' (got '$VISIBILITY')."
+fi
+case "$PROVIDER" in
+    "" | gemini | openrouter) ;;
+    *) die "--provider must be 'gemini' or 'openrouter' (got '$PROVIDER')." ;;
+esac
+
+# Interactive installs default to 'job-search' (prompt default). In a piped
+# or --yes run there is no terminal to confirm with, so the name is required —
+# an accidentally-created default-named repo is worse than a quick error.
+if [ "$POSITIONAL_SEEN" = "0" ]; then
+    if [ "$YES" = "1" ] || [ ! -t 0 ]; then
+        die "repo name is required in non-interactive mode — pass it as the first argument."
+    fi
+    printf 'Repo name [%s]: ' "$REPO_NAME" >&2
+    IFS= read -r REPO_INPUT
+    [ -n "$REPO_INPUT" ] && REPO_NAME="$REPO_INPUT"
+fi
+validate_slug "$REPO_NAME" ||
+    die "invalid repo name '$REPO_NAME' — use 1-100 chars of [A-Za-z0-9._-], no leading/trailing '-' or '.', no '..', no '.git' suffix."
+
+# PAT fallback: --token or $GH_TOKEN drives every gh call; otherwise the
+# script relies on gh's own configured auth.
+if [ -n "$TOKEN" ] || [ -n "${GH_TOKEN:-}" ]; then
+    HAS_TOKEN="1"
+    export GH_TOKEN="${TOKEN:-$GH_TOKEN}"
+    gh api user --jq .login >/dev/null 2>&1 ||
+        die "token rejected by GitHub — check --token / \$GH_TOKEN."
+else
+    gh auth status >/dev/null 2>&1 ||
+        die "not authenticated with gh — run 'gh auth login' (or pass --token)."
+fi
+
+OWNER="$(gh api user --jq .login 2>/dev/null)"
+[ -n "$OWNER" ] || die "could not determine your GitHub login."
+
+# ---------------------------------------------------------------------------
+# Permission check (§5.3.2) — confirm repo + workflow scopes before creating
+# anything, so a user never ends up with an unconfigured repo.
+# ---------------------------------------------------------------------------
+
+check_permissions() {
+    # ATTEMPTS bounds the interactive refresh retry, so a user who keeps
+    # canceling the browser flow cannot loop the offer forever.
+    ATTEMPTS="${1:-1}"
+    [ "$ATTEMPTS" -le 3 ] ||
+        die "could not add the required scopes after $((ATTEMPTS - 1)) tries — run 'gh auth refresh -s repo workflow' manually and re-run."
+    # X-OAuth-Scopes is only returned for classic PAT auth; browser OAuth
+    # login (gho_) and fine-grained tokens omit it. When it is absent we
+    # cannot introspect scopes, so we warn and continue — the abort-on-failure
+    # backstop catches any step that truly lacks permission.
+    SCOPES="$(gh api user --include 2>/dev/null |
+        sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r ')"
+    if [ -z "$SCOPES" ]; then
+        log "note: could not read token scopes (browser login or fine-grained token); continuing — any permission failure will abort."
+        return 0
+    fi
+
+    MISSING=""
+    case ",$SCOPES," in
+        *",repo,"*) ;;
+        *) MISSING="$MISSING repo" ;;
+    esac
+    case ",$SCOPES," in
+        *",workflow,"*) ;;
+        *) MISSING="$MISSING workflow" ;;
+    esac
+    [ -n "$MISSING" ] || return 0
+    MISSING="$(printf '%s' "$MISSING" | sed 's/^ //')"
+
+    # A PAT via --token/$GH_TOKEN cannot be re-scoped by gh (the env token
+    # keeps overriding stored auth), and --dry-run must not mutate the token,
+    # so the refresh offer only makes sense for gh-managed auth on a real
+    # terminal during an actual run.
+    if [ "$YES" = "1" ] || [ ! -t 0 ] || [ "$HAS_TOKEN" = "1" ] || [ "$DRY_RUN" = "1" ]; then
+        die "token is missing the scope(s): $MISSING — add them: gh auth refresh -s $MISSING (or use a PAT covering $MISSING)."
+    fi
+
+    printf 'Token is missing scope(s): %s. Run "gh auth refresh -s %s" now? [y/N] ' "$MISSING" "$MISSING" >&2
+    IFS= read -r ANSWER
+    case "$ANSWER" in
+        y | Y | yes | YES)
+            # Device flow: prints a code and opens the browser; blocks until
+            # the user authorizes or cancels.
+            log "> gh auth refresh -s $MISSING"
+            gh auth refresh -s "$MISSING"
+            rc=$?
+            [ "$rc" -eq 0 ] ||
+                die "scope refresh did not complete (exit $rc) — run 'gh auth refresh -s $MISSING' manually and re-run."
+            check_permissions "$((ATTEMPTS + 1))"
+            ;;
+        *)
+            die "aborted — run 'gh auth refresh -s $MISSING' yourself and re-run the installer."
+            ;;
+    esac
+}
+check_permissions
+
+# ---------------------------------------------------------------------------
+# Provider + API key (§5.2 / §5.3.6)
+# ---------------------------------------------------------------------------
+
+if [ -z "$PROVIDER" ]; then
+    if [ -n "$GEMINI_KEY" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
+        PROVIDER="gemini"
+    else
+        PROVIDER="openrouter"
+    fi
+fi
+
+if [ "$PROVIDER" = "gemini" ]; then
+    SECRET_NAME="GEMINI_API_KEY"
+    KEY="${GEMINI_KEY:-${GEMINI_API_KEY:-}}"
+else
+    SECRET_NAME="OPENROUTER_API_KEY"
+    KEY="${OPENROUTER_KEY:-${OPENROUTER_API_KEY:-}}"
+fi
+
+if [ -z "$KEY" ]; then
+    if [ "$YES" = "1" ]; then
+        die "no $SECRET_NAME supplied and --yes is set — pass the corresponding --...-key or set its env var."
+    elif [ ! -t 0 ]; then
+        die "no $SECRET_NAME supplied and stdin is not a terminal (curl|sh pipe) — re-run with --provider $PROVIDER --...-key or the env var set."
+    else
+        printf 'Enter %s: ' "$SECRET_NAME" >&2
+        stty -echo
+        IFS= read -r KEY
+        stty echo
+        printf '\n' >&2
+        [ -n "$KEY" ] || die "no key entered."
+    fi
+fi
+
+# A real Gemini/OpenRouter key is far longer than this; anything shorter is a
+# paste or typo, so fail before creating anything.
+if [ -n "$KEY" ] && [ "${#KEY}" -lt 32 ]; then
+    die "$SECRET_NAME looks too short (${#KEY} chars) to be a valid API key — double-check it."
+fi
+
+# ---------------------------------------------------------------------------
+# Fetch shell plane (§5.3.3) — resolve tag, download + extract tarball
+# ---------------------------------------------------------------------------
+
+TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/jobgitops-install.XXXXXX")" ||
+    die "could not create a temp working directory."
+# Interrupts exit immediately; the EXIT trap then removes the temp tree.
+trap 'cleanup' EXIT
+trap 'exit 1' HUP INT TERM
+
+if [ -n "${JOBGITOPS_TAG:-}" ]; then
+    TAG="${JOBGITOPS_TAG}"
+else
+    TAG="$(gh api repos/menil/jobgitops/releases/latest --jq .tag_name 2>/dev/null)"
+    [ -n "$TAG" ] ||
+        die "could not resolve the latest JobGitOps release (none published yet). Set JOBGITOPS_TAG=<tag-or-branch> to test a specific ref."
+fi
+
+TARBALL="$TMPDIR/jobgitops-$TAG.tgz"
+download_tarball() {
+    log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG -o $TARBALL"
+    [ "$DRY_RUN" = "1" ] && return 0
+    if ! curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG" -o "$TARBALL"; then
+        # No such tag (pre-release, before the first release exists) — retry
+        # the ref as a branch so JOBGITOPS_TAG=main works. Inert once releases
+        # exist: a release tag is always a real git tag.
+        log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG -o $TARBALL"
+        curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG" -o "$TARBALL" ||
+            die "failed to download the JobGitOps tarball for '$TAG' (exit $?)."
+    fi
+}
+download_tarball
+run mkdir -p "$TMPDIR/tree"
+run tar -xzf "$TARBALL" -C "$TMPDIR/tree"
+
+# codeload tarballs extract to a top-level dir named <repo>-<tag>.
+SRC="$TMPDIR/tree/jobgitops-$TAG"
+APP="$TMPDIR/app"
+
+# ---------------------------------------------------------------------------
+# Assemble (§5.3.4) — template/ content verbatim + root-pinned shell plane
+# ---------------------------------------------------------------------------
+
+run mkdir -p "$APP/config" "$APP/resumes" "$APP/.github/workflows"
+run cp "$SRC/template/config/settings.yaml" "$APP/config/settings.yaml"
+run cp "$SRC/template/resumes/resume.yaml" "$APP/resumes/resume.yaml"
+run cp "$SRC/template/resumes/template.html" "$APP/resumes/template.html"
+run cp "$SRC/template/resumes/style.css" "$APP/resumes/style.css"
+run cp "$SRC/template/README.md" "$APP/README.md"
+run cp "$SRC/template/.gitignore" "$APP/.gitignore"
+# Root-pinned, copied verbatim (spec §3): single source of truth, no drift.
+run cp "$SRC/.github/labels.yml" "$APP/.github/labels.yml"
+for WF in scrape-jobs triage-issue respond-issue status-transition project-status-sync sync-labels; do
+    run cp "$SRC/.github/workflows/$WF.yml" "$APP/.github/workflows/$WF.yml"
+done
+
+# ---------------------------------------------------------------------------
+# Create repo (§5.3.5)
+# ---------------------------------------------------------------------------
+
+create_repo() {
+    log "> gh repo create $REPO_NAME --$VISIBILITY --confirm"
+    [ "$DRY_RUN" = "1" ] && return 0
+    gh repo create "$REPO_NAME" "--$VISIBILITY" --confirm
+    rc=$?
+    [ "$rc" -eq 0 ] ||
+        die "repo create failed (exit $rc). If '$REPO_NAME' already exists, use a different name."
+}
+create_repo
+
+# ---------------------------------------------------------------------------
+# Set provider secret (§5.3.6) — value flows via stdin, never echoed or stored
+# ---------------------------------------------------------------------------
+
+set_secret() {
+    log "> printf '%s' '<redacted>' | gh secret set $1 --repo $OWNER/$REPO_NAME"
+    [ "$DRY_RUN" = "1" ] && return 0
+    printf '%s' "$2" | gh secret set "$1" --repo "$OWNER/$REPO_NAME"
+    rc=$?
+    [ "$rc" -eq 0 ] || die "failed to set $1 (exit $rc)."
+}
+set_secret "$SECRET_NAME" "$KEY"
+
+# ---------------------------------------------------------------------------
+# Enable Actions + write permissions (§5.3.7) — the one thing an in-repo
+# workflow can never do for itself.
+# ---------------------------------------------------------------------------
+
+run gh api --method PUT "repos/$OWNER/$REPO_NAME/actions/permissions" \
+    -f enabled=true -f allowed_actions=all -f default_workflow_permissions=write
+
+# ---------------------------------------------------------------------------
+# Push (§5.3.8)
+# ---------------------------------------------------------------------------
+
+# Local-only identity so the first commit works even on a machine with no
+# global git identity; scoped to this repo, never global.
+run git -C "$APP" init -b main
+run git -C "$APP" config user.name "$OWNER"
+run git -C "$APP" config user.email "$OWNER@users.noreply.github.com"
+run git -C "$APP" add -A
+run git -C "$APP" commit -m "chore: bootstrap from JobGitOps template v$TAG"
+run git -C "$APP" remote add origin "https://github.com/$OWNER/$REPO_NAME.git"
+
+# When a PAT is in play, git cannot rely on gh's credential helper (there is
+# no gh auth); feed it the token via an askpass shim that reads $JGO_GIT_TOKEN
+# from the environment so the secret never touches disk.
+if [ "$HAS_TOKEN" = "1" ] && [ "$DRY_RUN" = "0" ]; then
+    ASKPASS="$TMPDIR/askpass.sh"
+    {
+        echo '#!/bin/sh'
+        echo 'case "$1" in'
+        echo '  *[Uu]sername*) printf "%s\\n" "${JGO_GIT_USERNAME:-oauth2}" ;;'
+        echo '  *) printf "%s\\n" "$JGO_GIT_TOKEN" ;;'
+        echo 'esac'
+    } >"$ASKPASS"
+    chmod +x "$ASKPASS"
+    export JGO_GIT_TOKEN="${TOKEN:-$GH_TOKEN}"
+fi
+
+push_repo() {
+    log "> git -C $APP push -u origin main"
+    [ "$DRY_RUN" = "1" ] && return 0
+    if [ "$HAS_TOKEN" = "1" ]; then
+        git -C "$APP" -c credential.helper= -c credential.askpass="$ASKPASS" push -u origin main
+    else
+        git -C "$APP" push -u origin main
+    fi
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        if [ "$HAS_TOKEN" = "0" ]; then
+            die "git push failed (exit $rc) — run 'gh auth setup-git' and re-push, or re-run with --token."
+        fi
+        die "git push failed (exit $rc)."
+    fi
+}
+push_repo
+
+# ---------------------------------------------------------------------------
+# Summary (§5.3.9)
+# ---------------------------------------------------------------------------
+
+cat >&2 <<EOF
+
+Done. Your JobGitOps repo is live: https://github.com/$OWNER/$REPO_NAME
+
+Next steps:
+  1. Edit resumes/resume.yaml — replace the placeholder with your real resume.
+  2. Commit and push to main — one bootstrap scrape fires automatically.
+  3. After that run succeeds, remove the setup badge from the README.
+
+The daily cron takes over from there; tune search in config/settings.yaml.
+EOF
