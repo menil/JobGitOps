@@ -25,20 +25,41 @@ jobs:
       || contains(github.event.issue.labels.*.name, 'triage-pending')
     runs-on: ubuntu-latest
     container:
-      image: ${{ vars.RUNNER_IMAGE }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    env:
-      PYTHONPATH: ${{ github.workspace }}/src
+      image: ghcr.io/menil/jobgitops:latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Sync Dependencies
-        run: uv sync --frozen --no-install-project
+      # Spec §7.2: block triage until the placeholder resume is replaced.
+      # The sentinel check is parsing-free (grep), guarded on file existence
+      # so a missing resume.yaml counts as sentinel absent rather than erroring
+      # the step. It posts the setup-pending comment for issue events and marks
+      # the run so the coordinator step is skipped. A comment-post failure
+      # fails the step so the next event retries rather than stranding the
+      # issue without a notice. The issue is deliberately NOT closed here: it
+      # stays triage-pending as the visible setup reminder, and is drained
+      # (triaged and closed) by the next scrape workflow_run --all-pending
+      # backfill once a real resume is pushed to main.
+      - name: Block Triage While Setup is Pending
+        id: setup-check
+        run: |
+          if [ -f resumes/resume.yaml ] && grep -q '__JOBGITOPS_SETUP_PENDING__' resumes/resume.yaml; then
+            echo "sentinel=present" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.event_name }}" = "issues" ]; then
+              curl -fsSL -X POST \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+                -d '{"body":"Setup pending — update `resumes/resume.yaml` and push to `main`."}'
+            fi
+          else
+            echo "sentinel=absent" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Triage Coordinator
+        if: steps.setup-check.outputs.sentinel == 'absent'
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             python -m jobgitops.cli.triage --all-pending
