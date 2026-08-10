@@ -41,13 +41,17 @@ jobs:
           echo "image=$(echo "$RAW_IMAGE" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       # Tag strategy (spec §6.3): main push -> :latest + :<sha>; tag vX.Y.Z -> :vX.Y.Z + :latest.
+      # 'latest' is emitted unconditionally: the trigger already restricts
+      # builds to main pushes and v* tags, and 'is_default_branch' is false for
+      # tag events, so gating latest on it would skip the :latest refresh on a
+      # release tag push.
       - name: Generate Docker Image Tags
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.image-name.outputs.image }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=ref,event=tag
             type=sha,prefix=,format=long
 
