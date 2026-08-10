@@ -247,7 +247,9 @@ run git -C "$REPO" config user.email "$USER_LOGIN@users.noreply.github.com"
 run git -C "$REPO" checkout -B sync/upstream-template
 
 # Stage only the allowlisted paths — a user's own workflow edits under
-# .github/ are never swept into the sync commit.
+# .github/ are never swept into the sync commit. SHELL_PLANE is deliberately
+# word-split: it is a space-separated path list, not a single quoted path.
+# shellcheck disable=SC2086
 run git -C "$REPO" add -- $SHELL_PLANE
 run git -C "$REPO" commit -m "chore: sync .github/ from JobGitOps $TAG"
 
@@ -256,13 +258,15 @@ run git -C "$REPO" commit -m "chore: sync .github/ from JobGitOps $TAG"
 # from the environment so the secret never touches disk.
 if [ "$HAS_TOKEN" = "1" ]; then
     ASKPASS="$TMPDIR/askpass.sh"
-    {
-        echo '#!/bin/sh'
-        echo 'case "$1" in'
-        echo '  *[Uu]sername*) printf "%s\\n" "${JGO_GIT_USERNAME:-oauth2}" ;;'
-        echo '  *) printf "%s\\n" "$JGO_GIT_TOKEN" ;;'
-        echo 'esac'
-    } >"$ASKPASS"
+    # Quoted heredoc: content is written verbatim (no expansion here) so the
+    # askpass shim reads $JGO_GIT_USERNAME / $JGO_GIT_TOKEN at runtime.
+    cat >"$ASKPASS" <<'EOF'
+#!/bin/sh
+case "$1" in
+  *[Uu]sername*) printf "%s\n" "${JGO_GIT_USERNAME:-oauth2}" ;;
+  *) printf "%s\n" "$JGO_GIT_TOKEN" ;;
+esac
+EOF
     chmod +x "$ASKPASS"
     export JGO_GIT_TOKEN="${TOKEN:-$GH_TOKEN}"
 fi
@@ -277,11 +281,15 @@ push_branch() {
     if [ -z "$EXPECTED" ]; then
         log "> git -C $REPO $GIT_CRED push -u origin sync/upstream-template"
         [ "$DRY_RUN" = "1" ] && return 0
+        # GIT_CRED is deliberately unquoted: empty (no token) or a pair of
+        # `-c key=value` args; the split is what hands git its options.
+        # shellcheck disable=SC2086
         git -C "$REPO" $GIT_CRED push -u origin sync/upstream-template
         rc=$?
     else
         log "> git -C $REPO $GIT_CRED push --force-with-lease=sync/upstream-template:$EXPECTED origin sync/upstream-template"
         [ "$DRY_RUN" = "1" ] && return 0
+        # shellcheck disable=SC2086
         git -C "$REPO" $GIT_CRED push --force-with-lease="sync/upstream-template:$EXPECTED" origin sync/upstream-template
         rc=$?
     fi
