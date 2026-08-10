@@ -18,18 +18,10 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     container:
-      image: ${{ vars.RUNNER_IMAGE }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    env:
-      PYTHONPATH: ${{ github.workspace }}/src
+      image: ghcr.io/menil/jobgitops:latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Sync Dependencies
-        run: uv sync --frozen --no-install-project
 
       - name: Run Validation Checks
         run: just validate
