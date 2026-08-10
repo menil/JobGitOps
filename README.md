@@ -50,8 +50,33 @@ flowchart TD
 
 > Detailed developer-environment, quality-gate, and issue-tracking instructions are in [AGENTS.md](AGENTS.md).
 
-## Fork-and-Run: The JobGitOps Way
+### Quick Start (one-command install)
 
+Install into a new private repository with a single command — it creates the
+repo, sets up secrets and permissions, and ships a placeholder resume:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/menil/jobgitops/v1.0.0/scripts/install.sh \
+  | sh -s -- my-job-search
+```
+
+Then:
+
+1. **Edit `resumes/resume.yaml`** in the new repo — fill in your real resume
+   (JSON Resume format), replacing the placeholder.
+2. **Commit and push to `main`.** One bootstrap scrape runs and the daily cron
+   takes over from there; triage and tailoring run on the existing webhooks.
+3. **Remove the static setup badge** from the README once your first scrape
+   succeeds.
+
+Per-user options (`search.location` defaults to `Remote`, `fit_threshold`) live
+in `config/settings.yaml` and are edited directly — same workflow as replacing
+the placeholder resume. Updates to the engine arrive automatically via the
+shared image; shell-plane (workflow/label) updates are an optional manual
+`scripts/sync-template.sh` run. See [RELEASING.md](RELEASING.md) and
+[scripts/e2e.md](scripts/e2e.md).
+
+### Advanced: Self-Hosted (Fork-and-Run)
 JobGitOps is designed to run entirely "out-of-the-box" on GitHub's free execution infrastructure. To set it up for your own job search:
 
 1. **Fork the repository** to your personal GitHub account.
@@ -60,7 +85,7 @@ JobGitOps is designed to run entirely "out-of-the-box" on GitHub's free executio
 4. **Enable Actions**: open the **Actions** tab in your fork and click *"I understand my workflows, go ahead and enable them"* (required by GitHub for all forks).
 5. **Run**: the daily cron automatically begins scraping, and the [triage-issue.yml](#workflows) webhook triages every new listing. You can also trigger a scrape anytime via the **Run workflow** button with optional overrides (location, job type, hours, dry-run).
 
-### The Daily Flow
+#### The Daily Flow
 
 1. **Discovery** — The cron scrapes job boards, dedupes against the ~500 most recent roles already in your repo, and opens new candidates as issues labeled `triage-pending`.
 2. **Triage** — The LLM scores each job against your base resume. Below `fit_threshold` → the issue is labeled `triage-mismatched` plus a red reason label for each dimension scored below 3 (e.g. `salary-mismatch`, `location-mismatch`), a mismatch breakdown is commented, and the issue is closed.
