@@ -4,10 +4,11 @@ FROM python:3.12-slim-bookworm
 # Prevent interactive prompts during apt package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies for WeasyPrint, git, just, and fontconfig
+# Install system dependencies for WeasyPrint, git, just, shellcheck, and fontconfig
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    shellcheck \
     build-essential \
     libffi-dev \
     libcairo2 \

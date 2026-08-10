@@ -26,8 +26,13 @@ format-check-resume:
 lint:
     ruff check .
 
-# Run all local checks (tests, format checks, lints)
+# Shellcheck all POSIX shell scripts
+shellcheck:
+    shellcheck scripts/*.sh
+
+# Run all local checks (tests, format checks, lints, shellcheck)
 validate:
     just lint
+    just shellcheck
     just format-check
     pytest --cov=src --cov-fail-under=90 tests/

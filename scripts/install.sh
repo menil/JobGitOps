@@ -400,13 +400,15 @@ run git -C "$APP" remote add origin "https://github.com/$OWNER/$REPO_NAME.git"
 # from the environment so the secret never touches disk.
 if [ "$HAS_TOKEN" = "1" ] && [ "$DRY_RUN" = "0" ]; then
     ASKPASS="$TMPDIR/askpass.sh"
-    {
-        echo '#!/bin/sh'
-        echo 'case "$1" in'
-        echo '  *[Uu]sername*) printf "%s\\n" "${JGO_GIT_USERNAME:-oauth2}" ;;'
-        echo '  *) printf "%s\\n" "$JGO_GIT_TOKEN" ;;'
-        echo 'esac'
-    } >"$ASKPASS"
+    # Quoted heredoc: content is written verbatim (no expansion here) so the
+    # askpass shim reads $JGO_GIT_USERNAME / $JGO_GIT_TOKEN at runtime.
+    cat >"$ASKPASS" <<'EOF'
+#!/bin/sh
+case "$1" in
+  *[Uu]sername*) printf "%s\n" "${JGO_GIT_USERNAME:-oauth2}" ;;
+  *) printf "%s\n" "$JGO_GIT_TOKEN" ;;
+esac
+EOF
     chmod +x "$ASKPASS"
     export JGO_GIT_TOKEN="${TOKEN:-$GH_TOKEN}"
 fi

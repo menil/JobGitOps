@@ -35,6 +35,7 @@ in
   packages = [
     pkgs.git
     pkgs.just
+    pkgs.shellcheck
     pkgs.dejavu_fonts
     pkgs.liberation_ttf
   ] ++ weasyprintLibs;

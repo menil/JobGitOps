@@ -23,5 +23,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Ensure Shellcheck
+        run: command -v shellcheck || { apt-get update && apt-get install -y --no-install-recommends shellcheck; }
+
       - name: Run Validation Checks
         run: just validate
