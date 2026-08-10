@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v[0-9]*'
     paths:
       - 'Dockerfile'
       - 'pyproject.toml'
@@ -38,14 +40,23 @@ jobs:
           RAW_IMAGE="ghcr.io/${{ github.repository }}"
           echo "image=$(echo "$RAW_IMAGE" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
+      # Tag strategy (spec §6.3): main push -> :latest + :<sha>; tag vX.Y.Z -> :vX.Y.Z + :latest.
+      - name: Generate Docker Image Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image-name.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,prefix=,format=long
+
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: |
-            ${{ steps.image-name.outputs.image }}:latest
-            ${{ steps.image-name.outputs.image }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
