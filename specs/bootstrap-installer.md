@@ -299,14 +299,30 @@ Requires `contents: write` and `pull-requests: write` scopes on the token used (
 
 ## 8. Release Process
 
-Documented in a short **`RELEASING.md`** at the repo root. Checklist:
+Releases are **automatic**: every merge to `main` runs
+`.github/workflows/release-on-merge.yml`, which bumps the version and publishes
+a release — no manual tag cutting:
 
-1. **One-time (first release only):** flip the GHCR package to public: `gh api --method POST /user/packages/container/jobgitops/visibility -f visibility=public`.
-2. Cut semver tag `vX.Y.Z` on `main`.
-3. Tag push → `build-runner.yml` builds/pushes image `:vX.Y.Z` and `:latest` (§6.3).
-4. The install URL for that release is `raw.githubusercontent.com/menil/jobgitops/vX.Y.Z/scripts/install.sh` — no separate bump step; the URL is the pin.
-5. Optional: users run `scripts/sync-template.sh` manually to pull `.github/` diffs (§7.6); not automatic.
-6. Verify: dry-run the installer, then a live install on a throwaway repo (static setup badge renders; exactly one bootstrap scrape; user removes the badge).
+1. `scripts/bump-version.sh` computes the next `vX.Y.Z` from conventional
+   commits since the last release tag: `BREAKING CHANGE` → major (minor while
+   pre-1.0), `feat` → minor, `fix` → patch. A docs/chore/refactor-only merge
+   produces no release.
+2. The workflow creates the tag and a GitHub Release with auto-generated
+   notes. The tag push fires `build-runner.yml`, which builds/pushes image
+   `:vX.Y.Z` and `:latest` (§6.3).
+
+**One-time (first release only):** the repo and the GHCR package must be
+public for users to install without credentials — flip the package with
+`gh api --method POST /user/packages/container/jobgitops/visibility -f
+visibility=public` (the repo itself is flipped with `gh repo edit --visibility
+public`). Until then, `raw.githubusercontent.com` and `codeload` return 404 and
+the `curl | sh` one-liner cannot be live-tested (see `scripts/e2e.md`).
+
+The install URL for a release is
+`raw.githubusercontent.com/menil/jobgitops/vX.Y.Z/scripts/install.sh` — no
+separate bump step; the URL is the pin. Verify after each release: dry-run the
+installer, then a live install on a throwaway repo (static setup badge renders;
+exactly one bootstrap scrape; user removes the badge).
 
 ---
 
