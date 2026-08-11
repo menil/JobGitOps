@@ -1,0 +1,65 @@
+name: Auto-Release on Merge
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+# Queue, don't cancel: two rapid merges must each produce their own release
+# (the second run recomputes from the tag the first run just created).
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Emits version=<vX.Y.Z> only when there is something to release; the
+      # "Create Tag and Release" step is skipped on docs/chore/refactor-only
+      # merges.
+      - name: Compute Next Version
+        id: version
+        run: |
+          NEXT_VERSION="$(sh scripts/bump-version.sh)"
+          if [ -n "$NEXT_VERSION" ]; then
+            echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Tag and Release
+        if: steps.version.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "release $VERSION already exists; skipping"
+            exit 0
+          fi
+          # Retry tag creation on transient API failures and log each attempt.
+          # (The gh release view above returns non-zero on 404, which is the
+          # intended "release does not exist yet" check, not an error to retry.)
+          TAG_REF="refs/tags/$VERSION"
+          for attempt in 1 2 3; do
+            if gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref="$TAG_REF" -f sha="$GITHUB_SHA"; then
+              echo "created tag ref $TAG_REF (attempt $attempt)"
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "failed to create tag ref $TAG_REF after 3 attempts" >&2
+              exit 1
+            fi
+            echo "tag ref creation attempt $attempt failed; retrying in 5s" >&2
+            sleep 5
+          done
+          # Tag push fires build-runner.yml, which builds :vX.Y.Z + :latest.
+          gh release create "$VERSION" --target main --generate-notes
