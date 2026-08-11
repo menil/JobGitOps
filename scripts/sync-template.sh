@@ -181,21 +181,34 @@ TARBALL="$TMPDIR/jobgitops-$TAG.tgz"
 download_tarball() {
     log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG -o $TARBALL"
     [ "$DRY_RUN" = "1" ] && return 0
-    if ! curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG" -o "$TARBALL"; then
-        # No such tag (pre-release, before the first release exists) — retry
-        # the ref as a branch so JOBGITOPS_TAG=main works. Inert once releases
-        # exist: a release tag is always a real git tag.
-        log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG -o $TARBALL"
-        curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG" -o "$TARBALL" ||
-            die "failed to download the JobGitOps tarball for '$TAG' (exit $?)."
+    # Anonymous codeload first — the public-release path. Its 404 noise is
+    # suppressed (2>/dev/null) so the fallbacks below own the messaging.
+    if curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG" -o "$TARBALL" 2>/dev/null; then
+        return 0
     fi
+    # No such tag (pre-release, before the first release exists) — retry the
+    # ref as a branch so JOBGITOPS_TAG=main works on a public repo. Inert once
+    # releases exist: a release tag is always a real git tag.
+    log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG -o $TARBALL"
+    if curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG" -o "$TARBALL" 2>/dev/null; then
+        return 0
+    fi
+    # Private-source fallback (owner dogfooding before the repo goes public):
+    # the authenticated API tarball endpoint accepts tags and branches and
+    # follows a signed redirect using the already-verified gh auth / $GH_TOKEN.
+    log "> gh api repos/menil/jobgitops/tarball/$TAG > $TARBALL"
+    gh api "repos/menil/jobgitops/tarball/$TAG" > "$TARBALL" ||
+        die "failed to download the JobGitOps tarball for '$TAG' — use a valid tag or branch, and ensure your gh auth has read access to the source repo."
 }
 download_tarball
 run mkdir -p "$TMPDIR/tree"
 run tar -xzf "$TARBALL" -C "$TMPDIR/tree"
 
-# codeload tarballs extract to a top-level dir named <repo>-<tag>.
-SRC="$TMPDIR/tree/jobgitops-$TAG"
+# codeload tarballs extract to <repo>-<ref>; the API tarball endpoint extracts
+# to <repo>-<sha>. Resolve whichever single top-level dir landed so the public
+# and private-source download paths both work.
+SRC="$(find "$TMPDIR/tree" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+[ -n "$SRC" ] || die "downloaded tarball contained no top-level directory."
 
 REPO="$TMPDIR/repo"
 run gh repo clone "$TARGET" "$REPO" -- --quiet

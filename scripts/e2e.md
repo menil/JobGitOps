@@ -17,9 +17,11 @@ allowlist (§3).
 > **Pre-release note:** until the first public release exists, the repo is
 > private, so `raw.githubusercontent.com` and `codeload` tag URLs return 404 and
 > the `curl | sh` one-liner cannot be live-tested. Run `scripts/install.sh`
-> locally instead, and use `JOBGITOPS_TAG=main` with `scripts/sync-template.sh`
-> to exercise the tag->branch fallback. The remote one-liner is verified once
-> releases exist (release gate).
+> locally instead with `JOBGITOPS_TAG=main`: when the anonymous codeload
+> download fails, `install.sh` and `sync-template.sh` fall back to the
+> authenticated API tarball (`gh api repos/menil/jobgitops/tarball/<ref>`),
+> which serves the private repo using your `gh` auth. The remote one-liner is
+> verified once releases exist (release gate).
 
 ## 1. Dry-run
 
