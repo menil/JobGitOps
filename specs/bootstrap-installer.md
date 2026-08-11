@@ -144,7 +144,7 @@ Served from `raw.githubusercontent.com/menil/jobgitops/<tag>/scripts/install.sh`
 | --- | --- | --- |
 | Repo name | positional `$1` | `job-search` (prompt default) |
 | Visibility | `--visibility private\|public` | `private` |
-| Provider | `--provider gemini\|openrouter` | auto: `gemini` if its key present, else `openrouter` |
+| Provider | `--provider gemini\|openrouter` | auto from the key present; prompts when none is |
 | Gemini key | `--gemini-key` or `$GEMINI_API_KEY` | prompt if absent |
 | OpenRouter key | `--openrouter-key` or `$OPENROUTER_API_KEY` | prompt if absent |
 | Token (PAT fallback) | `--token` or `$GH_TOKEN` | `gh` auth |
@@ -177,6 +177,7 @@ The `--token`/`$GH_TOKEN` PAT fallback is for environments where the GitHub CLI 
 - The script echoes each destructive command; any `gh` failure aborts with the command and exit code.
 - Re-running against an existing repo name fails cleanly at create with a "use a different name" message.
 - Secrets are never printed or written to disk beyond the `gh secret set` call.
+- The provider key is **verified against its API** before the repo is created (Gemini: `GET /v1beta/models` with `X-Goog-Api-Key`; OpenRouter: `GET /api/v1/auth/key` with a Bearer header) — the key travels as a header, never in the URL or in output. Verification replaces the old length heuristic, which could not catch a typo'd or expired key. During key entry the terminal echoes `*` per keystroke (`read -s` does not exist in POSIX `sh` and, where present, gives no feedback at all).
 
 ---
 

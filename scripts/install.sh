@@ -25,6 +25,10 @@ YES="0"
 DRY_RUN="0"
 TMPDIR=""
 
+# Capture the terminal state once so an interrupt during any prompt can
+# restore it exactly (echo off + raw byte reads for the masked key entry).
+STTY_SAVED="$(stty -g 2>/dev/null || true)"
+
 # Never let git fall back to an interactive credential prompt inside a piped
 # installer; a missing helper must fail fast with an actionable message.
 export GIT_TERMINAL_PROMPT=0
@@ -35,8 +39,8 @@ Usage: install.sh <repo-name> [options]
 
   <repo-name>            repository slug (default: job-search)
   --visibility MODE      private | public (default: private)
-  --provider PROVIDER    gemini | openrouter (default: auto: gemini if its
-                         key is present, else openrouter)
+  --provider PROVIDER    gemini | openrouter (default: auto from whichever
+                         key is present; prompts interactively when neither is)
   --gemini-key KEY       Gemini API key (or $GEMINI_API_KEY)
   --openrouter-key KEY   OpenRouter API key (or $OPENROUTER_API_KEY)
   --token TOKEN          PAT fallback when gh is installed but not
@@ -106,13 +110,31 @@ log() {
     printf '%s\n' "$*" >&2
 }
 
+# Put the terminal back the way it was captured at startup (echo off + raw
+# mode were the only changes). The fallback covers a piped run, where
+# `stty -g` failed at the top and STTY_SAVED is empty; it restores echo (so
+# typed input is visible again) and canonical mode (so line editing and the
+# read()-based prompts behave normally).
+restore_tty() {
+    if [ -n "$STTY_SAVED" ]; then
+        stty "$STTY_SAVED" 2>/dev/null || true
+    else
+        stty echo icanon 2>/dev/null || true
+    fi
+}
+
 cleanup() {
-    # Restore terminal echo in case an interrupt caught us mid-prompt.
-    stty echo 2>/dev/null || true
+    restore_tty
     if [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ]; then
         rm -rf "$TMPDIR"
     fi
 }
+
+# The EXIT trap makes die() and interrupts restore the terminal and remove the
+# temp tree; registered from the top so a Ctrl-C mid-prompt never leaves the
+# shell with echo/canonical mode broken.
+trap 'cleanup' EXIT
+trap 'exit 1' HUP INT TERM
 
 die() {
     printf 'ERROR: %s\n' "$1" >&2
@@ -139,6 +161,79 @@ validate_slug() {
     esac
     [ "${#1}" -le 100 ] || return 1
     return 0
+}
+
+# Prompt-and-read a secret on stderr, echoing '*' per keystroke (plain
+# `stty -echo` gives no feedback at all).
+#
+# Why not `read -s`? The installer is POSIX `sh` (dash/busybox/ash), where
+# `read -s` does not exist, and where it does (bash/ksh) it still shows
+# nothing — masking without any visual cue is exactly the UX we're fixing. So
+# this reads one byte at a time in cbreak mode (stty -icanon min 1 time 0)
+# so backspace removes the last '*'/char and Enter/EOF end the entry. The
+# saved terminal state is restored before returning; the key lands in $KEY.
+read_masked() {
+    _secret=""
+    stty -echo -icanon min 1 time 0 2>/dev/null
+    while :; do
+        _byte="$(dd bs=1 count=1 2>/dev/null)"
+        case "$_byte" in
+            # Empty — EOF, or a bare \n whose trailing newline command
+            # substitution strips — plus Enter as \r in raw mode: end entry.
+            "" | "$(printf '\r')")
+                break
+                ;;
+            "$(printf '\b')" | "$(printf '\177')")
+                if [ -n "$_secret" ]; then
+                    _secret="${_secret%?}"
+                    printf '\b \b' >&2
+                fi
+                ;;
+            *)
+                _secret="${_secret}${_byte}"
+                printf '*' >&2
+                ;;
+        esac
+    done
+    printf '\n' >&2
+    restore_tty
+    KEY="$_secret"
+    unset _secret _byte
+}
+
+# Verify the chosen provider key against its API before anything is created —
+# a length heuristic can't tell a typo'd key from a real one. The key is sent
+# as an Authorization/API header, never in the URL or in output. A 2xx means
+# the key is valid; 401/403 means it was rejected; anything else (DNS/TLS
+# failure, 5xx, unreachable host) means the key simply could not be verified,
+# so the message must not claim it was rejected.
+verify_key() {
+    if [ "$DRY_RUN" = "1" ]; then
+        log "> verifying $PROVIDER key against the API (skipped: dry-run)"
+        return 0
+    fi
+    if [ "$PROVIDER" = "gemini" ]; then
+        log "> verifying Gemini key against the API (key never echoed)"
+        # curl's own error prints to stderr when it cannot connect; the `||`
+        # converts that transport failure into a distinct message.
+        HTTP_CODE="$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' \
+            -H "X-Goog-Api-Key: $KEY" \
+            "https://generativelanguage.googleapis.com/v1beta/models")" ||
+            die "could not reach the Gemini API to verify the key — check your network and re-run."
+    else
+        log "> verifying OpenRouter key against the API (key never echoed)"
+        HTTP_CODE="$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $KEY" \
+            "https://openrouter.ai/api/v1/auth/key")" ||
+            die "could not reach the OpenRouter API to verify the key — check your network and re-run."
+    fi
+    case "$HTTP_CODE" in
+        2*) return 0 ;;
+        401 | 403) die "$PROVIDER key rejected by the API — check it and re-run." ;;
+        *)
+            die "could not verify the $PROVIDER key (HTTP $HTTP_CODE) — check the key and your network, then re-run."
+            ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -257,8 +352,25 @@ check_permissions
 if [ -z "$PROVIDER" ]; then
     if [ -n "$GEMINI_KEY" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
         PROVIDER="gemini"
-    else
+    elif [ -n "$OPENROUTER_KEY" ] || [ -n "${OPENROUTER_API_KEY:-}" ]; then
         PROVIDER="openrouter"
+    elif [ "$DRY_RUN" = "1" ]; then
+        # --dry-run must never prompt; nothing is sent, so the provider is
+        # irrelevant to the trace — pick the primary.
+        PROVIDER="gemini"
+    elif [ "$YES" = "1" ] || [ ! -t 0 ]; then
+        die "no provider key supplied and --yes is set / stdin is not a terminal — pass --provider gemini|openrouter with its --...-key or env var."
+    else
+        # Interactive: require exactly one key — let the user pick the provider.
+        while :; do
+            printf 'Which provider? [1] Gemini  [2] OpenRouter (or "g" / "o"): ' >&2
+            IFS= read -r PROVIDER_CHOICE || exit 1
+            case "$PROVIDER_CHOICE" in
+                1 | g | G | gemini) PROVIDER="gemini"; break ;;
+                2 | o | O | openrouter) PROVIDER="openrouter"; break ;;
+                *) printf 'Pick 1 (Gemini) or 2 (OpenRouter).\n' >&2 ;;
+            esac
+        done
     fi
 fi
 
@@ -270,26 +382,21 @@ else
     KEY="${OPENROUTER_KEY:-${OPENROUTER_API_KEY:-}}"
 fi
 
-if [ -z "$KEY" ]; then
+if [ -z "$KEY" ] && [ "$DRY_RUN" = "0" ]; then
     if [ "$YES" = "1" ]; then
         die "no $SECRET_NAME supplied and --yes is set — pass the corresponding --...-key or set its env var."
     elif [ ! -t 0 ]; then
         die "no $SECRET_NAME supplied and stdin is not a terminal (curl|sh pipe) — re-run with --provider $PROVIDER --...-key or the env var set."
     else
         printf 'Enter %s: ' "$SECRET_NAME" >&2
-        stty -echo
-        IFS= read -r KEY
-        stty echo
-        printf '\n' >&2
+        read_masked
         [ -n "$KEY" ] || die "no key entered."
     fi
 fi
 
-# A real Gemini/OpenRouter key is far longer than this; anything shorter is a
-# paste or typo, so fail before creating anything.
-if [ -n "$KEY" ] && [ "${#KEY}" -lt 32 ]; then
-    die "$SECRET_NAME looks too short (${#KEY} chars) to be a valid API key — double-check it."
-fi
+# Verify the key against the provider before creating anything (see verify_key);
+# a length check alone can't catch a typo'd or expired key.
+verify_key
 
 # ---------------------------------------------------------------------------
 # Fetch shell plane (§5.3.3) — resolve tag, download + extract tarball
@@ -297,14 +404,15 @@ fi
 
 TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/jobgitops-install.XXXXXX")" ||
     die "could not create a temp working directory."
-# Interrupts exit immediately; the EXIT trap then removes the temp tree.
-trap 'cleanup' EXIT
-trap 'exit 1' HUP INT TERM
 
 if [ -n "${JOBGITOPS_TAG:-}" ]; then
     TAG="${JOBGITOPS_TAG}"
 else
-    TAG="$(gh api repos/menil/jobgitops/releases/latest --jq .tag_name 2>/dev/null)"
+    # gh api exits 1 (and prints an error body to stdout) when no release
+    # exists yet — the command substitution would otherwise swallow that and
+    # leave a garbage $TAG, so treat a failed lookup as "no release".
+    TAG="$(gh api repos/menil/jobgitops/releases/latest --jq .tag_name 2>/dev/null)" ||
+        die "could not resolve the latest JobGitOps release (none published yet). Set JOBGITOPS_TAG=<tag-or-branch> to test a specific ref."
     [ -n "$TAG" ] ||
         die "could not resolve the latest JobGitOps release (none published yet). Set JOBGITOPS_TAG=<tag-or-branch> to test a specific ref."
 fi
