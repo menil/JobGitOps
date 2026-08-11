@@ -28,13 +28,19 @@ sh scripts/install.sh jobgitops-e2e --dry-run
 ```
 
 Verify: every command is printed and *nothing runs* — no repo created, no
-secrets set, no API mutations. Exit is clean. Also spot-check argument
-validation:
+secrets set, no API mutations. Exit is clean. `--dry-run` never prompts for a
+provider key (the trace logs the key-verification step with the key redacted).
+Also spot-check argument validation:
 
 ```bash
 sh scripts/install.sh bad-name! --dry-run    # fails fast on the slug
 sh scripts/install.sh                        # prompts for the repo name
 ```
+
+The bare interactive `sh scripts/install.sh` also prompts for the provider
+(`Gemini` / `OpenRouter`) and then for exactly that one key, echoing `*` per
+keystroke; the key is verified against the provider API before any repo is
+created.
 
 ## 2. Live install
 
@@ -54,6 +60,17 @@ Verify, in order:
    the six runtime-core workflows, `config/settings.yaml`, the placeholder
    `resumes/resume.yaml`, renderer templates, README, `.gitignore` — and
    **no** `src/`, `tests/`, `Dockerfile`, `Justfile`, or maintainer workflows.
+
+**2a. Rejected key fails fast**
+
+```bash
+GEMINI_API_KEY=not-a-valid-key sh scripts/install.sh jobgitops-e2e-badkey --yes
+```
+
+Verify: the installer dies with `Gemini key rejected by the API` **before** any
+repo is created, secret set, or API mutation — `gh repo view jobgitops-e2e-badkey`
+still reports "not found". A transport failure (e.g. network down) must instead
+report `could not reach the ... API`, never a false "rejected".
 
 ## 3. Placeholder resume produces no runs (S4)
 
