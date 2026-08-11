@@ -53,6 +53,22 @@ Verify the package flip with
 404 and the `curl | sh` one-liner cannot be live-tested (pre-release note in
 [scripts/e2e.md](scripts/e2e.md)).
 
+## Dogfooding before the repo is public
+
+Keep the source repo private for now and still run the installer yourself:
+
+```bash
+GEMINI_API_KEY=... JOBGITOPS_TAG=main sh scripts/install.sh jobgitops-e2e --yes
+```
+
+`JOBGITOPS_TAG=main` bypasses the release-tag lookup, and when the anonymous
+codeload download fails, the installer falls back to the authenticated API
+tarball (`gh api repos/menil/jobgitops/tarball/main`), which serves the private
+repo using your `gh` auth. `scripts/sync-template.sh` does the same. Note: the
+GHCR **package** must still be public for the consumer repo's workflows to
+pull `ghcr.io/menil/jobgitops:latest` — flipping the package alone does not
+expose the source repo.
+
 ## Verification
 
 After each release: dry-run the installer, then run a live install on a

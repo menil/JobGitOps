@@ -421,21 +421,43 @@ TARBALL="$TMPDIR/jobgitops-$TAG.tgz"
 download_tarball() {
     log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG -o $TARBALL"
     [ "$DRY_RUN" = "1" ] && return 0
-    if ! curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG" -o "$TARBALL"; then
-        # No such tag (pre-release, before the first release exists) — retry
-        # the ref as a branch so JOBGITOPS_TAG=main works. Inert once releases
-        # exist: a release tag is always a real git tag.
-        log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG -o $TARBALL"
-        curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG" -o "$TARBALL" ||
-            die "failed to download the JobGitOps tarball for '$TAG' (exit $?)."
+    # Anonymous codeload first — the public-release path. Its 404 noise is
+    # suppressed (2>/dev/null) so the fallbacks below own the messaging.
+    if curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG" -o "$TARBALL" 2>/dev/null; then
+        return 0
     fi
+    # No such tag (pre-release, before the first release exists) — retry the
+    # ref as a branch so JOBGITOPS_TAG=main works on a public repo. Inert once
+    # releases exist: a release tag is always a real git tag.
+    log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG -o $TARBALL"
+    if curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG" -o "$TARBALL" 2>/dev/null; then
+        return 0
+    fi
+    # Private-source fallback (owner dogfooding before the repo goes public):
+    # the authenticated API tarball endpoint accepts tags and branches and
+    # follows a signed redirect using the already-verified gh auth / $GH_TOKEN.
+    log "> gh api repos/menil/jobgitops/tarball/$TAG > $TARBALL"
+    gh api "repos/menil/jobgitops/tarball/$TAG" > "$TARBALL" ||
+        die "failed to download the JobGitOps tarball for '$TAG' — use a valid tag or branch, and ensure your gh auth has read access to the source repo."
 }
 download_tarball
 run mkdir -p "$TMPDIR/tree"
 run tar -xzf "$TARBALL" -C "$TMPDIR/tree"
 
-# codeload tarballs extract to a top-level dir named <repo>-<tag>.
-SRC="$TMPDIR/tree/jobgitops-$TAG"
+# codeload tarballs extract to <repo>-<ref>; the API tarball endpoint extracts
+# to <repo>-<sha>. Resolve whichever single top-level dir landed so the public
+# and private-source download paths both work.
+SRC=""
+if [ "$DRY_RUN" = "1" ]; then
+    # The tarball was never downloaded or extracted under --dry-run, so the
+    # top-level dir cannot exist yet; log the command the real run would
+    # execute and fall through with the codeload layout for the trace.
+    log "> SRC=\"\$(find \$TMPDIR/tree -mindepth 1 -maxdepth 1 -type d | head -n 1)\""
+    SRC="$TMPDIR/tree/jobgitops-$TAG"
+else
+    SRC="$(find "$TMPDIR/tree" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    [ -n "$SRC" ] || die "downloaded tarball contained no top-level directory."
+fi
 APP="$TMPDIR/app"
 
 # ---------------------------------------------------------------------------
@@ -460,9 +482,9 @@ done
 # ---------------------------------------------------------------------------
 
 create_repo() {
-    log "> gh repo create $REPO_NAME --$VISIBILITY --confirm"
+    log "> gh repo create $REPO_NAME --$VISIBILITY"
     [ "$DRY_RUN" = "1" ] && return 0
-    gh repo create "$REPO_NAME" "--$VISIBILITY" --confirm
+    gh repo create "$REPO_NAME" "--$VISIBILITY"
     rc=$?
     [ "$rc" -eq 0 ] ||
         die "repo create failed (exit $rc). If '$REPO_NAME' already exists, use a different name."
@@ -488,7 +510,7 @@ set_secret "$SECRET_NAME" "$KEY"
 # ---------------------------------------------------------------------------
 
 run gh api --method PUT "repos/$OWNER/$REPO_NAME/actions/permissions" \
-    -f enabled=true -f allowed_actions=all -f default_workflow_permissions=write
+    -F enabled=true -f allowed_actions=all -f default_workflow_permissions=write
 
 # ---------------------------------------------------------------------------
 # Push (§5.3.8)
@@ -500,13 +522,20 @@ run git -C "$APP" init -b main
 run git -C "$APP" config user.name "$OWNER"
 run git -C "$APP" config user.email "$OWNER@users.noreply.github.com"
 run git -C "$APP" add -A
-run git -C "$APP" commit -m "chore: bootstrap from JobGitOps template v$TAG"
+run git -C "$APP" commit -m "chore: bootstrap from JobGitOps template $TAG"
 run git -C "$APP" remote add origin "https://github.com/$OWNER/$REPO_NAME.git"
 
-# When a PAT is in play, git cannot rely on gh's credential helper (there is
-# no gh auth); feed it the token via an askpass shim that reads $JGO_GIT_TOKEN
-# from the environment so the secret never touches disk.
-if [ "$HAS_TOKEN" = "1" ] && [ "$DRY_RUN" = "0" ]; then
+# git cannot authenticate the HTTPS push via gh's credential helper when the
+# gh account uses the SSH git protocol (or when a PAT is in play with no gh
+# auth); feed the token through an askpass shim that reads $JGO_GIT_TOKEN from
+# the environment so the secret never touches disk. Reading the token here
+# (from gh auth token or the explicit --token/$GH_TOKEN) means no global git
+# config is touched and the push works under either git protocol.
+#
+# Note: the shim is wired via the GIT_ASKPASS env var, not the
+# `credential.askpass` config key — git silently ignores the latter
+# (verified empirically) and dies with "could not read Username".
+if [ "$DRY_RUN" = "0" ]; then
     ASKPASS="$TMPDIR/askpass.sh"
     # Quoted heredoc: content is written verbatim (no expansion here) so the
     # askpass shim reads $JGO_GIT_USERNAME / $JGO_GIT_TOKEN at runtime.
@@ -518,17 +547,19 @@ case "$1" in
 esac
 EOF
     chmod +x "$ASKPASS"
-    export JGO_GIT_TOKEN="${TOKEN:-$GH_TOKEN}"
+    export GIT_ASKPASS="$ASKPASS"
+    if [ "$HAS_TOKEN" = "1" ]; then
+        export JGO_GIT_TOKEN="${TOKEN:-$GH_TOKEN}"
+    else
+        JGO_GIT_TOKEN="$(gh auth token)" || die "failed to read the gh auth token — is gh authenticated?"
+        export JGO_GIT_TOKEN
+    fi
 fi
 
 push_repo() {
     log "> git -C $APP push -u origin main"
     [ "$DRY_RUN" = "1" ] && return 0
-    if [ "$HAS_TOKEN" = "1" ]; then
-        git -C "$APP" -c credential.helper= -c credential.askpass="$ASKPASS" push -u origin main
-    else
-        git -C "$APP" push -u origin main
-    fi
+    git -C "$APP" -c credential.helper= push -u origin main
     rc=$?
     if [ "$rc" -ne 0 ]; then
         if [ "$HAS_TOKEN" = "0" ]; then
