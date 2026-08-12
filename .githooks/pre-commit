@@ -1,9 +1,13 @@
 #!/bin/sh
+set -eu
 
 echo "Running repository validation..."
 
+# Clear Git environment variables so nested git commands in tests run cleanly
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_PREFIX
+
 # Check if we are already inside a Nix/Devenv shell environment to avoid startup latency
-if [ -n "$DEVENV_STATE" ] || [ -n "$IN_NIX_SHELL" ]; then
+if [ -n "${DEVENV_STATE:-}" ] || [ -n "${IN_NIX_SHELL:-}" ]; then
     # Run validation directly since environment is already active
     just validate
 else

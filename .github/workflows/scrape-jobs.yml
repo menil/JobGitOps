@@ -96,6 +96,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Job Scraper
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
@@ -107,16 +108,16 @@ jobs:
         run: |
           ARGS=()
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ -n "$INPUT_LOCATION" ]; then
+            if [ -n "${INPUT_LOCATION:-}" ]; then
               ARGS+=("--location" "$INPUT_LOCATION")
             fi
-            if [ -n "$INPUT_JOB_TYPE" ]; then
+            if [ -n "${INPUT_JOB_TYPE:-}" ]; then
               ARGS+=("--job-type" "$INPUT_JOB_TYPE")
             fi
-            if [ -n "$INPUT_HOURS_OLD" ]; then
+            if [ -n "${INPUT_HOURS_OLD:-}" ]; then
               ARGS+=("--hours-old" "$INPUT_HOURS_OLD")
             fi
-            if [ "$INPUT_DRY_RUN" = "true" ]; then
+            if [ "${INPUT_DRY_RUN:-}" = "true" ]; then
               ARGS+=("--dry-run")
             fi
           fi
