@@ -95,6 +95,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Verify Resume
+        run: |
+          if [ -f resumes/resume.yaml ]; then
+            python -m jobgitops.cli.validate_resume resumes/resume.yaml
+          fi
+
       - name: Run Job Scraper
         shell: bash
         env:
