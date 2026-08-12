@@ -9,8 +9,8 @@ search:
   # Enable or disable the daily automated scraping action (set to false to pause search)
   enabled: true
 
-  # Target location for job listings (e.g., "Remote", "Seattle, WA", "Sunnyvale, CA")
-  location: "Remote"
+  # Work preference: "remote" (remote only), "onsite" (onsite only), or "hybrid"
+  work_preference: "remote"
 
   # Employment type: "fulltime", "contract", "parttime", "internship"
   job_type: "fulltime"

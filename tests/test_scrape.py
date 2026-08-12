@@ -258,7 +258,7 @@ def test_run_scraper_success(
     mock_settings = MagicMock()
     mock_settings.custom_queries = ["Python Developer"]
     mock_settings.search.platforms = ["linkedin"]
-    mock_settings.search.location = "Remote"
+    mock_settings.search.work_preference = "remote"
     mock_settings.search.job_type = "fulltime"
     mock_settings.search.hours_old = 24
     mock_settings.projects_v2 = MagicMock(
@@ -269,6 +269,9 @@ def test_run_scraper_success(
     mock_resume = MagicMock()
     mock_resume.work = []
     mock_resume.basics.label = "Software Engineer"
+    mock_resume.basics.location = MagicMock(
+        city="Seattle", state="WA", country_code="US"
+    )
     mock_resume.skills = []
     mock_load_resume.return_value = mock_resume
 
@@ -311,7 +314,7 @@ def test_run_scraper_success(
             {
                 "company": float("nan"),
                 "title": float("nan"),
-                "location": float("nan"),
+                "location": "Remote",
                 "description": float("nan"),
                 "job_url": "   ",
                 "job_url_direct": "https://direct.com",
@@ -375,11 +378,17 @@ def test_run_scraper_robustness(
     mock_settings = MagicMock()
     mock_settings.custom_queries = ["Query 1", "Query 2"]
     mock_settings.search.platforms = ["linkedin"]
-    mock_settings.search.location = "Seattle, WA"
+    mock_settings.search.work_preference = "onsite"
     mock_settings.search.job_type = "fulltime"
     mock_settings.search.hours_old = 24
     mock_settings.projects_v2 = None
     mock_load_settings.return_value = mock_settings
+
+    mock_resume = MagicMock()
+    mock_resume.basics.location = MagicMock(
+        city="Seattle", state="WA", country_code="US"
+    )
+    mock_load_resume.return_value = mock_resume
 
     mock_github_client = MagicMock()
     mock_github_client.project_id = None
@@ -427,13 +436,16 @@ def test_run_scraper_dry_run(
     mock_settings = MagicMock()
     mock_settings.custom_queries = ["Dry Run Query"]
     mock_settings.search.platforms = ["linkedin"]
-    mock_settings.search.location = "Remote"
+    mock_settings.search.work_preference = "remote"
     mock_settings.search.job_type = "fulltime"
     mock_settings.search.hours_old = 24
     mock_settings.projects_v2 = None
     mock_load_settings.return_value = mock_settings
 
     mock_resume = MagicMock()
+    mock_resume.basics.location = MagicMock(
+        city="Seattle", state="WA", country_code="US"
+    )
     mock_load_resume.return_value = mock_resume
 
     mock_github_client = MagicMock()
@@ -480,13 +492,16 @@ def test_run_scraper_overrides(
     mock_settings = MagicMock()
     mock_settings.custom_queries = ["Query"]
     mock_settings.search.platforms = ["linkedin"]
-    mock_settings.search.location = "Remote"
+    mock_settings.search.work_preference = "remote"
     mock_settings.search.job_type = "fulltime"
     mock_settings.search.hours_old = 24
     mock_settings.projects_v2 = None
     mock_load_settings.return_value = mock_settings
 
     mock_resume = MagicMock()
+    mock_resume.basics.location = MagicMock(
+        city="Seattle", state="WA", country_code="US"
+    )
     mock_load_resume.return_value = mock_resume
 
     mock_github_client = MagicMock()
@@ -497,7 +512,7 @@ def test_run_scraper_overrides(
         dry_run=True,
         github_client=mock_github_client,
         scrape_fn=mock_scrape_jobs,
-        location_override="Sunnyvale, CA",
+        work_preference_override="onsite",
         job_type_override="contract",
         hours_old_override=48,
     )
@@ -506,7 +521,7 @@ def test_run_scraper_overrides(
     mock_scrape_jobs.assert_called_once_with(
         site_name=["linkedin"],
         search_term="Query",
-        location="Sunnyvale, CA",
+        location="Seattle, WA",
         is_remote=False,
         job_type="contract",
         hours_old=48,
@@ -520,8 +535,8 @@ def test_run_scraper_overrides(
     "sys.argv",
     [
         "scrape.py",
-        "--location",
-        "Seattle, WA",
+        "--work-preference",
+        "onsite",
         "--job-type",
         "parttime",
         "--hours-old",
@@ -538,29 +553,35 @@ def test_scrape_cli_args(mock_run_scraper) -> None:
         settings_path="config/settings.yaml",
         resume_path="resumes/resume.yaml",
         dry_run=True,
-        location_override="Seattle, WA",
+        work_preference_override="onsite",
         job_type_override="parttime",
         hours_old_override=72,
     )
 
 
-def test_is_strictly_local_role() -> None:
-    """Verify is_strictly_local_role matches hybrid/onsite indicator keywords."""
-    from jobgitops.scraper import is_strictly_local_role
+def test_classify_work_type() -> None:
+    """Verify classify_work_type correctly classifies jobs."""
+    from jobgitops.scraper import classify_work_type
 
-    # Remote location or mentions "remote" should NOT be strictly local
-    assert not is_strictly_local_role("Remote", "This is hybrid")
-    assert not is_strictly_local_role("San Francisco (Remote)", "hybrid work")
-
-    # City location with hybrid description should be detected as strictly local
-    assert is_strictly_local_role("San Francisco, CA", "This is a hybrid model role.")
-    assert is_strictly_local_role("Seattle, WA", "Requires 3 days/week in office.")
-    assert is_strictly_local_role("Dallas, TX", "This is an onsite required position.")
-
-    # City location with purely remote description should NOT be strictly local
-    assert not is_strictly_local_role(
-        "New York, NY", "This is a fully remote position."
+    assert classify_work_type("Remote", "This is hybrid") == "hybrid"
+    assert classify_work_type("San Francisco (Remote)", "hybrid work") == "hybrid"
+    assert (
+        classify_work_type("San Francisco, CA", "This is a hybrid model role.")
+        == "hybrid"
     )
+    assert (
+        classify_work_type("Seattle, WA", "Requires 3 days/week in office.") == "hybrid"
+    )
+    assert (
+        classify_work_type("Dallas, TX", "This is an onsite required position.")
+        == "onsite"
+    )
+    assert (
+        classify_work_type("New York, NY", "This is a fully remote position.")
+        == "remote"
+    )
+    assert classify_work_type("Remote", "Plain text") == "remote"
+    assert classify_work_type("Chicago, IL", "Plain text") == "onsite"
 
 
 @patch("jobgitops.scraper.load_settings")
@@ -573,13 +594,16 @@ def test_run_scraper_skips_hybrid(
     mock_settings = MagicMock()
     mock_settings.custom_queries = ["Query"]
     mock_settings.search.platforms = ["linkedin"]
-    mock_settings.search.location = "Remote"
+    mock_settings.search.work_preference = "remote"
     mock_settings.search.job_type = "fulltime"
     mock_settings.search.hours_old = 24
     mock_settings.projects_v2 = None
     mock_load_settings.return_value = mock_settings
 
     mock_resume = MagicMock()
+    mock_resume.basics.location = MagicMock(
+        city="Seattle", state="WA", country_code="US"
+    )
     mock_load_resume.return_value = mock_resume
 
     mock_github_client = MagicMock()
@@ -645,3 +669,84 @@ def test_run_scraper_disabled(
     assert mock_load_resume.call_count == 0
     assert mock_scrape_jobs.call_count == 0
     assert mock_github_client.create_issue.call_count == 0
+
+
+def test_is_local_proximity_match() -> None:
+    """Verify is_local_proximity_match maps state names and enforces word boundaries."""
+    from jobgitops.scraper import is_local_proximity_match
+
+    # State matching
+    assert is_local_proximity_match("Seattle, WA", "Seattle", "WA")
+    assert is_local_proximity_match("Seattle, Washington", "Seattle", "Washington")
+    assert is_local_proximity_match("Bellevue, WA", "Seattle", "wa")
+
+    # Word boundary checks to prevent false positives
+    assert not is_local_proximity_match("Austin, TX", "Seattle", "in")
+    assert not is_local_proximity_match("Cambridge, MA", "Seattle", "ca")
+
+    # City match fallback
+    assert is_local_proximity_match("Seattle, FL", "Seattle", "wa")
+
+
+@patch("jobgitops.scraper.load_settings")
+@patch("jobgitops.scraper.load_resume")
+def test_run_scraper_proximity_filtering(
+    mock_load_resume,
+    mock_load_settings,
+) -> None:
+    """Verify run_scraper filters out local roles outside candidate's city/region."""
+    mock_settings = MagicMock()
+    mock_settings.custom_queries = ["Query"]
+    mock_settings.search.platforms = ["linkedin"]
+    mock_settings.search.work_preference = "onsite"
+    mock_settings.search.job_type = "fulltime"
+    mock_settings.search.hours_old = 24
+    mock_settings.search.enabled = True
+    mock_load_settings.return_value = mock_settings
+
+    # Candidate in Seattle, WA
+    mock_resume = MagicMock()
+    mock_resume.basics.location.city = "Seattle"
+    mock_resume.basics.location.state = "WA"
+    mock_resume.basics.location.country_code = "US"
+    mock_resume.to_dict.return_value = {}
+    mock_load_resume.return_value = mock_resume
+
+    # Scraped jobs: one in Seattle (match), one in Boston (mismatch)
+    mock_scrape_jobs = MagicMock()
+    mock_scrape_jobs.return_value = pd.DataFrame(
+        [
+            {
+                "company": "Match Co",
+                "title": "Onsite Engineer Seattle",
+                "location": "Seattle, WA",
+                "salary": "",
+                "source": "linkedin",
+                "apply_url": "http://match",
+                "description": "Onsite position in Seattle",
+            },
+            {
+                "company": "Mismatch Co",
+                "title": "Onsite Engineer Boston",
+                "location": "Boston, MA",
+                "salary": "",
+                "source": "linkedin",
+                "apply_url": "http://mismatch",
+                "description": "Onsite position in Boston",
+            },
+        ]
+    )
+
+    mock_github_client = MagicMock()
+    environ_mock = {"GITHUB_TOKEN": "test_token", "GITHUB_REPOSITORY": "owner/repo"}
+    with patch.dict(os.environ, environ_mock):
+        run_scraper(
+            dry_run=False,
+            github_client=mock_github_client,
+            scrape_fn=mock_scrape_jobs,
+        )
+
+    # Only Match Co should be published, Mismatch Co should be skipped
+    assert mock_github_client.create_issue.call_count == 1
+    _, kwargs = mock_github_client.create_issue.call_args
+    assert "Match Co" in kwargs["title"]

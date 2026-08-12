@@ -742,7 +742,11 @@ def run_triage(
 
     # 2. Triage evaluation
     logger.info("Evaluating job description with LLM...")
-    triage_res = llm_client.triage_job(job_details["description"], resume)
+    triage_res = llm_client.triage_job(
+        job_details["description"],
+        resume,
+        work_preference=settings.search.work_preference,
+    )
     logger.info(
         "Triage fit score: %.1f (threshold: %.1f)",
         triage_res.fit_score,

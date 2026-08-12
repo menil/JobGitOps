@@ -42,11 +42,11 @@ def main() -> None:
         help="Skip writing to remote GitHub APIs.",
     )
     parser.add_argument(
-        "--location",
-        "-l",
+        "--work-preference",
+        "-w",
         type=str,
         default=None,
-        help="Override job search location settings.",
+        help="Override job search work preference settings (remote, onsite, hybrid).",
     )
     parser.add_argument(
         "--job-type",
@@ -77,7 +77,7 @@ def main() -> None:
             settings_path=args.settings,
             resume_path=args.resume,
             dry_run=is_dry,
-            location_override=args.location,
+            work_preference_override=args.work_preference,
             job_type_override=args.job_type,
             hours_old_override=args.hours_old,
         )

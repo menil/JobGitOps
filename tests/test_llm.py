@@ -32,6 +32,7 @@ def sample_resume() -> Resume:
                 "name": "Martin Livne",
                 "email": "martin@example.com",
                 "summary": "Experienced python developer.",
+                "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
             },
             "work": [
                 {
@@ -1244,3 +1245,38 @@ def test_openrouter_chat_invalid_response_format(mock_urlopen: MagicMock) -> Non
     msg = "Invalid response format from OpenRouter"
     with pytest.raises(ValidationError, match=msg):
         client.chat([ChatMessage(role="user", content="hi")])
+
+
+def test_format_triage_prompt() -> None:
+    """Verify format_triage_prompt handles partial/missing locations safely."""
+    from jobgitops import Resume
+    from jobgitops.llm import format_triage_prompt
+
+    # Full location
+    resume_full = Resume.from_dict(
+        {
+            "basics": {
+                "name": "John Doe",
+                "location": {"city": "Seattle", "state": "WA", "countryCode": "US"},
+            }
+        }
+    )
+    prompt_full = format_triage_prompt("Desc", resume_full, "hybrid")
+    assert "Candidate Location: Seattle, WA, US" in prompt_full
+
+    # Partial location (missing state)
+    resume_partial = Resume.from_dict(
+        {
+            "basics": {
+                "name": "John Doe",
+                "location": {"city": "Singapore", "countryCode": "SG"},
+            }
+        }
+    )
+    prompt_partial = format_triage_prompt("Desc", resume_partial, "remote")
+    assert "Candidate Location: Singapore, SG" in prompt_partial
+
+    # Missing location
+    resume_none = Resume.from_dict({"basics": {"name": "John Doe"}})
+    prompt_none = format_triage_prompt("Desc", resume_none, "remote")
+    assert "Candidate Location: Unknown" in prompt_none
