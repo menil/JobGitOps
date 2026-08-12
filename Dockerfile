@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install system dependencies for WeasyPrint, git, just, shellcheck, and fontconfig
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    gh \
     curl \
     shellcheck \
     build-essential \
