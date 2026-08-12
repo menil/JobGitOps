@@ -130,7 +130,7 @@ def _parse_bool(field_name: str, val: Any, default: bool) -> bool:
 class SearchConfig:
     """Job search scraper configuration."""
 
-    location: str = "Remote"
+    work_preference: str = "remote"
     job_type: str = "fulltime"
     platforms: list[str] = field(
         default_factory=lambda: ["linkedin", "indeed", "zip_recruiter"]
@@ -155,7 +155,16 @@ class SearchConfig:
             raise ValidationError("Search configuration must be a dictionary.")
 
         try:
-            location = _parse_str("search.location", data.get("location")) or "Remote"
+            work_preference = (
+                _parse_str("search.work_preference", data.get("work_preference"))
+                or "remote"
+            )
+            work_preference = work_preference.lower().strip()
+            if work_preference not in ("remote", "onsite", "hybrid"):
+                raise ValidationError(
+                    "search.work_preference must be one of: remote, onsite, hybrid."
+                )
+
             job_type = _parse_str("search.job_type", data.get("job_type")) or "fulltime"
 
             platforms_raw = data.get("platforms")
@@ -199,7 +208,7 @@ class SearchConfig:
                 enabled = bool(enabled_val)
 
             return cls(
-                location=location,
+                work_preference=work_preference,
                 job_type=job_type,
                 platforms=platforms,
                 hours_old=hours_old,
@@ -458,10 +467,19 @@ class Location:
         state_val = data.get("state") or data.get("region")
         country_val = data.get("countryCode") or data.get("country_code")
 
+        city = _parse_str("basics.location.city", data.get("city"))
+        state = _parse_str("basics.location.state", state_val)
+        country_code = _parse_str("basics.location.country_code", country_val)
+
+        if not city:
+            raise ValidationError("basics.location.city is required in resume.")
+        if not country_code:
+            raise ValidationError("basics.location.country_code is required in resume.")
+
         return cls(
-            city=_parse_str("basics.location.city", data.get("city")),
-            state=_parse_str("basics.location.state", state_val),
-            country_code=_parse_str("basics.location.country_code", country_val),
+            city=city,
+            state=state,
+            country_code=country_code,
         )
 
     def to_dict(self) -> dict[str, Any]:

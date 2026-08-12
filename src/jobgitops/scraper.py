@@ -27,6 +27,62 @@ from jobgitops.status_model import LABEL_TO_STATUS
 logger = logging.getLogger("job_scraper")
 
 
+HYBRID_INDICATORS = (
+    "hybrid schedule",
+    "hybrid model",
+    "hybrid role",
+    "hybrid position",
+    "hybrid work",
+    "hybrid setup",
+    "hybrid format",
+    "hybrid environment",
+    "3 days/week in office",
+    "3 days a week in office",
+    "2 days/week in office",
+    "2 days a week in office",
+    "4 days/week in office",
+    "4 days a week in office",
+    "days/week in office",
+    "days a week in office",
+    "days in office",
+    "in-office days",
+    "hybrid",
+)
+
+REMOTE_INDICATORS = (
+    "remote position",
+    "remote role",
+    "remote job",
+    "remote work",
+    "work from home",
+    "work-from-home",
+    "telecommute",
+    "100% remote",
+    "fully remote",
+    "remote option",
+    "remote-first",
+    "remote first",
+)
+
+ONSITE_INDICATORS = (
+    "onsite required",
+    "on-site required",
+    "must be onsite",
+    "must be on-site",
+    "required to be onsite",
+    "required to be on-site",
+    "not a remote position",
+    "not a remote role",
+    "not remote",
+    "no remote option",
+    "onsite only",
+    "on-site only",
+    "100% onsite",
+    "100% on-site",
+    "no work from home",
+)
+
+
 @dataclass
 class ScrapedJob:
     """Data Transfer Object representing a normalized scraped job posting."""
@@ -260,48 +316,65 @@ def fetch_existing_jobs_cache(
     return existing
 
 
-def is_strictly_local_role(location: str, description: str) -> bool:
-    """Helper to detect if a role requires local physical presence (hybrid/onsite)
-    when location configuration is set to Remote.
-    """
+def classify_work_type(location: str, description: str) -> str:
+    """Classify job location and description into 'remote', 'hybrid', or 'onsite'."""
     loc_lower = location.lower()
     desc_lower = description.lower()
 
-    # If location is explicitly "remote", it's probably remote
+    # Check location string first
+    if "hybrid" in loc_lower:
+        return "hybrid"
     if "remote" in loc_lower:
-        return False
+        # Check if description contradicts and makes it hybrid
+        if any(ind in desc_lower for ind in HYBRID_INDICATORS):
+            return "hybrid"
+        return "remote"
 
-    # Standard indicators of mandatory onsite or hybrid presence
-    local_indicators = [
-        "hybrid schedule",
-        "hybrid model",
-        "hybrid role",
-        "hybrid position",
-        "hybrid work",
-        "hybrid setup",
-        "hybrid format",
-        "hybrid environment",
-        "onsite required",
-        "on-site required",
-        "must be onsite",
-        "must be on-site",
-        "required to be onsite",
-        "required to be on-site",
-        "not a remote position",
-        "not a remote role",
-        "not remote",
-        "no remote option",
-        "3 days/week in office",
-        "3 days a week in office",
-        "2 days/week in office",
-        "2 days a week in office",
-        "4 days/week in office",
-        "4 days a week in office",
-        "days/week in office",
-        "days a week in office",
-    ]
+    # Check description for hybrid indicators
+    if any(ind in desc_lower for ind in HYBRID_INDICATORS):
+        return "hybrid"
 
-    return any(indicator in desc_lower for indicator in local_indicators)
+    # Check description for remote indicators
+    has_remote = any(ind in desc_lower for ind in REMOTE_INDICATORS)
+    has_onsite = any(ind in desc_lower for ind in ONSITE_INDICATORS)
+
+    if has_remote and not has_onsite:
+        return "remote"
+
+    # Default is onsite
+    return "onsite"
+
+
+def is_local_proximity_match(
+    job_location: str,
+    candidate_city: str,
+    candidate_state: str,
+) -> bool:
+    """Check if the job location matches the candidate's city/state.
+
+    Enforces word boundary matching for state abbreviations to prevent false-positives
+    (e.g., 'Austin, TX' matching state 'in').
+    """
+    job_loc_lower = job_location.lower().strip()
+    city_lower = candidate_city.lower().strip()
+    state_lower = candidate_state.lower().strip()
+
+    # Check city match
+    if city_lower and city_lower in job_loc_lower:
+        return True
+
+    # Check state match
+    if state_lower:
+        if len(state_lower) <= 2:
+            # Enforce word boundaries for short state/region abbreviations
+            if re.search(r"\b" + re.escape(state_lower) + r"\b", job_loc_lower):
+                return True
+        else:
+            # For full names (e.g., 'Washington' or 'Ontario'), substring check is safe
+            if state_lower in job_loc_lower:
+                return True
+
+    return False
 
 
 def parse_job_row(row: Any) -> ScrapedJob:
@@ -407,7 +480,7 @@ def run_scraper(
     dry_run: bool = False,
     github_client: GitHubClient | None = None,
     scrape_fn: Callable | None = None,
-    location_override: str | None = None,
+    work_preference_override: str | None = None,
     job_type_override: str | None = None,
     hours_old_override: int | None = None,
 ) -> None:
@@ -419,7 +492,7 @@ def run_scraper(
         dry_run: If True, skip all remote GitHub write/read operations.
         github_client: Optional injected GitHubClient instance.
         scrape_fn: Optional injected scraping function to override jobspy.
-        location_override: Optional location override to ignore settings.
+        work_preference_override: Optional work preference override to ignore settings.
         job_type_override: Optional job type override to ignore settings.
         hours_old_override: Optional hours old override to ignore settings.
     """
@@ -430,7 +503,8 @@ def run_scraper(
         logger.info("Scraper is disabled in settings.yaml. Skipping execution.")
         return
 
-    resume = load_resume(resume_path) if not settings.custom_queries else None
+    # Always load resume to derive location for country/local filtering
+    resume = load_resume(resume_path)
 
     # 1. Resolve GitHub client (with dependency injection fallback)
     if github_client is None:
@@ -475,10 +549,18 @@ def run_scraper(
 
     # 5. Extract scraper settings
     platforms = settings.search.platforms
-    location = (
-        location_override if location_override is not None else settings.search.location
+    work_preference = (
+        work_preference_override
+        if work_preference_override is not None
+        else settings.search.work_preference
     )
-    is_remote = (location or "").lower() == "remote"
+    work_preference = work_preference.lower().strip()
+    if work_preference not in ("remote", "onsite", "hybrid"):
+        raise ValueError(
+            f"Invalid work preference '{work_preference}'. "
+            "Must be one of: remote, onsite, hybrid."
+        )
+
     job_type = (
         job_type_override if job_type_override is not None else settings.search.job_type
     )
@@ -488,10 +570,42 @@ def run_scraper(
         else settings.search.hours_old
     )
 
+    # Map country code to search country name
+    user_country_code = (
+        resume.basics.location.country_code.upper() if resume.basics.location else "US"
+    )
+
+    # Derive python-jobspy query parameters from work preference and candidate location
+    if work_preference == "remote":
+        search_location = user_country_code
+        is_remote = True
+    else:
+        is_remote = False
+        city = resume.basics.location.city if resume.basics.location else ""
+        state = resume.basics.location.state if resume.basics.location else ""
+        if city and state:
+            search_location = f"{city}, {state}"
+        elif city:
+            search_location = city
+        else:
+            search_location = user_country_code
+
+    # Pre-resolve and lowercase candidate location attributes once outside the loop
+    # (null-safe)
+    cand_city = ""
+    cand_state = ""
+    if resume.basics.location:
+        if resume.basics.location.city:
+            cand_city = resume.basics.location.city.lower().strip()
+        if resume.basics.location.state:
+            cand_state = resume.basics.location.state.lower().strip()
+
     logger.info(
-        "Scraper config: platforms=%s, location='%s', job_type=%s, hours_old=%d",
+        "Scraper config: platforms=%s, work_preference='%s', "
+        "search_location='%s', job_type=%s, hours_old=%d",
         platforms,
-        location,
+        work_preference,
+        search_location,
         job_type,
         hours_old,
     )
@@ -512,7 +626,7 @@ def run_scraper(
             jobs_df = scrape_fn(
                 site_name=platforms,
                 search_term=query,
-                location=location if not is_remote else None,
+                location=search_location,
                 is_remote=is_remote,
                 job_type=job_type,
                 hours_old=hours_old,
@@ -541,15 +655,46 @@ def run_scraper(
                         )
                         continue
 
-                    # Filter out hybrid/onsite roles when targeting remote
-                    if is_remote and is_strictly_local_role(
-                        job.location, job.description
+                    # Filter by work preference type
+                    job_work_type = classify_work_type(job.location, job.description)
+                    is_match = job_work_type == work_preference
+                    # Onsite and hybrid are mutually compatible as both are local
+                    # office-based
+                    if work_preference in ("onsite", "hybrid") and job_work_type in (
+                        "onsite",
+                        "hybrid",
                     ):
+                        is_match = True
+
+                    if not is_match:
                         logger.info(
-                            "Skipping hybrid/onsite role: [%s] %s - Location: %s",
+                            "Skipping role with mismatching work type "
+                            "(got '%s', want '%s'): [%s] %s - Location: %s",
+                            job_work_type,
+                            work_preference,
                             job.company,
                             job.title,
                             job.location,
+                        )
+                        continue
+
+                    # Local proximity check for onsite/hybrid
+                    if (
+                        work_preference in ("onsite", "hybrid")
+                        and resume.basics.location
+                        and not is_local_proximity_match(
+                            job.location, cand_city, cand_state
+                        )
+                    ):
+                        logger.info(
+                            "Skipping local role outside candidate's "
+                            "city/region: [%s] %s - Location: %s "
+                            "(User location: %s, %s)",
+                            job.company,
+                            job.title,
+                            job.location,
+                            resume.basics.location.city or "",
+                            resume.basics.location.state or "",
                         )
                         continue
 

@@ -12,7 +12,14 @@ RESUME_PATH = REPO_ROOT / "tests" / "fixtures" / "resume.yaml"
 
 def _write_canonical_resume(tmp_path: pathlib.Path) -> pathlib.Path:
     """Write a minimal canonical resume and return its path."""
-    resume = Resume.from_dict({"basics": {"name": "Jane Doe"}})
+    resume = Resume.from_dict(
+        {
+            "basics": {
+                "name": "Jane Doe",
+                "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
+            }
+        }
+    )
     resume_file = tmp_path / "resume.yaml"
     resume_file.write_text(render_resume_yaml(resume), encoding="utf-8")
     return resume_file

@@ -5,10 +5,10 @@ on:
     - cron: '0 0 * * *'  # Run daily at midnight UTC
   workflow_dispatch:
     inputs:
-      location:
-        description: 'Override search location (e.g. Remote, "Seattle, WA")'
+      work_preference:
+        description: 'Override work preference (remote, onsite, hybrid)'
         required: false
-        default: 'Remote'
+        default: 'remote'
       job_type:
         description: 'Override employment type (fulltime, contract, parttime, internship)'
         required: false
@@ -101,15 +101,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          INPUT_LOCATION: ${{ github.event.inputs.location }}
+          INPUT_WORK_PREFERENCE: ${{ github.event.inputs.work_preference }}
           INPUT_JOB_TYPE: ${{ github.event.inputs.job_type }}
           INPUT_HOURS_OLD: ${{ github.event.inputs.hours_old }}
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           ARGS=()
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ -n "${INPUT_LOCATION:-}" ]; then
-              ARGS+=("--location" "$INPUT_LOCATION")
+            if [ -n "${INPUT_WORK_PREFERENCE:-}" ]; then
+              ARGS+=("--work-preference" "$INPUT_WORK_PREFERENCE")
             fi
             if [ -n "${INPUT_JOB_TYPE:-}" ]; then
               ARGS+=("--job-type" "$INPUT_JOB_TYPE")

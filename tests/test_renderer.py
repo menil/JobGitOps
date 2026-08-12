@@ -100,12 +100,18 @@ def test_resume_serialization_optional_fields() -> None:
     minimal_data = {
         "basics": {
             "name": "Only Name",
+            "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
         }
     }
     resume = Resume.from_dict(minimal_data)
     serialized = resume.to_dict()
 
-    assert serialized == {"basics": {"name": "Only Name"}}
+    assert serialized == {
+        "basics": {
+            "name": "Only Name",
+            "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
+        }
+    }
     assert "work" not in serialized
     assert "education" not in serialized
     assert "skills" not in serialized

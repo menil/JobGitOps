@@ -13,7 +13,7 @@ def test_default_settings() -> None:
     """Test that Settings returns proper defaults when created or empty."""
     settings = Settings()
     assert settings.fit_threshold == 3.5
-    assert settings.search.location == "Remote"
+    assert settings.search.work_preference == "remote"
     assert settings.search.job_type == "fulltime"
     assert "linkedin" in settings.search.platforms
     assert settings.custom_queries is None
@@ -38,7 +38,7 @@ def test_valid_settings_parsing() -> None:
     data = {
         "fit_threshold": 3.5,
         "search": {
-            "location": "Seattle, WA",
+            "work_preference": "onsite",
             "job_type": "contract",
             "platforms": ["indeed"],
             "hours_old": 48,
@@ -63,7 +63,7 @@ def test_valid_settings_parsing() -> None:
     }
     settings = Settings.from_dict(data)
     assert settings.fit_threshold == 3.5
-    assert settings.search.location == "Seattle, WA"
+    assert settings.search.work_preference == "onsite"
     assert settings.search.job_type == "contract"
     assert settings.search.platforms == ["indeed"]
     assert settings.search.hours_old == 48
@@ -109,8 +109,13 @@ def test_invalid_settings_types() -> None:
     ):
         Settings.from_dict({"fit_threshold": 5.1})
 
-    with pytest.raises(ValidationError, match="search.location must be a string"):
-        Settings.from_dict({"search": {"location": []}})
+    with pytest.raises(
+        ValidationError, match="search.work_preference must be a string"
+    ):
+        Settings.from_dict({"search": {"work_preference": []}})
+
+    with pytest.raises(ValidationError, match="search.work_preference must be one of"):
+        Settings.from_dict({"search": {"work_preference": "invalid"}})
 
     with pytest.raises(ValidationError, match="search.job_type must be a string"):
         Settings.from_dict({"search": {"job_type": True}})
@@ -397,6 +402,8 @@ def test_valid_resume_parsing() -> None:
 
 def test_invalid_resume_parsing() -> None:
     """Test validation errors for invalid resume structure and item type checks."""
+    loc = {"city": "Seattle", "region": "WA", "countryCode": "US"}
+
     with pytest.raises(ValidationError, match="Resume data must be a dictionary"):
         Resume.from_dict([])  # type: ignore
 
@@ -406,30 +413,67 @@ def test_invalid_resume_parsing() -> None:
     with pytest.raises(ValidationError, match="basics.name is required"):
         Resume.from_dict({"basics": {}})
 
+    # Location validations
+    with pytest.raises(ValidationError, match="basics.location.city is required"):
+        Resume.from_dict(
+            {
+                "basics": {
+                    "name": "Jane",
+                    "location": {"region": "WA", "countryCode": "US"},
+                }
+            }
+        )
+
+    with pytest.raises(
+        ValidationError, match="basics.location.country_code is required"
+    ):
+        Resume.from_dict(
+            {
+                "basics": {
+                    "name": "Jane",
+                    "location": {"city": "Seattle", "region": "WA"},
+                }
+            }
+        )
+
     msg = "basics.profiles must be a list"
     with pytest.raises(ValidationError, match=msg):
-        Resume.from_dict({"basics": {"name": "Jane", "profiles": "not-a-list"}})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc, "profiles": "not-a-list"}}
+        )
 
     # Profile missing username
     msg = "profile.username must be a non-empty string"
     with pytest.raises(ValidationError, match=msg):
         Resume.from_dict(
-            {"basics": {"name": "Jane", "profiles": [{"network": "GitHub"}]}}
+            {
+                "basics": {
+                    "name": "Jane",
+                    "location": loc,
+                    "profiles": [{"network": "GitHub"}],
+                }
+            }
         )
 
     with pytest.raises(ValidationError, match="work section must be a list"):
-        Resume.from_dict({"basics": {"name": "Jane"}, "work": "not-a-list"})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc}, "work": "not-a-list"}
+        )
 
     with pytest.raises(ValidationError, match="work.name is required"):
-        Resume.from_dict({"basics": {"name": "Jane"}, "work": [{"position": "Eng"}]})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc}, "work": [{"position": "Eng"}]}
+        )
 
     with pytest.raises(ValidationError, match="work.position is required"):
-        Resume.from_dict({"basics": {"name": "Jane"}, "work": [{"name": "Acme"}]})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc}, "work": [{"name": "Acme"}]}
+        )
 
     with pytest.raises(ValidationError, match="work.highlights must be a list"):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "work": [
                     {
                         "name": "Acme",
@@ -446,7 +490,7 @@ def test_invalid_resume_parsing() -> None:
     ):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "work": [
                     {
                         "name": "Acme",
@@ -458,15 +502,19 @@ def test_invalid_resume_parsing() -> None:
         )
 
     with pytest.raises(ValidationError, match="education section must be a list"):
-        Resume.from_dict({"basics": {"name": "Jane"}, "education": "not-a-list"})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc}, "education": "not-a-list"}
+        )
 
     with pytest.raises(ValidationError, match="education.institution is required"):
-        Resume.from_dict({"basics": {"name": "Jane"}, "education": [{"area": "CS"}]})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc}, "education": [{"area": "CS"}]}
+        )
 
     with pytest.raises(ValidationError, match="education.courses must be a list"):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "education": [
                     {
                         "institution": "MIT",
@@ -482,7 +530,7 @@ def test_invalid_resume_parsing() -> None:
     ):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "education": [
                     {
                         "institution": "MIT",
@@ -493,15 +541,19 @@ def test_invalid_resume_parsing() -> None:
         )
 
     with pytest.raises(ValidationError, match="skills section must be a list"):
-        Resume.from_dict({"basics": {"name": "Jane"}, "skills": "not-a-list"})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc}, "skills": "not-a-list"}
+        )
 
     with pytest.raises(ValidationError, match="skill.name is required"):
-        Resume.from_dict({"basics": {"name": "Jane"}, "skills": [{"keywords": []}]})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc}, "skills": [{"keywords": []}]}
+        )
 
     with pytest.raises(ValidationError, match="skill.keywords must be a list"):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "skills": [
                     {
                         "name": "Languages",
@@ -517,7 +569,7 @@ def test_invalid_resume_parsing() -> None:
     ):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "skills": [
                     {
                         "name": "Languages",
@@ -528,17 +580,22 @@ def test_invalid_resume_parsing() -> None:
         )
 
     with pytest.raises(ValidationError, match="projects section must be a list"):
-        Resume.from_dict({"basics": {"name": "Jane"}, "projects": "not-a-list"})
+        Resume.from_dict(
+            {"basics": {"name": "Jane", "location": loc}, "projects": "not-a-list"}
+        )
 
     with pytest.raises(ValidationError, match="project.name is required"):
         Resume.from_dict(
-            {"basics": {"name": "Jane"}, "projects": [{"description": "desc"}]}
+            {
+                "basics": {"name": "Jane", "location": loc},
+                "projects": [{"description": "desc"}],
+            }
         )
 
     with pytest.raises(ValidationError, match="project.highlights must be a list"):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "projects": [
                     {
                         "name": "P1",
@@ -554,7 +611,7 @@ def test_invalid_resume_parsing() -> None:
     ):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "projects": [
                     {
                         "name": "P1",
@@ -570,7 +627,7 @@ def test_invalid_resume_parsing() -> None:
     ):
         Resume.from_dict(
             {
-                "basics": {"name": "Jane"},
+                "basics": {"name": "Jane", "location": loc},
                 "projects": [
                     {
                         "name": "P1",
@@ -590,11 +647,11 @@ def test_load_settings(tmp_path: pathlib.Path) -> None:
 
     # Test valid yaml file
     valid_file = tmp_path / "settings.yaml"
-    content = "fit_threshold: 4.5\nsearch:\n  location: 'Hybrid'"
+    content = "fit_threshold: 4.5\nsearch:\n  work_preference: 'hybrid'"
     valid_file.write_text(content, encoding="utf-8")
     settings = load_settings(valid_file)
     assert settings.fit_threshold == 4.5
-    assert settings.search.location == "Hybrid"
+    assert settings.search.work_preference == "hybrid"
 
     # Test empty yaml file
     empty_file = tmp_path / "empty.yaml"
@@ -618,7 +675,11 @@ def test_load_resume(tmp_path: pathlib.Path) -> None:
 
     # Test valid resume file
     valid_file = tmp_path / "resume.yaml"
-    valid_file.write_text("basics:\n  name: 'Jane Doe'", encoding="utf-8")
+    valid_file.write_text(
+        "basics:\n  name: 'Jane Doe'\n  location:\n"
+        "    city: Seattle\n    region: WA\n    countryCode: US",
+        encoding="utf-8",
+    )
     resume = load_resume(valid_file)
     assert resume.basics.name == "Jane Doe"
 
@@ -638,6 +699,8 @@ def test_load_resume(tmp_path: pathlib.Path) -> None:
 
 def test_more_validation_errors() -> None:
     """Test various secondary schema validations to achieve 100% coverage."""
+    loc = {"city": "Seattle", "region": "WA", "countryCode": "US"}
+
     # Location not a dict
     msg = "basics.location must be a dictionary"
     with pytest.raises(ValidationError, match=msg):
@@ -647,35 +710,35 @@ def test_more_validation_errors() -> None:
     msg = "profile details must be a dictionary"
     with pytest.raises(ValidationError, match=msg):
         Resume.from_dict(
-            {"basics": {"name": "Jane", "profiles": ["not-a-dict"]}}  # type: ignore
+            {"basics": {"name": "Jane", "location": loc, "profiles": ["not-a-dict"]}}  # type: ignore
         )
 
     # Work not a dict
     msg = "work entry must be a dictionary"
     with pytest.raises(ValidationError, match=msg):
         Resume.from_dict(
-            {"basics": {"name": "Jane"}, "work": ["not-a-dict"]}  # type: ignore
+            {"basics": {"name": "Jane", "location": loc}, "work": ["not-a-dict"]}  # type: ignore
         )
 
     # Education not a dict
     msg = "education entry must be a dictionary"
     with pytest.raises(ValidationError, match=msg):
         Resume.from_dict(
-            {"basics": {"name": "Jane"}, "education": ["not-a-dict"]}  # type: ignore
+            {"basics": {"name": "Jane", "location": loc}, "education": ["not-a-dict"]}  # type: ignore
         )
 
     # Skill not a dict
     msg = "skill entry must be a dictionary"
     with pytest.raises(ValidationError, match=msg):
         Resume.from_dict(
-            {"basics": {"name": "Jane"}, "skills": ["not-a-dict"]}  # type: ignore
+            {"basics": {"name": "Jane", "location": loc}, "skills": ["not-a-dict"]}  # type: ignore
         )
 
     # Project not a dict
     msg = "project entry must be a dictionary"
     with pytest.raises(ValidationError, match=msg):
         Resume.from_dict(
-            {"basics": {"name": "Jane"}, "projects": ["not-a-dict"]}  # type: ignore
+            {"basics": {"name": "Jane", "location": loc}, "projects": ["not-a-dict"]}  # type: ignore
         )
 
     # Basics not a dict (Resume level validation)
@@ -734,7 +797,7 @@ def test_repo_defaults_integration() -> None:
     # Load and assert fixture settings
     settings = load_settings("tests/fixtures/settings.yaml")
     assert settings.fit_threshold == 3.5
-    assert settings.search.location == "Remote"
+    assert settings.search.work_preference == "remote"
     assert settings.search.job_type == "fulltime"
     assert "linkedin" in settings.search.platforms
     assert settings.research.search_provider == "duckduckgo"
@@ -793,6 +856,7 @@ def test_scalar_coercion() -> None:
             "name": "Coerced Doe",
             "phone": 1234567890,  # parsed as int
             "url": "https://example.com",
+            "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
         },
         "education": [
             {
@@ -816,6 +880,7 @@ def test_boolean_string_validation_raises() -> None:
         "basics": {
             "name": "Jane",
             "phone": True,  # should raise ValidationError, not coerce to "True"
+            "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
         }
     }
     with pytest.raises(

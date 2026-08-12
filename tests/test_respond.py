@@ -30,7 +30,14 @@ DEFAULT_ENV = {"GITHUB_TOKEN": "test_token", "GITHUB_REPOSITORY": "owner/repo"}
 
 def sample_resume() -> Resume:
     """Build a minimal resume for the responder's context loading."""
-    return Resume.from_dict({"basics": {"name": "Jordan Sample"}})
+    return Resume.from_dict(
+        {
+            "basics": {
+                "name": "Jordan Sample",
+                "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
+            }
+        }
+    )
 
 
 def sample_settings() -> Settings:

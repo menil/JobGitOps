@@ -14,7 +14,11 @@ def sample_resume() -> Resume:
     """Build a minimal resume for prompt-rendering assertions."""
     return Resume.from_dict(
         {
-            "basics": {"name": "Jordan Sample", "email": "jordan@example.com"},
+            "basics": {
+                "name": "Jordan Sample",
+                "email": "jordan@example.com",
+                "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
+            },
             "skills": [{"name": "Languages", "keywords": ["Python"]}],
         }
     )

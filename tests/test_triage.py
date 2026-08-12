@@ -39,6 +39,7 @@ def mock_resume() -> Resume:
                 "name": "Jane Doe",
                 "email": "jane@example.com",
                 "summary": "Experienced engineer.",
+                "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
             },
             "work": [
                 {
@@ -426,7 +427,7 @@ def test_run_triage_mismatch(
 
     # Verify LLM was called
     mock_llm_client.triage_job.assert_called_once_with(
-        "Need 10 years of Python.", mock_resume
+        "Need 10 years of Python.", mock_resume, work_preference="remote"
     )
     mock_llm_client.tailor_resume.assert_not_called()
 
@@ -758,6 +759,7 @@ def test_run_triage_bare_url_body_fetches_and_substitutes(
     mock_llm_client.triage_job.assert_called_once_with(
         "We need a senior Python engineer with 5+ years of experience.",
         mock_resume,
+        work_preference="remote",
     )
 
     # The approved-match comment uses the LLM-inferred company/role.
@@ -855,7 +857,7 @@ def test_run_triage_bare_url_without_web_client_skips_fetch(
     # No fetch, no extraction: the raw URL body is triaged as the description.
     mock_llm_client.extract_job_details.assert_not_called()
     mock_llm_client.triage_job.assert_called_once_with(
-        "https://acme.com/jobs/123", mock_resume
+        "https://acme.com/jobs/123", mock_resume, work_preference="remote"
     )
 
 
@@ -910,7 +912,7 @@ def test_run_triage_full_body_skips_fetch(
     web_client.fetch_url.assert_not_called()
     mock_llm_client.extract_job_details.assert_not_called()
     mock_llm_client.triage_job.assert_called_once_with(
-        "Need 10 years of Python.", mock_resume
+        "Need 10 years of Python.", mock_resume, work_preference="remote"
     )
 
 

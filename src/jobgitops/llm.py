@@ -159,11 +159,14 @@ def _normalize_job_details(data: Any) -> dict[str, str]:
 
 TRIAGE_PROMPT = (
     "You are an expert technical recruiter triaging a job listing against a "
-    "candidate's resume.\nEvaluate the job description against the resume "
-    "across 5 granular dimensions, grading each from 1.0 (very poor fit) to "
-    "5.0 (perfect fit).\n\n"
+    "candidate's resume and preferences.\nEvaluate the job description against "
+    "the resume and preferences across 5 granular dimensions, grading each "
+    "from 1.0 (very poor fit) to 5.0 (perfect fit).\n\n"
     "Candidate Resume (YAML):\n"
     "{resume_yaml}\n\n"
+    "Candidate Preferences:\n"
+    "- Target Work Preference: {work_preference}\n"
+    "- Candidate Location: {candidate_location}\n\n"
     "Job Description:\n"
     "{job_description}\n\n"
     "Please evaluate the following 5 dimensions:\n"
@@ -281,11 +284,53 @@ def _parse_job_details_response(response_text: str) -> dict[str, str]:
     return _normalize_job_details(data)
 
 
+def format_triage_prompt(
+    job_description: str,
+    resume: Resume,
+    work_preference: str,
+) -> str:
+    """Format the LLM triage prompt with resume and location attributes.
+
+    Args:
+        job_description: The job posting text.
+        resume: The parsed candidate resume.
+        work_preference: Candidate's target work style.
+
+    Returns:
+        The formatted prompt string for LLM evaluation.
+    """
+    resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
+
+    loc = resume.basics.location
+    if loc:
+        city = loc.city or "Unknown"
+        state = loc.state or ""
+        country = loc.country_code or "Unknown"
+        if state:
+            candidate_location = f"{city}, {state}, {country}"
+        else:
+            candidate_location = f"{city}, {country}"
+    else:
+        candidate_location = "Unknown"
+
+    return TRIAGE_PROMPT.format(
+        resume_yaml=resume_yaml,
+        job_description=job_description,
+        work_preference=work_preference,
+        candidate_location=candidate_location,
+    )
+
+
 class LLMClient(ABC):
     """Abstract base class/interface for pluggable LLM client wrappers."""
 
     @abstractmethod
-    def triage_job(self, job_description: str, resume: Resume) -> TriageResult:
+    def triage_job(
+        self,
+        job_description: str,
+        resume: Resume,
+        work_preference: str = "remote",
+    ) -> TriageResult:
         """Evaluate a job description against the resume across 5 dimensions."""
         pass
 
@@ -494,13 +539,15 @@ class GeminiClient(LLMClient):
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel(self.model_name)
 
-    def triage_job(self, job_description: str, resume: Resume) -> TriageResult:
+    def triage_job(
+        self,
+        job_description: str,
+        resume: Resume,
+        work_preference: str = "remote",
+    ) -> TriageResult:
         import google.api_core.exceptions
 
-        resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
-        prompt = TRIAGE_PROMPT.format(
-            resume_yaml=resume_yaml, job_description=job_description
-        )
+        prompt = format_triage_prompt(job_description, resume, work_preference)
         try:
             response = self.model.generate_content(
                 prompt,
@@ -678,11 +725,13 @@ class OpenRouterClient(LLMClient):
         res_data = self._request_chat(payload)
         return _openai_message_to_chat_message(res_data["choices"][0]["message"])
 
-    def triage_job(self, job_description: str, resume: Resume) -> TriageResult:
-        resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
-        prompt = TRIAGE_PROMPT.format(
-            resume_yaml=resume_yaml, job_description=job_description
-        )
+    def triage_job(
+        self,
+        job_description: str,
+        resume: Resume,
+        work_preference: str = "remote",
+    ) -> TriageResult:
+        prompt = format_triage_prompt(job_description, resume, work_preference)
         try:
             response_text = self._call_openrouter(prompt)
             clean_text = clean_json_string(response_text)
