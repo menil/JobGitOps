@@ -21,8 +21,8 @@ permissions:
 jobs:
   triage:
     if: >
-      github.event_name == 'workflow_run'
-      || contains(github.event.issue.labels.*.name, 'triage-pending')
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'triage-pending'))
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/menil/jobgitops:latest
