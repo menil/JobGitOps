@@ -129,9 +129,14 @@ jobs:
       # scrape itself already succeeded, so jobs are never dropped.
       - name: Set Bootstrap Initialized
         run: |
-          gh api --method PATCH "repos/${{ github.repository }}/actions/variables/JOBGITOPS_INITIALIZED" \
-            -f value=true \
-            || gh api --method POST "repos/${{ github.repository }}/actions/variables" \
-                 -f name=JOBGITOPS_INITIALIZED -f value=true
+          if [ -n "${{ secrets.PROJECT_V2_TOKEN }}" ]; then
+            gh api --method PATCH "repos/${{ github.repository }}/actions/variables/JOBGITOPS_INITIALIZED" \
+              -f value=true \
+              || gh api --method POST "repos/${{ github.repository }}/actions/variables" \
+                   -f name=JOBGITOPS_INITIALIZED -f value=true \
+              || echo "::warning::Failed to update JOBGITOPS_INITIALIZED variable. Ensure your PROJECT_V2_TOKEN PAT has the 'Variables' write permission, or set it manually in Settings -> Secrets and variables -> Actions -> Variables."
+          else
+            echo "::warning::PROJECT_V2_TOKEN is not set. GITHUB_TOKEN does not have permission to write repository variables. Please set JOBGITOPS_INITIALIZED to 'true' manually in your repository Settings -> Secrets and variables -> Actions -> Variables to prevent the bootstrap trigger from refiring on future resume pushes."
+          fi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}

@@ -24,6 +24,8 @@ HAS_TOKEN="0"
 YES="0"
 DRY_RUN="0"
 TMPDIR=""
+WANT_PROJECTS="0"
+
 
 # Capture the terminal state once so an interrupt during any prompt can
 # restore it exactly (echo off + raw byte reads for the masked key entry).
@@ -283,6 +285,15 @@ fi
 OWNER="$(gh api user --jq .login 2>/dev/null)"
 [ -n "$OWNER" ] || die "could not determine your GitHub login."
 
+# Ask if they want to integrate with GitHub Projects V2 (which requires project scopes)
+if [ "$YES" = "0" ] && [ -t 0 ] && [ "$HAS_TOKEN" = "0" ] && [ "$DRY_RUN" = "0" ]; then
+    printf 'Do you want to integrate with GitHub Projects V2? [y/N] ' >&2
+    IFS= read -r ANSWER
+    case "$ANSWER" in
+        y | Y | yes | YES) WANT_PROJECTS="1" ;;
+    esac
+fi
+
 # ---------------------------------------------------------------------------
 # Permission check (§5.3.2) — confirm repo + workflow scopes before creating
 # anything, so a user never ends up with an unconfigured repo.
@@ -292,8 +303,10 @@ check_permissions() {
     # ATTEMPTS bounds the interactive refresh retry, so a user who keeps
     # canceling the browser flow cannot loop the offer forever.
     ATTEMPTS="${1:-1}"
+    REQUIRED_SCOPES="repo workflow"
+    [ "$WANT_PROJECTS" = "1" ] && REQUIRED_SCOPES="repo workflow project write:discussion"
     [ "$ATTEMPTS" -le 3 ] ||
-        die "could not add the required scopes after $((ATTEMPTS - 1)) tries — run 'gh auth refresh -s repo workflow' manually and re-run."
+        die "could not add the required scopes after $((ATTEMPTS - 1)) tries — run 'gh auth refresh -s $REQUIRED_SCOPES' manually and re-run."
     # X-OAuth-Scopes is only returned for classic PAT auth; browser OAuth
     # login (gho_) and fine-grained tokens omit it. When it is absent we
     # cannot introspect scopes, so we warn and continue — the abort-on-failure
@@ -314,6 +327,16 @@ check_permissions() {
         *",workflow,"*) ;;
         *) MISSING="$MISSING workflow" ;;
     esac
+    if [ "$WANT_PROJECTS" = "1" ]; then
+        case ",$SCOPES," in
+            *",project,"*) ;;
+            *) MISSING="$MISSING project" ;;
+        esac
+        case ",$SCOPES," in
+            *",write:discussion,"*) ;;
+            *) MISSING="$MISSING write:discussion" ;;
+        esac
+    fi
     [ -n "$MISSING" ] || return 0
     MISSING="$(printf '%s' "$MISSING" | sed 's/^ //')"
 
@@ -503,6 +526,29 @@ set_secret() {
     [ "$rc" -eq 0 ] || die "failed to set $1 (exit $rc)."
 }
 set_secret "$SECRET_NAME" "$KEY"
+
+# Check if the active token already has project scopes so we can set the secret silently
+SCOPES="$(gh api user --include 2>/dev/null |
+    sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r ')"
+
+HAS_PROJECT_SCOPE="0"
+if [ -n "$SCOPES" ]; then
+    case ",$SCOPES," in
+        *",project,"*) HAS_PROJECT_SCOPE="1" ;;
+    esac
+fi
+
+if [ "$HAS_PROJECT_SCOPE" = "1" ]; then
+    # Already authorized (either pre-existing or refreshed in check_permissions) — set the secret
+    if [ "$DRY_RUN" = "0" ]; then
+        PROJECT_TOKEN="$(gh auth token)"
+        if [ -n "$PROJECT_TOKEN" ]; then
+            set_secret "PROJECT_V2_TOKEN" "$PROJECT_TOKEN"
+        fi
+    else
+        log "> set_secret PROJECT_V2_TOKEN <redacted>"
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Enable Actions + write permissions (§5.3.7) — the one thing an in-repo
