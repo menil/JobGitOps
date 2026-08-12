@@ -28,6 +28,7 @@ jobgitops-triage = "jobgitops.cli.triage:main"
 jobgitops-respond = "jobgitops.cli.respond:main"
 jobgitops-project-sync = "jobgitops.cli.project_sync:main"
 jobgitops-status-transition = "jobgitops.cli.status_transition:main"
+jobgitops-validate-resume = "jobgitops.cli.validate_resume:main"
 
 [dependency-groups]
 dev = [

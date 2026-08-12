@@ -1,0 +1,42 @@
+name: Auto-Format Resume
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'resumes/resume.yaml'
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/menil/jobgitops:latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Format Resume
+        run: |
+          python -c "
+          from jobgitops.loader import load_resume, render_resume_yaml
+          import pathlib
+          p = pathlib.Path('resumes/resume.yaml')
+          if p.exists():
+              p.write_text(render_resume_yaml(load_resume(p)), encoding='utf-8')
+          "
+
+      - name: Commit and Push If Changed
+        run: |
+          if [ -n "$(git status --porcelain resumes/resume.yaml)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add resumes/resume.yaml
+            git commit -m "chore: format resume.yaml"
+            git push
+          else
+            echo "Resume is already canonically formatted."
+          fi
