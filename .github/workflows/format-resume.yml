@@ -31,6 +31,7 @@ jobs:
 
       - name: Commit and Push If Changed
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if [ -n "$(git status --porcelain resumes/resume.yaml)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
