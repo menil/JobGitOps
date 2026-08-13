@@ -39,10 +39,13 @@ sh scripts/install.sh bad-name! --dry-run    # fails fast on the slug
 sh scripts/install.sh                        # prompts for the repo name
 ```
 
-The bare interactive `sh scripts/install.sh` also prompts for the provider
-(`Gemini` / `OpenRouter`) and then for exactly that one key, echoing `*` per
-keystroke; the key is verified against the provider API before any repo is
-created.
+The bare interactive `sh scripts/install.sh` prompts for the LLM provider choice using an interactive TUI select list (arrow keys to move, Enter to confirm, with custom emojis). After reading the primary key (echoing `*` per keystroke) and verifying it, it presents an interactive checklist of optional integrations (Tavily, Brave, Jina) using checklist prompts (arrow keys to move, Space to toggle, Enter to confirm). For each checked service, it prompts for the corresponding key using masked entry, and then persists it securely in GitHub Secrets.
+
+To test TUI fallback on non-TTY environments (e.g. redirected stdin):
+```bash
+printf "2\nsecret_openrouter\ny\nn\ny\nsecret_tavily\nsecret_jina\n" | sh scripts/install.sh my-test-repo --dry-run
+```
+Verify: The script falls back gracefully to standard numbered line inputs for LLM provider choice, and Y/N line prompts for the optional services, completing the dry-run successfully without errors.
 
 ## 2. Live install
 

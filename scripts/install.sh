@@ -23,8 +23,14 @@ TOKEN=""
 HAS_TOKEN="0"
 YES="0"
 DRY_RUN="0"
-TMPDIR=""
+TMPDIR="${TMPDIR:-}"
 WANT_PROJECTS="0"
+PRIMARY_KEY=""
+SELECT_RESULT=""
+CHECKBOX_RESULT=""
+TAVILY_KEY=""
+BRAVE_KEY=""
+JINA_KEY=""
 
 
 # Capture the terminal state once so an interrupt during any prompt can
@@ -45,6 +51,9 @@ Usage: install.sh <repo-name> [options]
                          key is present; prompts interactively when neither is)
   --gemini-key KEY       Gemini API key (or $GEMINI_API_KEY)
   --openrouter-key KEY   OpenRouter API key (or $OPENROUTER_API_KEY)
+  --tavily-key KEY       Tavily API key (or $TAVILY_API_KEY)
+  --brave-key KEY        Brave API key (or $BRAVE_API_KEY)
+  --jina-key KEY         Jina API key (or $JINA_API_KEY)
   --token TOKEN          PAT fallback when gh is installed but not
                          auth-configured (or $GH_TOKEN)
   --yes                  non-interactive; fail instead of prompting
@@ -70,6 +79,18 @@ while [ "$#" -gt 0 ]; do
             ;;
         --openrouter-key)
             OPENROUTER_KEY="${2:-}"
+            shift 2
+            ;;
+        --tavily-key)
+            TAVILY_KEY="${2:-}"
+            shift 2
+            ;;
+        --brave-key)
+            BRAVE_KEY="${2:-}"
+            shift 2
+            ;;
+        --jina-key)
+            JINA_KEY="${2:-}"
             shift 2
             ;;
         --token)
@@ -118,6 +139,8 @@ log() {
 # typed input is visible again) and canonical mode (so line editing and the
 # read()-based prompts behave normally).
 restore_tty() {
+    # Ensure terminal cursor is always visible
+    printf '\033[?25h' >&2
     if [ -n "$STTY_SAVED" ]; then
         stty "$STTY_SAVED" 2>/dev/null || true
     else
@@ -201,6 +224,299 @@ read_masked() {
     restore_tty
     KEY="$_secret"
     unset _secret _byte
+}
+
+# ANSI Escape Sequences
+ESC="$(printf '\033')"
+C_HIDE="${ESC}[?25l"
+C_SHOW="${ESC}[?25h"
+
+# Text Styling
+S_BOLD="${ESC}[1m"
+S_REVERSE="${ESC}[7m"
+S_RESET="${ESC}[0m"
+S_GREEN="${ESC}[32m"
+S_CYAN="${ESC}[36m"
+
+# Reads a key press, resolving arrow keys (Up/Down), Space, and Enter in terminal raw mode.
+# Maps EOF to "eof" so the caller can handle closed stdin/Ctrl+D.
+# stty -icanon min 0 time 0 temporarily polls the buffer to parse escape sequences.
+read_key() {
+    _b1="$(dd bs=1 count=1 2>/dev/null)"
+    if [ "$_b1" = "$ESC" ]; then
+        stty -icanon min 0 time 0 2>/dev/null || true
+        _b2="$(dd bs=1 count=1 2>/dev/null)"
+        _b3="$(dd bs=1 count=1 2>/dev/null)"
+        stty -icanon min 1 time 0 2>/dev/null || true
+        if [ "$_b2" = "[" ]; then
+            case "$_b3" in
+                A) echo "up"; return 0 ;;
+                B) echo "down"; return 0 ;;
+            esac
+        fi
+        echo "esc"
+        return 0
+    fi
+
+    case "$_b1" in
+        "") echo "eof" ;;
+        "$(printf '\r')") echo "enter" ;;
+        "$(printf '\n')") echo "enter" ;;
+        " ") echo "space" ;;
+        *) echo "char:$_b1" ;;
+    esac
+}
+
+# Single-select menu
+# Usage: prompt_select <prompt_message> <key1:display1> <key2:display2> ...
+prompt_select() {
+    _prompt="$1"
+    _val=""
+    _key=""
+    _display=""
+    _chosen_val=""
+    _chosen_key=""
+    _chosen_display=""
+    shift 1
+    
+    _num_options=$#
+
+    # Check if stdin/stdout are terminals and stty works before entering TUI mode.
+    # We do not call restore_tty here because stty leaves it in the correct state.
+    _use_tui=0
+    if [ -t 0 ] && [ -t 1 ] && stty -echo -icanon min 1 time 0 2>/dev/null; then
+        _use_tui=1
+    fi
+
+    if [ "$_use_tui" -eq 1 ]; then
+        stty -echo -icanon min 1 time 0 2>/dev/null || true
+        _current=1
+        printf "\n%s%s (Use arrow keys, press Enter to select):%s\n" "$S_BOLD" "$_prompt" "$S_RESET" >&2
+        printf "%s" "$C_HIDE" >&2
+        
+        while :; do
+            _i=1
+            for _opt in "$@"; do
+                _display="${_opt#*:}"
+                
+                if [ "$_i" -eq "$_current" ]; then
+                    printf "  %s❯ %s%s%s%s\n" "$S_CYAN" "$S_BOLD" "$S_REVERSE" "$_display" "$S_RESET" >&2
+                else
+                    printf "    %s\n" "$_display" >&2
+                fi
+                _i=$((_i + 1))
+            done
+            
+            _key_press="$(read_key)"
+            
+            if [ "$_key_press" = "up" ]; then
+                _current=$((_current - 1))
+                [ "$_current" -lt 1 ] && _current=$_num_options
+            elif [ "$_key_press" = "down" ]; then
+                _current=$((_current + 1))
+                [ "$_current" -gt "$_num_options" ] && _current=1
+            elif [ "$_key_press" = "enter" ]; then
+                break
+            elif [ "$_key_press" = "eof" ]; then
+                restore_tty
+                die "stdin closed during prompt."
+            fi
+            
+            printf '%s[%dA' "$ESC" "$_num_options" >&2
+        done
+        
+        # Restore cursor and clear the menu from screen atomically using clear-down
+        printf "%s" "$C_SHOW" >&2
+        printf '%s[%dA' "$ESC" "$_num_options" >&2
+        printf '%s[J' "$ESC" >&2
+        
+        # Resolve chosen option from arguments list
+        _i=1
+        for _opt in "$@"; do
+            if [ "$_i" -eq "$_current" ]; then
+                _chosen_val="$_opt"
+                break
+            fi
+            _i=$((_i + 1))
+        done
+        _chosen_key="${_chosen_val%%:*}"
+        _chosen_display="${_chosen_val#*:}"
+        printf "Selected LLM provider: %s%s%s\n\n" "$S_GREEN" "$_chosen_display" "$S_RESET" >&2
+        SELECT_RESULT="$_chosen_key"
+        restore_tty
+    else
+        # Fallback to standard line-based read prompt
+        _i=1
+        for _opt in "$@"; do
+            _display="${_opt#*:}"
+            printf "  [%d] %s\n" "$_i" "$_display" >&2
+            _i=$((_i + 1))
+        done
+        while :; do
+            printf "%s (enter number): " "$_prompt" >&2
+            if [ -t 0 ]; then
+                IFS= read -r _choice < /dev/tty || exit 1
+            else
+                IFS= read -r _choice || exit 1
+            fi
+            if [ -n "$_choice" ] && [ "$_choice" -eq "$_choice" ] 2>/dev/null; then
+                if [ "$_choice" -ge 1 ] && [ "$_choice" -le "$_num_options" ]; then
+                    _i=1
+                    for _opt in "$@"; do
+                        if [ "$_i" -eq "$_choice" ]; then
+                            _chosen_val="$_opt"
+                            break
+                        fi
+                        _i=$((_i + 1))
+                    done
+                    SELECT_RESULT="${_chosen_val%%:*}"
+                    break
+                fi
+            fi
+            printf "Invalid choice. Please enter a number between 1 and %d.\n" "$_num_options" >&2
+        done
+    fi
+}
+
+# Checkbox (multi-select) menu
+# Usage: prompt_checkbox <prompt_message> <key1:display1> <key2:display2> ...
+prompt_checkbox() {
+    _prompt="$1"
+    _val=""
+    _chk=""
+    _display=""
+    _box=""
+    _key_press=""
+    _answer=""
+    _key=""
+    shift 1
+    
+    _num_items=$#
+    
+    # Comma-separated list to track selected keys (e.g. ",tavily,brave,")
+    _selected_keys=","
+    
+    _use_tui=0
+    if [ -t 0 ] && [ -t 1 ] && stty -echo -icanon min 1 time 0 2>/dev/null; then
+        _use_tui=1
+    fi
+    
+    if [ "$_use_tui" -eq 1 ]; then
+        stty -echo -icanon min 1 time 0 2>/dev/null || true
+        _current=1
+        printf "\n%s%s (Use arrow keys, Space to toggle, Enter to confirm):%s\n" "$S_BOLD" "$_prompt" "$S_RESET" >&2
+        printf "%s" "$C_HIDE" >&2
+        
+        while :; do
+            _i=1
+            for _opt in "$@"; do
+                _key="${_opt%%:*}"
+                _display="${_opt#*:}"
+                
+                # Check status indicator icon
+                _box="◯"
+                case "$_selected_keys" in
+                    *",$_key,"*) _box="✅" ;;
+                esac
+                
+                if [ "$_i" -eq "$_current" ]; then
+                    printf "  %s❯ %s %s%s%s%s\n" "$S_CYAN" "$_box" "$S_BOLD" "$S_REVERSE" "$_display" "$S_RESET" >&2
+                else
+                    printf "     %s %s\n" "$_box" "$_display" >&2
+                fi
+                _i=$((_i + 1))
+            done
+            
+            _key_press="$(read_key)"
+            
+            if [ "$_key_press" = "up" ]; then
+                _current=$((_current - 1))
+                [ "$_current" -lt 1 ] && _current=$_num_items
+            elif [ "$_key_press" = "down" ]; then
+                _current=$((_current + 1))
+                [ "$_current" -gt "$_num_items" ] && _current=1
+            elif [ "$_key_press" = "space" ]; then
+                # Find current item key
+                _i=1
+                for _opt in "$@"; do
+                    if [ "$_i" -eq "$_current" ]; then
+                        _chosen_val="$_opt"
+                        break
+                    fi
+                    _i=$((_i + 1))
+                done
+                _key="${_chosen_val%%:*}"
+                
+                case "$_selected_keys" in
+                    *",$_key,"*)
+                        # Remove key from selected list
+                        _selected_keys="$(echo "$_selected_keys" | sed "s/,$_key,/,/g")"
+                        ;;
+                    *)
+                        # Add key to selected list
+                        _selected_keys="${_selected_keys}${_key},"
+                        ;;
+                esac
+            elif [ "$_key_press" = "enter" ]; then
+                break
+            elif [ "$_key_press" = "eof" ]; then
+                restore_tty
+                die "stdin closed during prompt."
+            fi
+            
+            printf '%s[%dA' "$ESC" "$_num_items" >&2
+        done
+        
+        # Restore cursor and clear the menu from screen atomically using clear-down
+        printf "%s" "$C_SHOW" >&2
+        printf '%s[%dA' "$ESC" "$_num_items" >&2
+        printf '%s[J' "$ESC" >&2
+        restore_tty
+    else
+        # Fallback to simple question prompts
+        for _opt in "$@"; do
+            _key="${_opt%%:*}"
+            _display="${_opt#*:}"
+            while :; do
+                printf "Configure %s? [y/N]: " "$_display" >&2
+                if [ -t 0 ]; then
+                    IFS= read -r _answer < /dev/tty || exit 1
+                else
+                    IFS= read -r _answer || exit 1
+                fi
+                case "$_answer" in
+                    y | Y | yes | YES)
+                        _selected_keys="${_selected_keys}${_key},"
+                        break
+                        ;;
+                    n | N | no | NO | "")
+                        break
+                        ;;
+                    *)
+                        printf "Please enter y or n.\n" >&2
+                        ;;
+                esac
+            done
+        done
+    fi
+
+    # Output results and save to variables
+    printf "Configured additional services:\n" >&2
+    for _opt in "$@"; do
+        _key="${_opt%%:*}"
+        _display="${_opt#*:}"
+        
+        case "$_selected_keys" in
+            *",$_key,"*)
+                printf "  - %s: %sEnabled%s\n" "$_display" "$S_GREEN" "$S_RESET" >&2
+                ;;
+            *)
+                printf "  - %s: Disabled\n" "$_display" >&2
+                ;;
+        esac
+    done
+    printf "\n" >&2
+    CHECKBOX_RESULT="$_selected_keys"
 }
 
 # Verify the chosen provider key against its API before anything is created —
@@ -384,16 +700,8 @@ if [ -z "$PROVIDER" ]; then
     elif [ "$YES" = "1" ] || [ ! -t 0 ]; then
         die "no provider key supplied and --yes is set / stdin is not a terminal — pass --provider gemini|openrouter with its --...-key or env var."
     else
-        # Interactive: require exactly one key — let the user pick the provider.
-        while :; do
-            printf 'Which provider? [1] Gemini  [2] OpenRouter (or "g" / "o"): ' >&2
-            IFS= read -r PROVIDER_CHOICE || exit 1
-            case "$PROVIDER_CHOICE" in
-                1 | g | G | gemini) PROVIDER="gemini"; break ;;
-                2 | o | O | openrouter) PROVIDER="openrouter"; break ;;
-                *) printf 'Pick 1 (Gemini) or 2 (OpenRouter).\n' >&2 ;;
-            esac
-        done
+        prompt_select "Which LLM provider do you want to use?" "gemini:♊ Gemini" "openrouter:🔌 OpenRouter"
+        PROVIDER="$SELECT_RESULT"
     fi
 fi
 
@@ -420,6 +728,53 @@ fi
 # Verify the key against the provider before creating anything (see verify_key);
 # a length check alone can't catch a typo'd or expired key.
 verify_key
+
+# Copy verified key to primary key to avoid global variable mutation from optional keys prompts
+PRIMARY_KEY="$KEY"
+
+TAVILY_KEY="${TAVILY_KEY:-${TAVILY_API_KEY:-}}"
+BRAVE_KEY="${BRAVE_KEY:-${BRAVE_API_KEY:-}}"
+JINA_KEY="${JINA_KEY:-${JINA_API_KEY:-}}"
+
+# Interactive setup for optional additional keys if not already provided.
+# We suppress already-configured keys from the checklist.
+if [ "$YES" = "0" ] && [ -t 0 ] && [ "$DRY_RUN" = "0" ]; then
+    show_tavily=0; [ -z "$TAVILY_KEY" ] && show_tavily=1
+    show_brave=0;  [ -z "$BRAVE_KEY" ] && show_brave=1
+    show_jina=0;   [ -z "$JINA_KEY" ] && show_jina=1
+
+    if [ "$show_tavily" -eq 1 ] || [ "$show_brave" -eq 1 ] || [ "$show_jina" -eq 1 ]; then
+        # Dynamically build positional arguments for prompt_checkbox to avoid combinatorial branching
+        set --
+        [ "$show_tavily" -eq 1 ] && set -- "$@" "tavily:🔍 Tavily API Key"
+        [ "$show_brave" -eq 1 ] && set -- "$@" "brave:🦁 Brave API Key"
+        [ "$show_jina" -eq 1 ] && set -- "$@" "jina:🌐 Jina API Key"
+        
+        prompt_checkbox "Select optional additional services to configure" "$@"
+
+        case "$CHECKBOX_RESULT" in
+            *",tavily,"*)
+                printf 'Enter TAVILY_API_KEY: ' >&2
+                read_masked
+                TAVILY_KEY="$KEY"
+                ;;
+        esac
+        case "$CHECKBOX_RESULT" in
+            *",brave,"*)
+                printf 'Enter BRAVE_API_KEY: ' >&2
+                read_masked
+                BRAVE_KEY="$KEY"
+                ;;
+        esac
+        case "$CHECKBOX_RESULT" in
+            *",jina,"*)
+                printf 'Enter JINA_API_KEY: ' >&2
+                read_masked
+                JINA_KEY="$KEY"
+                ;;
+        esac
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Fetch shell plane (§5.3.3) — resolve tag, download + extract tarball
@@ -532,11 +887,13 @@ set_secret() {
     rc=$?
     [ "$rc" -eq 0 ] || die "failed to set $1 (exit $rc)."
 }
-set_secret "$SECRET_NAME" "$KEY"
+set_secret "$SECRET_NAME" "$PRIMARY_KEY"
+[ -n "$TAVILY_KEY" ] && set_secret "TAVILY_API_KEY" "$TAVILY_KEY"
+[ -n "$BRAVE_KEY" ] && set_secret "BRAVE_API_KEY" "$BRAVE_KEY"
+[ -n "$JINA_KEY" ] && set_secret "JINA_API_KEY" "$JINA_KEY"
 
-# Check if the active token already has project scopes so we can set the secret silently
-SCOPES="$(gh api user --include 2>/dev/null |
-    sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r ')"
+# Check if the active token already has project scopes (populated in check_permissions) so we can set the secret silently
+# (Using $SCOPES from check_permissions, no need to query again)
 
 HAS_PROJECT_SCOPE="0"
 if [ -n "$SCOPES" ]; then
