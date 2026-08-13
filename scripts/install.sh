@@ -496,8 +496,15 @@ run cp "$SRC/template/README.md" "$APP/README.md"
 run cp "$SRC/template/.gitignore" "$APP/.gitignore"
 # Root-pinned, copied verbatim (spec §3): single source of truth, no drift.
 run cp "$SRC/.github/labels.yml" "$APP/.github/labels.yml"
-for WF in format-resume scrape-jobs triage-issue respond-issue status-transition project-status-sync sync-labels; do
-    run cp "$SRC/.github/workflows/$WF.yml" "$APP/.github/workflows/$WF.yml"
+for WF_PATH in "$SRC"/.github/workflows/*.yml; do
+    WF="$(basename "$WF_PATH")"
+    case "$WF" in
+        build-runner.yml|ci.yml|pr-review.yml|release-on-merge.yml)
+            ;;
+        *)
+            run cp "$WF_PATH" "$APP/.github/workflows/$WF"
+            ;;
+    esac
 done
 
 # ---------------------------------------------------------------------------
