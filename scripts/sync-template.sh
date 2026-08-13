@@ -1,7 +1,7 @@
 #!/bin/sh
 # JobGitOps sync-template (spec: specs/bootstrap-installer.md §7.6).
 #
-# Pulls the shell-plane files (.github/labels.yml + the six runtime-core
+# Pulls the shell-plane files (.github/labels.yml + the runtime-core
 # workflows) from the latest JobGitOps release into a target repo and opens a
 # PR. Manual and optional: workflow files are the one thing a user can't tune
 # in their config, but pulling them is a decision, not a background job.
@@ -36,7 +36,7 @@ Usage: sync-template.sh <OWNER>/<REPO> [options]
   --dry-run        print every command, make no changes
   -h, --help       show this help
 
-Pulls .github/labels.yml + the six runtime-core workflows from the latest
+Pulls .github/labels.yml + the runtime-core workflows from the latest
 JobGitOps release onto sync/upstream-template and opens a PR (changed files +
 release link). No diff -> exit 0 with no PR. Never auto-merges.
 EOF
@@ -217,21 +217,24 @@ DEFAULT="$(gh api "repos/$TARGET" --jq .default_branch 2>/dev/null)"
 [ -n "$DEFAULT" ] || die "could not determine the default branch of '$TARGET'."
 run git -C "$REPO" checkout "$DEFAULT"
 
-# Shell-plane allowlist (spec §3) — labels + the six runtime-core workflows.
+# Shell-plane allowlist (spec §3) — labels + the runtime-core workflows.
 # Only these are ever overwritten; maintainer workflows and the user's own
 # config/resumes/status/README are never touched. Copied verbatim, the same
 # way install.sh assembled them, so the two never drift.
-SHELL_PLANE=".github/labels.yml \
-.github/workflows/scrape-jobs.yml \
-.github/workflows/triage-issue.yml \
-.github/workflows/respond-issue.yml \
-.github/workflows/status-transition.yml \
-.github/workflows/project-status-sync.yml \
-.github/workflows/sync-labels.yml"
-
-for F in $SHELL_PLANE; do
-    run cp -f "$SRC/$F" "$REPO/$F"
+SHELL_PLANE=".github/labels.yml"
+for WF_PATH in "$SRC"/.github/workflows/*.yml; do
+    WF="$(basename "$WF_PATH")"
+    case "$WF" in
+        build-runner.yml|ci.yml|pr-review.yml|release-on-merge.yml)
+            ;;
+        *)
+            run cp -f "$WF_PATH" "$REPO/.github/workflows/$WF"
+            SHELL_PLANE="$SHELL_PLANE .github/workflows/$WF"
+            ;;
+    esac
 done
+
+run cp -f "$SRC/.github/labels.yml" "$REPO/.github/labels.yml"
 
 # No diff against the local .github/ -> nothing to sync: exit 0 with no PR
 # (§7.6.3). Under --dry-run there is no clone to diff against, so report the
