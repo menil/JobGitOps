@@ -1,0 +1,175 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  fetchGithubUser,
+  verifyAndRefreshScopes,
+  validateApiKey,
+} from "../src/api.js";
+import { execa } from "execa";
+
+vi.mock("execa");
+
+describe("fetchGithubUser", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("successfully parses login and scopes from raw include output", async () => {
+    const rawIncludeOutput =
+      "HTTP/2 200 OK\r\n" +
+      "server: github.com\r\n" +
+      "x-oauth-scopes: repo, workflow, write:discussion\r\n" +
+      "\r\n" +
+      '{"login": "testuser", "id": 12345}';
+
+    vi.mocked(execa).mockResolvedValue({
+      stdout: rawIncludeOutput,
+    } as any);
+
+    const result = await fetchGithubUser();
+    expect(result.login).toBe("testuser");
+    expect(result.scopes).toEqual(["repo", "workflow", "write:discussion"]);
+  });
+
+  it("handles case-insensitivity in headers", async () => {
+    const rawIncludeOutput =
+      "HTTP/2 200 OK\r\n" +
+      "X-OAuth-Scopes: project, repo\r\n" +
+      "\r\n" +
+      '{"login": "anotheruser"}';
+
+    vi.mocked(execa).mockResolvedValue({
+      stdout: rawIncludeOutput,
+    } as any);
+
+    const result = await fetchGithubUser();
+    expect(result.login).toBe("anotheruser");
+    expect(result.scopes).toEqual(["project", "repo"]);
+  });
+
+  it("falls back to jq login check if body parsing fails", async () => {
+    const rawIncludeOutput =
+      "HTTP/2 200 OK\r\n" +
+      "x-oauth-scopes: repo\r\n" +
+      "\r\n" +
+      "invalid-json-body";
+
+    vi.mocked(execa)
+      .mockResolvedValueOnce({ stdout: rawIncludeOutput } as any)
+      .mockResolvedValueOnce({ stdout: "fallbackuser\n" } as any);
+
+    const result = await fetchGithubUser();
+    expect(result.login).toBe("fallbackuser");
+    expect(result.scopes).toEqual(["repo"]);
+  });
+});
+
+describe("verifyAndRefreshScopes", () => {
+  const dummyUser = { login: "testuser", scopes: ["repo", "workflow"] };
+
+  it("succeeds directly when all required scopes are present", async () => {
+    const result = await verifyAndRefreshScopes(dummyUser, false, false, false);
+    expect(result).toBe(dummyUser);
+  });
+
+  it("warns and continues if scopes are empty (e.g. fine-grained PAT)", async () => {
+    const fineGrainedUser = { login: "testuser", scopes: [] };
+    const result = await verifyAndRefreshScopes(
+      fineGrainedUser,
+      false,
+      false,
+      false,
+    );
+    expect(result).toBe(fineGrainedUser);
+  });
+
+  it("throws error if scopes are missing and env token is configured", async () => {
+    const missingUser = { login: "testuser", scopes: ["repo"] };
+    await expect(
+      verifyAndRefreshScopes(missingUser, false, true, true),
+    ).rejects.toThrow(
+      "Your GitHub token is missing the required scope(s): workflow.",
+    );
+  });
+
+  it("throws error if scopes are missing and non-interactive", async () => {
+    const missingUser = { login: "testuser", scopes: ["repo"] };
+    await expect(
+      verifyAndRefreshScopes(missingUser, false, false, false),
+    ).rejects.toThrow(
+      "Your GitHub token is missing the required scope(s): workflow.",
+    );
+  });
+
+  it("warns and returns if interactive but missing scopes (handled by caller)", async () => {
+    const missingUser = { login: "testuser", scopes: ["repo"] };
+    const result = await verifyAndRefreshScopes(
+      missingUser,
+      false,
+      false,
+      true,
+    );
+    expect(result).toBe(missingUser);
+  });
+});
+
+describe("validateApiKey", () => {
+  it("succeeds if response is OK for Gemini", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+    } as any);
+
+    await expect(validateApiKey("gemini", "valid-key")).resolves.not.toThrow();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models?key=valid-key",
+      { headers: undefined },
+    );
+  });
+
+  it("succeeds if response is OK for OpenRouter", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+    } as any);
+
+    await expect(
+      validateApiKey("openrouter", "valid-key"),
+    ).resolves.not.toThrow();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/auth/key",
+      { headers: { Authorization: "Bearer valid-key" } },
+    );
+  });
+
+  it("throws key rejected error if status is 400, 401, or 403", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+    } as any);
+
+    await expect(validateApiKey("gemini", "bad-key")).rejects.toThrow(
+      "Gemini key rejected by the API (HTTP 403)",
+    );
+  });
+
+  it("throws general API error if status is different", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    } as any);
+
+    await expect(validateApiKey("openrouter", "key")).rejects.toThrow(
+      "API returned HTTP 500",
+    );
+  });
+
+  it("throws network/transport error if fetch fails", async () => {
+    global.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error("DNS Resolution Failure"));
+
+    await expect(validateApiKey("gemini", "key")).rejects.toThrow(
+      "Could not reach the Gemini API: DNS Resolution Failure",
+    );
+  });
+});

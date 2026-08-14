@@ -1,0 +1,40 @@
+{
+  "name": "jobgitops-installer",
+  "version": "1.0.0",
+  "description": "Interactive bootstrap installer for JobGitOps repositories",
+  "main": "dist/index.js",
+  "bin": {
+    "jobgitops-installer": "dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.1.0",
+    "commander": "^12.1.0",
+    "execa": "^9.3.0",
+    "fs-extra": "^11.2.0",
+    "ora": "^8.0.1",
+    "picocolors": "^1.0.1",
+    "tar": "^7.4.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.14.9",
+    "@types/tar": "^6.1.13",
+    "@typescript-eslint/eslint-plugin": "^7.14.1",
+    "@typescript-eslint/parser": "^7.14.1",
+    "@vitest/coverage-v8": "^1.6.1",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.2",
+    "tsup": "^8.1.0",
+    "typescript": "^5.5.2",
+    "vitest": "^1.6.0"
+  }
+}

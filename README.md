@@ -56,8 +56,7 @@ Install into a new private repository with a single command — it creates the
 repo, sets up secrets and permissions, and ships a placeholder resume:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/menil/jobgitops/v1.0.0/scripts/install.sh \
-  | sh -s -- my-job-search
+npx jobgitops-installer my-job-search
 ```
 
 Then:
@@ -268,7 +267,7 @@ just format     # auto-format code and the canonical resume fixture
 src/jobgitops/cli/            # CLI entry points (scrape, triage, respond, status_transition, project_sync)
 src/jobgitops/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper, status_model)
 scripts/format_resume.py      # Canonical resume.yaml formatter
-scripts/install.sh            # Bootstrap installer (see specs/bootstrap-installer.md)
+installer/                    # TypeScript bootstrap installer package (see specs/bootstrap-installer.md)
 template/                     # Installer user-repo content: config defaults, placeholder resume, renderer templates, README, .gitignore
 tests/                        # pytest suite (90% coverage enforced)
 tests/fixtures/               # Committed fixture config + resume used by tests and the formatter
