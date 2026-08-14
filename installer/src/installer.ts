@@ -6,13 +6,7 @@ import * as tar from "tar";
 import pc from "picocolors";
 import ora from "ora";
 
-const EXCLUDED_WORKFLOWS = [
-  "sync-template.yml",
-  "ci.yml",
-  "build-runner.yml",
-  "pr-review.yml",
-  "release-on-merge.yml",
-];
+import { EXCLUDED_WORKFLOWS } from "./constants";
 
 export interface InstallOptions {
   repoName: string;
