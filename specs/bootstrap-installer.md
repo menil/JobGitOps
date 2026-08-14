@@ -4,14 +4,14 @@ Status: **Aligned — all open items resolved; ready for implementation**
 Author: Spec Agent session
 Date: 2026-08-08
 
-This spec defines a one-command `curl | sh` onboarding path for JobGitOps. Goal: a user creates a private job-search repository and starts receiving AI-triaged, tailored-resume job leads with zero manual configuration beyond adding one API key and dropping in their resume.
+This spec defines a one-command `npx` onboarding path for JobGitOps. Goal: a user creates a private job-search repository and starts receiving AI-triaged, tailored-resume job leads with zero manual configuration beyond adding one API key and dropping in their resume.
 
 Resolved design decisions (from alignment session) — the five that frame the architecture:
 
-- Template distribution: shared shell-plane files are copied **verbatim from the repo root** (single source of truth, no drift); only intentionally-different files (settings defaults, placeholder resume, README, .gitignore) live in a `template/` subtree — both materialized by `install.sh`.
+- Template distribution: shared shell-plane files are copied **verbatim from the repo root** (single source of truth, no drift); only intentionally-different files (settings defaults, placeholder resume, README, .gitignore) live in a `template/` subtree — both materialized by the installer package.
 - Template workflow scope: **runtime core only** (scrape, triage, respond, status-transition, project-status-sync, sync-labels); upstream shell updates via an optional manual script (§7.6).
 - Repo visibility: **private by default**.
-- Resume handling: install.sh ships a **placeholder** `resumes/resume.yaml`; the user replaces it later; the **first scrape fires once on the first real-resume commit**, later scrapes run via cron only.
+- Resume handling: the installer package ships a **placeholder** `resumes/resume.yaml`; the user replaces it later; the **first scrape fires once on the first real-resume commit**, later scrapes run via cron only.
 - Readiness: the README ships a **static "setup required" badge**; the user removes it after their first successful run (a private repo cannot host a public dynamic badge).
 
 All remaining decisions (LLM provider, `:latest` image tracking, fork-and-run fallback, badge copy, etc.) are recorded in the resolution log (§13).
@@ -23,7 +23,7 @@ All remaining decisions (LLM provider, `:latest` image tracking, fork-and-run fa
 A new user completes setup with one command plus a few plain-English steps:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/menil/jobgitops/v1.0.0/scripts/install.sh | sh -s -- my-job-search
+npx jobgitops-installer my-job-search
 ```
 
 Then:
@@ -46,7 +46,7 @@ Then:
 
 ```mermaid
 flowchart LR
-    U[User machine] -->|curl pipe| IS[scripts/install.sh @ tag]
+    U[User machine] -->|execute npx| IS[jobgitops-installer]
     IS -->|gh repo create| R[private repo from template/]
     IS -->|gh secret set| S[(API key)]
     IS -->|gh api| P[actions enabled + write]
@@ -65,7 +65,7 @@ flowchart LR
 Two planes:
 
 - **Engine plane** — everything that runs lives in the shared public image `ghcr.io/menil/jobgitops:latest` (Python package baked in). Users never build or host the engine.
-- **Shell plane** — per-user, per-repo files: workflows, labels, settings, resume, templates. Produced by `install.sh`: runtime workflows + labels copied verbatim from the repo root (the repo dogfoods them, §3), everything else from the `template/` subtree; updated from upstream via the optional manual `sync-template.sh` (§7.6).
+- **Shell plane** — per-user, per-repo files: workflows, labels, settings, resume, templates. Produced by the installer: runtime workflows + labels copied verbatim from the repo root (the repo dogfoods them, §3), everything else from the `template/` subtree; updated from upstream via the optional manual `sync-template.sh` (§7.6).
 
 ---
 
@@ -77,9 +77,9 @@ The user repo's shell plane (workflows, labels, settings, resume, templates) com
   - `.github/labels.yml` — lifecycle labels (triage-pending, fit:*, applied, in-loop, rejected, ...)
   - `.github/workflows/scrape-jobs.yml`, `triage-issue.yml`, `respond-issue.yml`, `status-transition.yml`, `project-status-sync.yml`, `sync-labels.yml` — the runtime-core workflows (§7)
 
-  `install.sh` copies these from the tarball's root paths rather than from `template/`, so there is exactly one file to maintain.
+  The installer copies these from the tarball's root paths rather than from `template/`, so there is exactly one file to maintain.
 
-- **`template/` — files that are pure user-repo content, installed verbatim by `install.sh`** (the maintainer repo does not render resumes or host user config, so these live only here, no root copy):
+- **`template/` — files that are pure user-repo content, installed verbatim by the installer** (the maintainer repo does not render resumes or host user config, so these live only here, no root copy):
 
 ```text
 template/
@@ -95,7 +95,7 @@ template/
 
 **Deliberately absent from the user repo:** `src/`, `tests/`, `specs/`, `AGENTS.md`, `.beads/`, `.githooks/`, `.idea/`, `devenv*`, `Justfile`, `Dockerfile`, `pyproject.toml`, `uv.lock`, and maintainer workflows (`build-runner.yml`, `ci.yml`, `pr-review.yml`). The user repo contains **no code** — the engine is in the image.
 
-**Interpolation point** (done by `install.sh`, never committed to `template/`):
+**Interpolation point** (done by the installer, never committed to `template/`):
 
 - *None.* `config/settings.yaml` ships with defaults; per-user options like `search.location` (default `Remote`) are documented in the README and edited directly in the config — same workflow as replacing the placeholder resume.
 
@@ -124,19 +124,19 @@ Rules:
 
 ---
 
-## 5. `scripts/install.sh`
+## 5. `jobgitops-installer` CLI Package
 
 ### 5.1 Usage
 
 ```bash
 # Interactive
-curl -fsSL https://raw.githubusercontent.com/menil/jobgitops/v1.0.0/scripts/install.sh | sh -s -- my-job-search
+npx jobgitops-installer my-job-search
 
 # Non-interactive
-GEMINI_API_KEY=... sh install.sh my-job-search --yes --provider gemini
+npx jobgitops-installer my-job-search --yes --provider gemini --gemini-key=...
 ```
 
-Served from `raw.githubusercontent.com/menil/jobgitops/<tag>/scripts/install.sh`. The pinned `<tag>` is the release tag (§8) — the URL *is* the version pin; no separate version bookkeeping.
+Executed via `npx` from the npm registry. Version pinning can be specified via the package tag or the `--tag <tag>` argument.
 
 ### 5.2 Interface
 
@@ -279,7 +279,7 @@ The README's getting-started section also points to `config/settings.yaml` for p
 
 ### 7.6 sync-template.sh (optional, manual) — upstream shell updates
 
-No scheduled workflow: pulling `.github/` changes from upstream is a manual, user-initiated action. The optional script ships in this repo (next to `install.sh`) and is run against the user's repo:
+No scheduled workflow: pulling `.github/` changes from upstream is a manual, user-initiated action. The optional script ships in this repo (next to the `installer/` package) and is run against the user's repo:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/menil/jobgitops/vX.Y.Z/scripts/sync-template.sh \
@@ -311,18 +311,12 @@ a release — no manual tag cutting:
    notes. The tag push fires `build-runner.yml`, which builds/pushes image
    `:vX.Y.Z` and `:latest` (§6.3).
 
-**One-time (first release only):** the repo and the GHCR package must be
 public for users to install without credentials — flip the package with
 `gh api --method POST /user/packages/container/jobgitops/visibility -f
 visibility=public` (the repo itself is flipped with `gh repo edit --visibility
-public`). Until then, `raw.githubusercontent.com` and `codeload` return 404 and
-the `curl | sh` one-liner cannot be live-tested (see `scripts/e2e.md`).
+public`). Until then, `npx jobgitops-installer` cannot be live-tested globally (see `scripts/e2e.md`).
 
-The install URL for a release is
-`raw.githubusercontent.com/menil/jobgitops/vX.Y.Z/scripts/install.sh` — no
-separate bump step; the URL is the pin. Verify after each release: dry-run the
-installer, then a live install on a throwaway repo (static setup badge renders;
-exactly one bootstrap scrape; user removes the badge).
+The recommended install command is `npx jobgitops-installer`. Verify after each release: dry-run the installer, then a live install on a throwaway repo (static setup badge renders; exactly one bootstrap scrape; user removes the badge).
 
 ---
 
@@ -338,9 +332,9 @@ exactly one bootstrap scrape; user removes the badge).
 
 ## 10. Testing & Validation
 
-- `shellcheck` on `scripts/install.sh`, wired into the existing `just validate` chain (add shellcheck to the devenv/Nix env and a `just` target).
+- `eslint` and `vitest` tests on the `installer/` package, wired into the existing `just validate` chain (add eslint/prettier checks to the devenv/Nix env and a `just` target).
 - Any new Python module added for the bootstrap (e.g. sentinel check, settings generation) ships with pytest tests through the existing `just validate` 90% coverage gate; shell-only logic is validated by the E2E runbook.
-- **Manual E2E runbook (documented):** run `install.sh --dry-run`; then live against a throwaway repo; verify the static setup badge renders, exactly one bootstrap scrape fires, cron-only thereafter, and a `sync-template.sh` PR can be produced. Capture the steps in the README or a `scripts/e2e.md`. [TODO for implementation]
+- **Manual E2E runbook (documented):** run the installer locally in dry-run mode (`npx --prefix installer tsx installer/src/index.ts --dry-run`); then live against a throwaway repo; verify the static setup badge renders, exactly one bootstrap scrape fires, cron-only thereafter, and a `sync-template.sh` PR can be produced. Capture the steps in the README or a `scripts/e2e.md`. [TODO for implementation]
 - Existing pytest suite must remain green after the Dockerfile change (§6.2) and after the workflow migration (§12) — the repo's own `ci.yml` still exercises the image.
 - Sentinel detection is exercised indirectly by the gating paths; no bats test framework for v1 (explicitly out of scope).
 
@@ -361,7 +355,7 @@ exactly one bootstrap scrape; user removes the badge).
 
 1. Create `template/` by copying the runtime subset (§3) from current `.github/`, `config/`, `resumes/`.
 2. Modify `Dockerfile` (§6.2) and `build-runner.yml` (§6.3).
-3. Add `scripts/install.sh` (§5) and the optional `scripts/sync-template.sh` (§7.6).
+3. Add the `installer/` TypeScript package (§5) and the optional `scripts/sync-template.sh` (§7.6).
 4. **Dogfood:** migrate this repo's *own* workflows (scrape, triage, respond, status-transition, project-status-sync, sync-labels, ci) to the shared-image style — `image: ghcr.io/menil/jobgitops:latest`, drop `uv sync` / `PYTHONPATH` / `credentials` / the `RUNNER_IMAGE` variable. Accept the stale-by-minutes `:latest` race on `main` (benign; the cron validates the new image). Add shellcheck to `just validate`.
 5. README: add the Quick Start one-liner; keep the existing fork-and-run section as "Advanced: self-hosted".
 6. Add `RELEASING.md` (§8).
@@ -374,7 +368,7 @@ All previously-open items are resolved:
 
 | # | Item | Resolution |
 | --- | --- | --- |
-| 1 | Image path & install URL host | `ghcr.io/menil/jobgitops`; `raw.githubusercontent.com/menil/jobgitops/<tag>/scripts/install.sh` |
+| 1 | Image path & installation method | `ghcr.io/menil/jobgitops`; `npx jobgitops-installer` |
 | 2 | Placeholder skeleton shape | Lean: sentinel + `basics.name` + empty `work/education/skills/projects` lists |
 | 3 | Validation depth | shellcheck in `just validate` + manual E2E runbook; no bats |
 | 4 | Dogfooding | Migrate this repo's own workflows to the shared-image style |

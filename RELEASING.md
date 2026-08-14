@@ -26,15 +26,13 @@ Every merge to `main` runs `.github/workflows/release-on-merge.yml`:
 - Engine changes ride `:latest` automatically; shell-plane changes are opt-in
   via `scripts/sync-template.sh` (§7.6) — releases never push workflow changes
   into consumer repos.
-- **No bump step needed.** The install URL *is* the pin:
+- **No bump step needed.** Users run the installer using npx:
 
-  ```
-  https://raw.githubusercontent.com/menil/jobgitops/vX.Y.Z/scripts/install.sh
+  ```bash
+  npx jobgitops-installer
   ```
 
-  Each release gets its own immutable URL; users pin a version by using the
-  matching tag URL. Document the current recommended version in the README's
-  Quick Start one-liner.
+  Each release is published to npm. Users can pin a template version using the `--tag <tag>` argument.
 
 ## One-time setup (first release only)
 
@@ -58,7 +56,7 @@ Verify the package flip with
 Keep the source repo private for now and still run the installer yourself:
 
 ```bash
-GEMINI_API_KEY=... JOBGITOPS_TAG=main sh scripts/install.sh jobgitops-e2e --yes
+GEMINI_API_KEY=... npx --prefix installer tsx installer/src/index.ts jobgitops-e2e --yes --tag main
 ```
 
 `JOBGITOPS_TAG=main` bypasses the release-tag lookup, and when the anonymous

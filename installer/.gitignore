@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.vitest/
+coverage/
+*.log
+tsup.config.ts.map

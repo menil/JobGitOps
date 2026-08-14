@@ -15,18 +15,15 @@ allowlist (§3).
 - Inside the devenv shell (`devenv shell` or `direnv allow`).
 
 > **Pre-release note:** until the first public release exists, the repo is
-> private, so `raw.githubusercontent.com` and `codeload` tag URLs return 404 and
-> the `curl | sh` one-liner cannot be live-tested. Run `scripts/install.sh`
-> locally instead with `JOBGITOPS_TAG=main`: when the anonymous codeload
-> download fails, `install.sh` and `sync-template.sh` fall back to the
-> authenticated API tarball (`gh api repos/menil/jobgitops/tarball/<ref>`),
-> which serves the private repo using your `gh` auth. The remote one-liner is
-> verified once releases exist (release gate).
+> private, so `npx jobgitops-installer` cannot be run globally from the public registry.
+> Run the installer locally instead using `npx --prefix installer tsx installer/src/index.ts`
+> with `--tag main` (which bypasses the release lookup and falls back to fetching the private repo
+> tarball using your `gh` auth credentials).
 
 ## 1. Dry-run
 
 ```bash
-sh scripts/install.sh jobgitops-e2e --dry-run
+npx --prefix installer tsx installer/src/index.ts jobgitops-e2e --dry-run
 ```
 
 Verify: every command is printed and *nothing runs* — no repo created, no
@@ -35,22 +32,22 @@ provider key (the trace logs the key-verification step with the key redacted).
 Also spot-check argument validation:
 
 ```bash
-sh scripts/install.sh bad-name! --dry-run    # fails fast on the slug
-sh scripts/install.sh                        # prompts for the repo name
+npx --prefix installer tsx installer/src/index.ts bad-name! --dry-run    # fails fast on the slug
+npx --prefix installer tsx installer/src/index.ts                        # prompts for the repo name
 ```
 
-The bare interactive `sh scripts/install.sh` prompts for the LLM provider choice using an interactive TUI select list (arrow keys to move, Enter to confirm, with custom emojis). After reading the primary key (echoing `*` per keystroke) and verifying it, it presents an interactive checklist of optional integrations (Tavily, Brave, Jina) using checklist prompts (arrow keys to move, Space to toggle, Enter to confirm). For each checked service, it prompts for the corresponding key using masked entry, and then persists it securely in GitHub Secrets.
+The bare interactive `npx --prefix installer tsx installer/src/index.ts` prompts for the LLM provider choice using an interactive TUI select list (arrow keys to move, Enter to confirm, with custom emojis). After reading the primary key (echoing `*` per keystroke) and verifying it, it presents an interactive checklist of optional integrations (Tavily, Brave, Jina) using checklist prompts (arrow keys to move, Space to toggle, Enter to confirm). For each checked service, it prompts for the corresponding key using masked entry, and then persists it securely in GitHub Secrets.
 
 To test TUI fallback on non-TTY environments (e.g. redirected stdin):
 ```bash
-printf "2\nsecret_openrouter\ny\nn\ny\nsecret_tavily\nsecret_jina\n" | sh scripts/install.sh my-test-repo --dry-run
+printf "2\nsecret_openrouter\ny\nn\ny\nsecret_tavily\nsecret_jina\n" | npx --prefix installer tsx installer/src/index.ts my-test-repo --dry-run
 ```
 Verify: The script falls back gracefully to standard numbered line inputs for LLM provider choice, and Y/N line prompts for the optional services, completing the dry-run successfully without errors.
 
 ## 2. Live install
 
 ```bash
-GEMINI_API_KEY=... sh scripts/install.sh jobgitops-e2e --yes
+GEMINI_API_KEY=... npx --prefix installer tsx installer/src/index.ts jobgitops-e2e --yes
 ```
 
 Verify, in order:
@@ -69,7 +66,7 @@ Verify, in order:
 **2a. Rejected key fails fast**
 
 ```bash
-GEMINI_API_KEY=not-a-valid-key sh scripts/install.sh jobgitops-e2e-badkey --yes
+GEMINI_API_KEY=not-a-valid-key npx --prefix installer tsx installer/src/index.ts jobgitops-e2e-badkey --yes
 ```
 
 Verify: the installer dies with `Gemini key rejected by the API` **before** any
