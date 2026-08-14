@@ -26,7 +26,12 @@ jobs:
           import pathlib
           p = pathlib.Path('resumes/resume.yaml')
           if p.exists():
-              p.write_text(render_resume_yaml(load_resume(p)), encoding='utf-8')
+              content = p.read_text(encoding='utf-8')
+              # Skip formatting if the repository is still using the placeholder resume
+              if '__JOBGITOPS_SETUP_PENDING__' in content:
+                  print('Setup is pending - skipping format.')
+              else:
+                  p.write_text(render_resume_yaml(load_resume(p)), encoding='utf-8')
           "
 
       - name: Commit and Push If Changed

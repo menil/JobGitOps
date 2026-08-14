@@ -42,8 +42,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     resume_path = args.path
-    canonical = render_resume_yaml(load_resume(resume_path))
     current = resume_path.read_text(encoding="utf-8")
+    if "__JOBGITOPS_SETUP_PENDING__" in current:
+        print(f"Setup is pending for {resume_path} - skipping format.")
+        return 0
+
+    canonical = render_resume_yaml(load_resume(resume_path))
 
     if args.check:
         if not resume_yaml_is_canonical(resume_path):

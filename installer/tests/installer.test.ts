@@ -27,10 +27,17 @@ vi.mock("fs-extra", async (importOriginal) => {
       remove: vi.fn().mockResolvedValue(undefined),
       ensureDir: vi.fn().mockResolvedValue(undefined),
       readdir: vi.fn().mockImplementation(async (dirPath: string) => {
-        if (dirPath.includes("extracted")) {
+        if (dirPath.endsWith("extracted")) {
           return ["jobgitops-v0.6.0"];
         }
-        return ["sync-template.yml", "test-workflow.yml"];
+        return [
+          "sync-template.yml",
+          "ci.yml",
+          "build-runner.yml",
+          "pr-review.yml",
+          "release-on-merge.yml",
+          "test-workflow.yml",
+        ];
       }),
       statSync: vi.fn().mockImplementation((dirPath: string) => {
         return { isDirectory: () => true };
@@ -111,5 +118,14 @@ describe("runInstallation", () => {
         call[1]?.includes("set"),
     );
     expect(secretCalls.length).toBe(3);
+
+    // Verify that only core runtime workflows are copied (maintainer workflows excluded)
+    const copyCalls = vi.mocked(fs.copy).mock.calls;
+    const workflowCopyCalls = copyCalls.filter(
+      (call) =>
+        typeof call[0] === "string" && call[0].includes(".github/workflows"),
+    );
+    expect(workflowCopyCalls.length).toBe(1);
+    expect(workflowCopyCalls[0][0]).toContain("test-workflow.yml");
   });
 });
