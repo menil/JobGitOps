@@ -6,6 +6,14 @@ import * as tar from "tar";
 import pc from "picocolors";
 import ora from "ora";
 
+const EXCLUDED_WORKFLOWS = [
+  "sync-template.yml",
+  "ci.yml",
+  "build-runner.yml",
+  "pr-review.yml",
+  "release-on-merge.yml",
+];
+
 export interface InstallOptions {
   repoName: string;
   visibility: "private" | "main"; // Wait, 'private' or 'public'
@@ -216,12 +224,12 @@ async function assembleFiles(
       path.join(appDir, ".github", "badges", "setup-complete.svg"),
     );
 
-    // Copy workflows (except sync-template)
+    // Copy workflows (except maintainer-only ones)
     const workflowSrc = path.join(templateSourceDir, ".github", "workflows");
     const workflowDest = path.join(appDir, ".github", "workflows");
     const workflows = await fs.readdir(workflowSrc);
     for (const wf of workflows) {
-      if (wf !== "sync-template.yml") {
+      if (!EXCLUDED_WORKFLOWS.includes(wf)) {
         await fs.copy(path.join(workflowSrc, wf), path.join(workflowDest, wf));
       }
     }

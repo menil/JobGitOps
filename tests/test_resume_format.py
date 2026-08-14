@@ -59,3 +59,13 @@ def test_format_rewrite_normalizes(tmp_path) -> None:
 
     assert format_resume.main([str(resume_file)]) == 0
     assert resume_yaml_is_canonical(resume_file)
+
+
+def test_format_skips_if_setup_pending(tmp_path) -> None:
+    """Formatting is skipped when the __JOBGITOPS_SETUP_PENDING__ marker is present."""
+    resume_file = tmp_path / "resume.yaml"
+    content = "# __JOBGITOPS_SETUP_PENDING__\nbasics:\n  name: Test\n"
+    resume_file.write_text(content, encoding="utf-8")
+
+    assert format_resume.main([str(resume_file)]) == 0
+    assert resume_file.read_text(encoding="utf-8") == content
