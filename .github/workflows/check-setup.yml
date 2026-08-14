@@ -1,0 +1,56 @@
+name: Check Setup Status
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: setup-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  check-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Verify resume setup
+        # Checks if resume.yaml is missing or contains the pending setup sentinel.
+        # Copies the corresponding pre-downloaded badge SVG to setup-status.svg.
+        # This allows the README to display a dynamic, private-safe status badge
+        # using a simple relative path without needing external APIs.
+        run: |
+          if [ "$GITHUB_REPOSITORY" = "menil/JobGitOps" ]; then
+            echo "Template repository, skipping setup check."
+            exit 0
+          fi
+          mkdir -p .github/badges
+          if [ ! -f resumes/resume.yaml ] || grep -q "__JOBGITOPS_SETUP_PENDING__" resumes/resume.yaml; then
+            echo "Setup is still required."
+            cp .github/badges/setup-required.svg .github/badges/setup-status.svg
+          else
+            echo "Setup is complete!"
+            cp .github/badges/setup-complete.svg .github/badges/setup-status.svg
+          fi
+
+      - name: Commit badge
+        # If the badge file actually changed, commit and push it back.
+        # We specify origin HEAD:${{ github.ref_name }} to handle detached HEAD checkouts,
+        # and pull with rebase to handle concurrent pushes.
+        run: |
+          if [ "$GITHUB_REPOSITORY" = "menil/JobGitOps" ]; then
+            echo "Template repository, skipping badge commit."
+            exit 0
+          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/setup-status.svg
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update setup status badge"
+            git pull --rebase --timeout=30s origin ${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }}
+          fi

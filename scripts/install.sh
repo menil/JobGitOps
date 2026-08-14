@@ -28,6 +28,7 @@ WANT_PROJECTS="0"
 PRIMARY_KEY=""
 SELECT_RESULT=""
 CHECKBOX_RESULT=""
+WORK_DIR=""
 TAVILY_KEY=""
 BRAVE_KEY=""
 JINA_KEY=""
@@ -150,8 +151,8 @@ restore_tty() {
 
 cleanup() {
     restore_tty
-    if [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ]; then
-        rm -rf "$TMPDIR"
+    if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
+        rm -rf "$WORK_DIR"
     fi
 }
 
@@ -201,7 +202,7 @@ read_masked() {
     _secret=""
     stty -echo -icanon min 1 time 0 2>/dev/null
     while :; do
-        _byte="$(dd bs=1 count=1 2>/dev/null)"
+        _byte="$(dd bs=1 count=1 < /dev/tty 2>/dev/null)"
         case "$_byte" in
             # Empty — EOF, or a bare \n whose trailing newline command
             # substitution strips — plus Enter as \r in raw mode: end entry.
@@ -242,11 +243,11 @@ S_CYAN="${ESC}[36m"
 # Maps EOF to "eof" so the caller can handle closed stdin/Ctrl+D.
 # stty -icanon min 0 time 0 temporarily polls the buffer to parse escape sequences.
 read_key() {
-    _b1="$(dd bs=1 count=1 2>/dev/null)"
+    _b1="$(dd bs=1 count=1 < /dev/tty 2>/dev/null)"
     if [ "$_b1" = "$ESC" ]; then
         stty -icanon min 0 time 0 2>/dev/null || true
-        _b2="$(dd bs=1 count=1 2>/dev/null)"
-        _b3="$(dd bs=1 count=1 2>/dev/null)"
+        _b2="$(dd bs=1 count=1 < /dev/tty 2>/dev/null)"
+        _b3="$(dd bs=1 count=1 < /dev/tty 2>/dev/null)"
         stty -icanon min 1 time 0 2>/dev/null || true
         if [ "$_b2" = "[" ]; then
             case "$_b3" in
@@ -780,7 +781,7 @@ fi
 # Fetch shell plane (§5.3.3) — resolve tag, download + extract tarball
 # ---------------------------------------------------------------------------
 
-TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/jobgitops-install.XXXXXX")" ||
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/jobgitops-install.XXXXXX")" ||
     die "could not create a temp working directory."
 
 if [ -n "${JOBGITOPS_TAG:-}" ]; then
@@ -795,7 +796,7 @@ else
         die "could not resolve the latest JobGitOps release (none published yet). Set JOBGITOPS_TAG=<tag-or-branch> to test a specific ref."
 fi
 
-TARBALL="$TMPDIR/jobgitops-$TAG.tgz"
+TARBALL="$WORK_DIR/jobgitops-$TAG.tgz"
 download_tarball() {
     log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG -o $TARBALL"
     [ "$DRY_RUN" = "1" ] && return 0
@@ -819,8 +820,8 @@ download_tarball() {
         die "failed to download the JobGitOps tarball for '$TAG' — use a valid tag or branch, and ensure your gh auth has read access to the source repo."
 }
 download_tarball
-run mkdir -p "$TMPDIR/tree"
-run tar -xzf "$TARBALL" -C "$TMPDIR/tree"
+run mkdir -p "$WORK_DIR/tree"
+run tar -xzf "$TARBALL" -C "$WORK_DIR/tree"
 
 # codeload tarballs extract to <repo>-<ref>; the API tarball endpoint extracts
 # to <repo>-<sha>. Resolve whichever single top-level dir landed so the public
@@ -830,27 +831,34 @@ if [ "$DRY_RUN" = "1" ]; then
     # The tarball was never downloaded or extracted under --dry-run, so the
     # top-level dir cannot exist yet; log the command the real run would
     # execute and fall through with the codeload layout for the trace.
-    log "> SRC=\"\$(find \$TMPDIR/tree -mindepth 1 -maxdepth 1 -type d | head -n 1)\""
-    SRC="$TMPDIR/tree/jobgitops-$TAG"
+    log "> SRC=\"\$(find \$WORK_DIR/tree -mindepth 1 -maxdepth 1 -type d | head -n 1)\""
+    SRC="$WORK_DIR/tree/jobgitops-$TAG"
 else
-    SRC="$(find "$TMPDIR/tree" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    SRC="$(find "$WORK_DIR/tree" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
     [ -n "$SRC" ] || die "downloaded tarball contained no top-level directory."
 fi
-APP="$TMPDIR/app"
+APP="$WORK_DIR/app"
 
 # ---------------------------------------------------------------------------
 # Assemble (§5.3.4) — template/ content verbatim + root-pinned shell plane
 # ---------------------------------------------------------------------------
 
-run mkdir -p "$APP/config" "$APP/resumes" "$APP/.github/workflows"
+run mkdir -p "$APP/config" "$APP/resumes" "$APP/.github/workflows" "$APP/.github/badges"
 run cp "$SRC/template/config/settings.yaml" "$APP/config/settings.yaml"
 run cp "$SRC/template/resumes/resume.yaml" "$APP/resumes/resume.yaml"
 run cp "$SRC/template/resumes/template.html" "$APP/resumes/template.html"
 run cp "$SRC/template/resumes/style.css" "$APP/resumes/style.css"
 run cp "$SRC/template/README.md" "$APP/README.md"
+if [ "$DRY_RUN" != "1" ]; then
+    sed "s|__OWNER__|${OWNER}|g; s|__REPO__|${REPO_NAME}|g" "$APP/README.md" > "$APP/README.md.tmp"
+    mv -f "$APP/README.md.tmp" "$APP/README.md"
+fi
 run cp "$SRC/template/.gitignore" "$APP/.gitignore"
 # Root-pinned, copied verbatim (spec §3): single source of truth, no drift.
 run cp "$SRC/.github/labels.yml" "$APP/.github/labels.yml"
+run cp "$SRC/.github/badges/setup-status.svg" "$APP/.github/badges/setup-status.svg"
+run cp "$SRC/.github/badges/setup-required.svg" "$APP/.github/badges/setup-required.svg"
+run cp "$SRC/.github/badges/setup-complete.svg" "$APP/.github/badges/setup-complete.svg"
 for WF_PATH in "$SRC"/.github/workflows/*.yml; do
     WF="$(basename "$WF_PATH")"
     case "$WF" in
@@ -946,7 +954,7 @@ run git -C "$APP" remote add origin "https://github.com/$OWNER/$REPO_NAME.git"
 # `credential.askpass` config key — git silently ignores the latter
 # (verified empirically) and dies with "could not read Username".
 if [ "$DRY_RUN" = "0" ]; then
-    ASKPASS="$TMPDIR/askpass.sh"
+    ASKPASS="$WORK_DIR/askpass.sh"
     # Quoted heredoc: content is written verbatim (no expansion here) so the
     # askpass shim reads $JGO_GIT_USERNAME / $JGO_GIT_TOKEN at runtime.
     cat >"$ASKPASS" <<'EOF'
@@ -991,7 +999,7 @@ Done. Your JobGitOps repo is live: https://github.com/$OWNER/$REPO_NAME
 Next steps:
   1. Edit resumes/resume.yaml — replace the placeholder with your real resume.
   2. Commit and push to main — one bootstrap scrape fires automatically.
-  3. After that run succeeds, remove the setup badge from the README.
+  3. Once pushed, the setup status badge in your README will automatically update to green!
 
 The daily cron takes over from there; tune search in config/settings.yaml.
 EOF

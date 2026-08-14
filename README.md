@@ -66,8 +66,7 @@ Then:
    (JSON Resume format), replacing the placeholder.
 2. **Commit and push to `main`.** One bootstrap scrape runs and the daily cron
    takes over from there; triage and tailoring run on the existing webhooks.
-3. **Remove the static setup badge** from the README once your first scrape
-   succeeds.
+3. **The setup status badge** in the README will automatically update to green on push to main once setup is complete.
 
 Per-user options (`search.location` defaults to `Remote`, `fit_threshold`) live
 in `config/settings.yaml` and are edited directly — same workflow as replacing
