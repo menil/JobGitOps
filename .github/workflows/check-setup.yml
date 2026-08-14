@@ -51,6 +51,6 @@ jobs:
           git add .github/badges/setup-status.svg
           if ! git diff --cached --quiet; then
             git commit -m "chore: update setup status badge"
-            git pull --rebase --timeout=30s origin ${{ github.ref_name }}
+            timeout 30 git pull --rebase origin ${{ github.ref_name }}
             git push origin HEAD:${{ github.ref_name }}
           fi

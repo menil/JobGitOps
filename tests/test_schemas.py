@@ -442,18 +442,17 @@ def test_invalid_resume_parsing() -> None:
             {"basics": {"name": "Jane", "location": loc, "profiles": "not-a-list"}}
         )
 
-    # Profile missing username
-    msg = "profile.username must be a non-empty string"
-    with pytest.raises(ValidationError, match=msg):
-        Resume.from_dict(
-            {
-                "basics": {
-                    "name": "Jane",
-                    "location": loc,
-                    "profiles": [{"network": "GitHub"}],
-                }
+    # Profile without username is valid (username is optional per JSON Resume spec)
+    resume = Resume.from_dict(
+        {
+            "basics": {
+                "name": "Jane",
+                "location": loc,
+                "profiles": [{"network": "GitHub"}],
             }
-        )
+        }
+    )
+    assert resume.basics.profiles[0].username is None
 
     with pytest.raises(ValidationError, match="work section must be a list"):
         Resume.from_dict(

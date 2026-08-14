@@ -499,7 +499,7 @@ class Profile:
     """Social profiles (GitHub, LinkedIn) for JSON Resume."""
 
     network: str
-    username: str
+    username: str | None = None
     url: str | None = None
 
     @classmethod
@@ -522,13 +522,9 @@ class Profile:
         if not network:
             raise ValidationError("profile.network must be a non-empty string.")
 
-        username = _parse_str("profile.username", data.get("username"))
-        if not username:
-            raise ValidationError("profile.username must be a non-empty string.")
-
         return cls(
             network=network,
-            username=username,
+            username=_parse_str("profile.username", data.get("username")),
             url=_parse_str("profile.url", data.get("url")),
         )
 
@@ -536,8 +532,9 @@ class Profile:
         """Convert Profile to dictionary conforming to JSON Resume schema."""
         res: dict[str, Any] = {
             "network": self.network,
-            "username": self.username,
         }
+        if self.username is not None:
+            res["username"] = self.username
         if self.url is not None:
             res["url"] = self.url
         return res
