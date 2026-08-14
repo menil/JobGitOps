@@ -236,6 +236,10 @@ done
 
 run cp -f "$SRC/.github/labels.yml" "$REPO/.github/labels.yml"
 
+run mkdir -p "$REPO/.github/badges"
+run cp -f "$SRC"/.github/badges/*.svg "$REPO/.github/badges/"
+SHELL_PLANE="$SHELL_PLANE .github/badges/setup-status.svg .github/badges/setup-required.svg .github/badges/setup-complete.svg"
+
 # No diff against the local .github/ -> nothing to sync: exit 0 with no PR
 # (§7.6.3). Under --dry-run there is no clone to diff against, so report the
 # would-be outcome instead.

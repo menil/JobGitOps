@@ -1,6 +1,9 @@
 # JobGitOps
 
-![Setup](https://img.shields.io/badge/setup%20required-replace%20resumes%2Fresume.yaml-orange)
+![Setup Status](.github/badges/setup-status.svg)
+[![Scrape Jobs](https://github.com/__OWNER__/__REPO__/actions/workflows/scrape-jobs.yml/badge.svg)](https://github.com/__OWNER__/__REPO__/actions/workflows/scrape-jobs.yml)
+[![Triage & Tailor](https://github.com/__OWNER__/__REPO__/actions/workflows/triage-issue.yml/badge.svg)](https://github.com/__OWNER__/__REPO__/actions/workflows/triage-issue.yml)
+[![Auto-Format Resume](https://github.com/__OWNER__/__REPO__/actions/workflows/format-resume.yml/badge.svg)](https://github.com/__OWNER__/__REPO__/actions/workflows/format-resume.yml)
 
 A serverless, GitOps-driven job application and tracking system. GitHub Issues are your pipeline, GitHub Projects is your Kanban board, and GitHub Actions is the automation plane that scrapes roles, AI-triages fit, and tailors your resume — all running free on GitHub's infrastructure.
 
@@ -10,7 +13,7 @@ This repository was bootstrapped by the JobGitOps installer. To activate it:
 
 1. **Replace the placeholder resume** in `resumes/resume.yaml` (a YAML file in [JSON Resume](https://jsonresume.org/schema) format) with your real work history, then commit and push to `main`.
 2. **Configure secrets & variables** — see the docs linked below.
-3. **Run the bootstrap scrape** once (Actions → `scrape-jobs` → Run workflow), then remove this setup badge. The daily cron takes over from there.
+3. **Run the bootstrap scrape** once (Actions → `scrape-jobs` → Run workflow). The setup status badge above will automatically update to green on push to main once setup is complete, and the daily cron takes over from there.
 
 ## Configuration
 
