@@ -10,6 +10,7 @@ on:
       - 'Dockerfile'
       - 'pyproject.toml'
       - 'uv.lock'
+      - 'src/**'
       - '.github/workflows/build-runner.yml'
   workflow_dispatch:
 
