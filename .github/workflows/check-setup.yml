@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: setup-check-${{ github.ref }}
+  group: push-main-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

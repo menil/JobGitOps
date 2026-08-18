@@ -7,6 +7,10 @@ on:
     paths:
       - 'resumes/resume.yaml'
 
+concurrency:
+  group: push-main-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -42,6 +46,7 @@ jobs:
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add resumes/resume.yaml
             git commit -m "chore: format resume.yaml"
+            git pull --rebase origin ${{ github.ref_name }}
             git push
           else
             echo "Resume is already canonically formatted."
