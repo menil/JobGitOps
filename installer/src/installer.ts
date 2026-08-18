@@ -7,6 +7,7 @@ import pc from "picocolors";
 import ora from "ora";
 
 import { EXCLUDED_WORKFLOWS } from "./constants";
+import { createProjectV2, getGhCliToken } from "./api";
 
 export interface InstallOptions {
   repoName: string;
@@ -72,6 +73,22 @@ export async function runInstallation(
     // 5. GitHub Repository Provisioning
     await createGitHubRepository(owner, repoName, visibility, env, dryRun);
 
+    // 5b. Create Projects V2 board if requested
+    let projectNodeId: string | null = null;
+    if (wantProjects && !dryRun) {
+      const projectSpinner = ora(
+        "Creating GitHub Projects V2 board...",
+      ).start();
+      projectNodeId = await createProjectV2(owner, repoName, token);
+      if (projectNodeId) {
+        projectSpinner.succeed(`Project created: ${projectNodeId}`);
+      } else {
+        projectSpinner.warn(
+          "Could not create project (see error above). Skipping project setup.",
+        );
+      }
+    }
+
     // 6. Secrets Provisioning
     await provisionSecretsAndPermissions(
       owner,
@@ -86,6 +103,9 @@ export async function runInstallation(
     );
 
     // 7. Git Init, Commit & Push
+    if (projectNodeId) {
+      patchSettingsWithProjectId(appDir, projectNodeId, "Status");
+    }
     await initializeGitAndPush(
       appDir,
       owner,
@@ -333,6 +353,33 @@ async function provisionSecretsAndPermissions(
   }
 }
 
+/**
+ * Patches the assembled settings.yaml to uncomment and populate the projects_v2
+ * section with the actual project node ID. Operates on the assembled appDir copy.
+ */
+function patchSettingsWithProjectId(
+  appDir: string,
+  projectId: string,
+  statusFieldName: string,
+): void {
+  const settingsPath = path.join(appDir, "config", "settings.yaml");
+  let content = fs.readFileSync(settingsPath, "utf8");
+
+  // Replace the commented-out projects_v2 block with the live config
+  const commentedPattern =
+    /#[\s-]*projects_v2:[\s\S]*?#?\s*project_id:\s*"[^"]*"[\s\S]*?#?\s*status_field_name:\s*"[^"]*"/;
+  const replacement = `projects_v2:\n  project_id: "${projectId}"\n  status_field_name: "${statusFieldName}"`;
+
+  if (commentedPattern.test(content)) {
+    content = content.replace(commentedPattern, replacement);
+  } else {
+    // Fallback: append at end of file
+    content += `\nprojects_v2:\n  project_id: "${projectId}"\n  status_field_name: "${statusFieldName}"\n`;
+  }
+
+  fs.writeFileSync(settingsPath, content, "utf8");
+}
+
 async function initializeGitAndPush(
   appDir: string,
   owner: string,
@@ -436,17 +483,6 @@ async function downloadTarball(
   } catch (error: any) {
     throw new Error(
       `Failed to download JobGitOps tarball for '${tag}': ${error.message || error}`,
-    );
-  }
-}
-
-async function getGhCliToken(): Promise<string> {
-  try {
-    const { stdout } = await execa("gh", ["auth", "token"]);
-    return stdout.trim();
-  } catch {
-    throw new Error(
-      "Not authenticated with GitHub CLI. Please run 'gh auth login' or pass a --token flag.",
     );
   }
 }

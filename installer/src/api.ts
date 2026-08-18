@@ -1,5 +1,16 @@
 import { execa } from "execa";
 
+export async function getGhCliToken(): Promise<string> {
+  try {
+    const { stdout } = await execa("gh", ["auth", "token"]);
+    return stdout.trim();
+  } catch {
+    throw new Error(
+      "Not authenticated with GitHub CLI. Please run 'gh auth login' or pass a --token flag.",
+    );
+  }
+}
+
 export interface GithubUser {
   login: string;
   scopes: string[];
@@ -102,6 +113,74 @@ export async function verifyAndRefreshScopes(
 
   // Prompt using interactive inquirer flow (handled by caller or helper)
   return user; // Handled dynamically in index.ts/prompts.ts flow
+}
+
+/**
+ * Creates a GitHub Projects V2 board owned by the given user via the GraphQL API.
+ * Returns the project node ID (PVT_...) on success, or null on failure.
+ */
+export async function createProjectV2(
+  ownerLogin: string,
+  title: string,
+  token?: string,
+): Promise<string | null> {
+  if (!ownerLogin || !title) {
+    throw new Error("ownerLogin and title are required.");
+  }
+
+  const resolvedToken = token || (await getGhCliToken());
+  const authHeaders = {
+    Authorization: `Bearer ${resolvedToken}`,
+    Accept: "application/vnd.github+json",
+    "X-Github-Next-Global-ID": "1",
+  };
+
+  try {
+    // Resolve the owner's node ID via REST
+    const userResp = await fetch(`https://api.github.com/users/${ownerLogin}`, {
+      headers: authHeaders,
+    });
+    if (!userResp.ok) {
+      throw new Error(`Could not resolve owner (HTTP ${userResp.status}).`);
+    }
+    const userData = (await userResp.json()) as { node_id?: string };
+    const ownerId = userData?.node_id;
+    if (!ownerId) {
+      throw new Error("Owner response missing node_id.");
+    }
+
+    // Create the project via GraphQL
+    const query = `
+      mutation($ownerId: ID!, $title: String!) {
+        createProjectV2(input: { ownerId: $ownerId, title: $title }) {
+          projectV2 { id }
+        }
+      }
+    `;
+    const graphqlResp = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { ...authHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables: { ownerId, title } }),
+    });
+    if (!graphqlResp.ok) {
+      throw new Error(`GraphQL request failed (HTTP ${graphqlResp.status}).`);
+    }
+
+    const result = (await graphqlResp.json()) as {
+      data?: { createProjectV2?: { projectV2?: { id?: string } } };
+      errors?: Array<{ message: string }>;
+    };
+    if (result.errors?.length) {
+      throw new Error(`GraphQL error: ${result.errors[0].message}`);
+    }
+    const projectId = result?.data?.createProjectV2?.projectV2?.id;
+    if (!projectId) {
+      throw new Error("GraphQL response missing projectV2.id.");
+    }
+    return projectId;
+  } catch {
+    return null;
+  }
 }
 
 function picocolorsBold(str: string): string {
