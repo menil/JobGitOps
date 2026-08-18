@@ -3,6 +3,7 @@ import {
   fetchGithubUser,
   verifyAndRefreshScopes,
   validateApiKey,
+  createProjectV2,
 } from "../src/api.js";
 import { execa } from "execa";
 
@@ -170,6 +171,93 @@ describe("validateApiKey", () => {
 
     await expect(validateApiKey("gemini", "key")).rejects.toThrow(
       "Could not reach the Gemini API: DNS Resolution Failure",
+    );
+  });
+});
+
+describe("createProjectV2", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Mock getGhCliToken (uses execa) to return a fake token
+    vi.mocked(execa).mockResolvedValue({ stdout: "ghp_fake_token\n" } as any);
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("returns project node ID on success", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: { createProjectV2: { projectV2: { id: "PVT_1234" } } },
+          }),
+      } as any);
+
+    const result = await createProjectV2("testuser", "my-job-search");
+    expect(result).toBe("PVT_1234");
+  });
+
+  it("returns null if owner fetch fails", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+    } as any);
+
+    const result = await createProjectV2("testuser", "my-job-search");
+    expect(result).toBeNull();
+  });
+
+  it("returns null if GraphQL response has errors", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            errors: [{ message: "Forbidden" }],
+          }),
+      } as any);
+
+    const result = await createProjectV2("testuser", "my-job-search");
+    expect(result).toBeNull();
+  });
+
+  it("returns null if response is missing projectV2.id", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: { createProjectV2: null } }),
+      } as any);
+
+    const result = await createProjectV2("testuser", "my-job-search");
+    expect(result).toBeNull();
+  });
+
+  it("throws if ownerLogin or title is empty", async () => {
+    await expect(createProjectV2("", "title")).rejects.toThrow(
+      "ownerLogin and title are required.",
+    );
+    await expect(createProjectV2("user", "")).rejects.toThrow(
+      "ownerLogin and title are required.",
     );
   });
 });
