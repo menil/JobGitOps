@@ -10,7 +10,7 @@ search:
   enabled: true
 
   # Work preference: "remote" (remote only), "onsite" (onsite only), or "hybrid"
-  work_preference: "remote"
+  work_preference: "hybrid"
 
   # Employment type: "fulltime", "contract", "parttime", "internship"
   job_type: "fulltime"
