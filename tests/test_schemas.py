@@ -13,7 +13,7 @@ def test_default_settings() -> None:
     """Test that Settings returns proper defaults when created or empty."""
     settings = Settings()
     assert settings.fit_threshold == 3.5
-    assert settings.search.work_preference == "remote"
+    assert settings.search.work_preference == "hybrid"
     assert settings.search.job_type == "fulltime"
     assert "linkedin" in settings.search.platforms
     assert settings.custom_queries is None
@@ -796,7 +796,7 @@ def test_repo_defaults_integration() -> None:
     # Load and assert fixture settings
     settings = load_settings("tests/fixtures/settings.yaml")
     assert settings.fit_threshold == 3.5
-    assert settings.search.work_preference == "remote"
+    assert settings.search.work_preference == "hybrid"
     assert settings.search.job_type == "fulltime"
     assert "linkedin" in settings.search.platforms
     assert settings.research.search_provider == "duckduckgo"

@@ -8,7 +8,7 @@ on:
       work_preference:
         description: 'Override work preference (remote, onsite, hybrid)'
         required: false
-        default: 'remote'
+        default: 'hybrid'
       job_type:
         description: 'Override employment type (fulltime, contract, parttime, internship)'
         required: false

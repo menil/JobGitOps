@@ -130,7 +130,7 @@ def _parse_bool(field_name: str, val: Any, default: bool) -> bool:
 class SearchConfig:
     """Job search scraper configuration."""
 
-    work_preference: str = "remote"
+    work_preference: str = "hybrid"
     job_type: str = "fulltime"
     platforms: list[str] = field(
         default_factory=lambda: ["linkedin", "indeed", "zip_recruiter"]
@@ -157,7 +157,7 @@ class SearchConfig:
         try:
             work_preference = (
                 _parse_str("search.work_preference", data.get("work_preference"))
-                or "remote"
+                or "hybrid"
             )
             work_preference = work_preference.lower().strip()
             if work_preference not in ("remote", "onsite", "hybrid"):
