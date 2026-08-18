@@ -9,17 +9,14 @@ A serverless, GitOps-driven job application and tracking system. GitHub Issues a
 
 ## Getting Started
 
-This repository was bootstrapped by the JobGitOps installer. To activate it:
-
-1. **Replace the placeholder resume** in `resumes/resume.yaml` (a YAML file in [JSON Resume](https://jsonresume.org/schema) format) with your real work history, then commit and push to `main`.
-2. **Configure secrets & variables** — see the docs linked below.
-3. **Run the bootstrap scrape** once (Actions → `scrape-jobs` → Run workflow). The setup status badge above will automatically update to green on push to main once setup is complete, and the daily cron takes over from there.
+1. **Replace the placeholder resume** in `resumes/resume.yaml` (a YAML file in [JSON Resume](https://jsonresume.org/schema) format) with your real work history, then commit and push to `main`. The daily cron takes over from there.
 
 ## Configuration
 
 Per-user options live in `config/settings.yaml` and are edited directly in that file — same workflow as replacing the placeholder resume. Notable defaults:
 
-- `search.location` defaults to `Remote`
+- `search.work_preference` defaults to `hybrid` (also accepts `remote` or `onsite`)
+- Your resume's `basics.location` fields (`city`, `state`, `countryCode`) drive the search location — include all three for best results with `hybrid`/`onsite` modes
 - `search.enabled` (set to `false` to pause daily scraping)
 - `fit_threshold` (minimum fit score, `1.0`–`5.0`, default `3.5`)
 
@@ -59,6 +56,3 @@ Configure these under **Settings > Secrets and variables > Actions**:
 | `respond-issue` | Answers questions on issue threads via live web research, and applies status labels from conversation |
 | `status-transition` | Moves your board card when you apply a lifecycle label (`applied`, `in-loop`, `rejected`) |
 | `project-status-sync` | Reverse sync: applies the matching label when you drag a card to a new column |
-| `ci` | Runs lints, formatting checks, and the test suite on every push |
-| `pr-review` | Automated code review on pull requests |
-| `release-on-merge` | Publishes a new GitHub release when a PR merges to `main` |
