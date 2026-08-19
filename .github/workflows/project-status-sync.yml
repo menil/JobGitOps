@@ -17,8 +17,68 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+    steps:
+      - name: Verify PROJECT_V2_TOKEN is set
+        id: token
+        run: |
+          if [ -z "$PROJECT_V2_TOKEN" ]; then
+            echo "::warning::PROJECT_V2_TOKEN secret is not set — skipping sync."
+            echo "has_pv2_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pv2_token=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
+
+      - name: Restore last-sync timestamp
+        if: steps.token.outputs.has_pv2_token == 'true'
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          key: project-status-sync-last-run-${{ github.run_id }}
+          restore-keys: project-status-sync-last-run-
+          path: /tmp/last-sync-timestamp
+
+      - name: Check for recent issue activity
+        if: steps.token.outputs.has_pv2_token == 'true'
+        id: check
+        run: |
+          if [ -f /tmp/last-sync-timestamp ]; then
+            SINCE=$(cat /tmp/last-sync-timestamp)
+          else
+            # GNU coreutils (ubuntu-latest); BSD fallback for local macOS testing.
+            SINCE=$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+                     || date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')
+          fi
+
+          UPDATED=$(gh api "repos/{owner}/{repo}/issues?since=${SINCE}&state=all&per_page=1" \
+            --jq 'length')
+
+          if [ "$UPDATED" -gt 0 ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > /tmp/last-sync-timestamp
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Save last-sync timestamp
+        if: always() && steps.token.outputs.has_pv2_token == 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: project-status-sync-last-run-${{ github.run_id }}
+          path: /tmp/last-sync-timestamp
+
   sync:
-    if: ${{ secrets.PROJECT_V2_TOKEN != '' }}
+    needs: guard
+    if: needs.guard.outputs.has_changes == 'true'
     # Reverse direction (column -> label) runs on a schedule or dispatch.
     # The forward direction (label -> column) lives in status-transition.yml.
     # They converge safely without feedback loops because this script is scheduled
