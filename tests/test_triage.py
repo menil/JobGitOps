@@ -916,6 +916,53 @@ def test_run_triage_full_body_skips_fetch(
     )
 
 
+def test_run_triage_updates_issue_title(
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test run_triage updates the issue title when it differs from canonical."""
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=3.4,
+        tech_stack_fit=3.0,
+        experience_fit=4.0,
+        location_fit=2.5,
+        salary_fit=2.0,
+        industry_fit=3.5,
+        reasoning="Insufficient Python experience.",
+    )
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "owner/repo"
+    mock_gh_client.project_id = None
+
+    body = (
+        "**Company:** Salesforce\n"
+        "**Role:** Lead Software Engineer\n"
+        "**Apply URL:** https://salesforce.com\n"
+        "## Job Description\n"
+        "Build things."
+    )
+
+    run_triage(
+        issue_number=15,
+        issue_title="Salesforce Job Request",
+        issue_body=body,
+        issue_node_id="node_abc",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path(),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    # Verify that the GitHub client was called to update the title
+    mock_gh_client.update_issue_title.assert_called_once_with(
+        15, "[Salesforce] Lead Software Engineer"
+    )
+
+
 @mock.patch("jobgitops.cli.triage.get_llm_client")
 @mock.patch("jobgitops.cli.triage.load_settings")
 @mock.patch("jobgitops.cli.triage.load_resume")

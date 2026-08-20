@@ -218,6 +218,24 @@ def test_close_issue(mock_urlopen: mock.MagicMock) -> None:
 
 
 @mock.patch("urllib.request.urlopen")
+def test_update_issue_title(mock_urlopen: mock.MagicMock) -> None:
+    """Test updating a GitHub issue title."""
+    expected_response = {"number": 42, "title": "New Title"}
+    resp_body = json.dumps(expected_response).encode("utf-8")
+    mock_urlopen.return_value = make_mock_response(status=200, body=resp_body)
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    res = client.update_issue_title(issue_number=42, title="New Title")
+
+    assert res == expected_response
+    mock_urlopen.assert_called_once()
+    req = mock_urlopen.call_args[0][0]
+    assert req.full_url == "https://api.github.com/repos/owner/repo/issues/42"
+    assert req.method == "PATCH"
+    assert json.loads(req.data.decode("utf-8")) == {"title": "New Title"}
+
+
+@mock.patch("urllib.request.urlopen")
 def test_list_comments(mock_urlopen: mock.MagicMock) -> None:
     """Test listing comments on an issue."""
     expected_response = [
@@ -700,6 +718,20 @@ def test_close_issue_invalid_response_format(mock_urlopen: mock.MagicMock) -> No
     client = GitHubClient(token="my-token", repo="owner/repo")
     with pytest.raises(GitHubClientError) as exc_info:
         client.close_issue(issue_number=42)
+    assert "Unexpected response format" in str(exc_info.value)
+
+
+@mock.patch("urllib.request.urlopen")
+def test_update_issue_title_invalid_response_format(
+    mock_urlopen: mock.MagicMock,
+) -> None:
+    """Test update_issue_title raising error on non-dict JSON response."""
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=b'["not", "a", "dict"]'
+    )
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    with pytest.raises(GitHubClientError) as exc_info:
+        client.update_issue_title(issue_number=42, title="New Title")
     assert "Unexpected response format" in str(exc_info.value)
 
 

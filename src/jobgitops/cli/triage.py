@@ -747,11 +747,16 @@ def run_triage(
         resume,
         work_preference=settings.search.work_preference,
     )
-    logger.info(
-        "Triage fit score: %.1f (threshold: %.1f)",
-        triage_res.fit_score,
-        settings.fit_threshold,
-    )
+    # Update issue title to follow the canonical [Company] Role format
+    company = job_details.get("company", DEFAULT_COMPANY)
+    role = job_details.get("role", DEFAULT_ROLE)
+    new_title = f"[{company}] {role}"
+    if issue_title != new_title:
+        try:
+            logger.info("Updating issue title to: %s", new_title)
+            gh_client.update_issue_title(issue_number, new_title)
+        except Exception as e:
+            logger.warning("Failed to update issue title: %s", e)
 
     # 3. Act on fit score
     if triage_res.fit_score < settings.fit_threshold:
