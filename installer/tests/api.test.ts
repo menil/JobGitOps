@@ -4,6 +4,7 @@ import {
   verifyAndRefreshScopes,
   validateApiKey,
   createProjectV2,
+  fetchRepositoryNodeId,
 } from "../src/api.js";
 import { execa } from "execa";
 
@@ -199,12 +200,26 @@ describe("createProjectV2", () => {
         ok: true,
         json: () =>
           Promise.resolve({
-            data: { createProjectV2: { projectV2: { id: "PVT_1234" } } },
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
           }),
       } as any);
 
-    const result = await createProjectV2("testuser", "my-job-search");
-    expect(result).toBe("PVT_1234");
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
   });
 
   it("returns null if owner fetch fails", async () => {
@@ -259,5 +274,46 @@ describe("createProjectV2", () => {
     await expect(createProjectV2("user", "")).rejects.toThrow(
       "ownerLogin and title are required.",
     );
+  });
+});
+
+describe("fetchRepositoryNodeId", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(execa).mockResolvedValue({ stdout: "ghp_fake_token\n" } as any);
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("returns repo node ID on success", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ node_id: "R_repo_123" }),
+    } as any);
+
+    const result = await fetchRepositoryNodeId("owner", "repo");
+    expect(result).toBe("R_repo_123");
+  });
+
+  it("returns null if API request fails", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+    } as any);
+
+    const result = await fetchRepositoryNodeId("owner", "repo");
+    expect(result).toBeNull();
+  });
+
+  it("returns null if owner or repo is missing", async () => {
+    const result1 = await fetchRepositoryNodeId("", "repo");
+    expect(result1).toBeNull();
+
+    const result2 = await fetchRepositoryNodeId("owner", "");
+    expect(result2).toBeNull();
   });
 });
