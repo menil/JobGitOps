@@ -901,7 +901,10 @@ def test_handle_opened_event_runs_intent_classification_for_non_bare_url() -> No
 
 
 def test_handle_opened_event_with_applied_intent() -> None:
-    """Verify opened event with applied intent transitions status to applied."""
+    """Verify opened event with applied intent fetches and triages.
+
+    Tests that already_applied=True is forwarded to run_triage.
+    """
     gh = FakeGitHubClient()
     settings = sample_settings()
     settings.projects_v2 = ProjectsV2Config(
@@ -925,9 +928,30 @@ def test_handle_opened_event_with_applied_intent() -> None:
         ),
     )
 
+    fetched = {
+        "title": "Software Engineer at Acme",
+        "description": "Acme hires Software Engineers.",
+    }
+    details = {
+        "company": "Acme",
+        "role": "Software Engineer",
+        "location": "Remote",
+        "salary": "Not specified",
+        "source": "manual",
+        "description": "Acme hires Software Engineers.",
+    }
+
     with (
-        patch("jobgitops.cli.respond.triage.fetch_job_page") as fetch_mock,
+        patch(
+            "jobgitops.cli.respond.triage.fetch_job_page",
+            return_value=fetched,
+        ) as fetch_mock,
+        patch(
+            "jobgitops.cli.respond.triage.infer_job_details_from_page",
+            return_value=details,
+        ),
         patch("jobgitops.cli.respond.execute_action") as execute_mock,
+        patch("jobgitops.cli.respond.triage.run_triage") as triage_mock,
     ):
         respond.handle_opened_event(
             event,
@@ -939,15 +963,15 @@ def test_handle_opened_event_with_applied_intent() -> None:
             repo_path=Path("/repo"),
         )
 
-    # We should not fetch or triage
-    fetch_mock.assert_not_called()
+    # We should fetch and triage
+    fetch_mock.assert_called_once()
+    triage_mock.assert_called_once()
+    kwargs = triage_mock.call_args.kwargs
+    assert kwargs["issue_number"] == 6
+    assert kwargs["already_applied"] is True
 
-    # We should execute ACTION_STATUS_UPDATE to applied directly
-    execute_mock.assert_called_once()
-    args = execute_mock.call_args.args
-    assert args[0].action == "status_update"
-    assert args[0].status == "applied"
-    assert execute_mock.call_args.kwargs["issue_number"] == 6
+    # We should NOT execute the simple status_update action directly
+    execute_mock.assert_not_called()
 
 
 def test_handle_opened_event_missing_issue_number() -> None:
