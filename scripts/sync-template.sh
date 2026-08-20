@@ -236,9 +236,19 @@ done
 
 run cp -f "$SRC/.github/labels.yml" "$REPO/.github/labels.yml"
 
+# Copy setup status SVGs: sync only template assets (setup-required.svg,
+# setup-complete.svg); do not touch setup-status.svg, which check-setup.yml
+# dynamically copies based on the repository's setup status.
 run mkdir -p "$REPO/.github/badges"
-run cp -f "$SRC"/.github/badges/*.svg "$REPO/.github/badges/"
-SHELL_PLANE="$SHELL_PLANE .github/badges/setup-status.svg .github/badges/setup-required.svg .github/badges/setup-complete.svg"
+for BADGE_FILE in setup-required.svg setup-complete.svg; do
+    SRC_PATH="$SRC/.github/badges/$BADGE_FILE"
+    DEST_PATH="$REPO/.github/badges/$BADGE_FILE"
+    if [ ! -f "$SRC_PATH" ]; then
+        die "Required badge file not found: $SRC_PATH"
+    fi
+    run cp -f "$SRC_PATH" "$DEST_PATH"
+    SHELL_PLANE="$SHELL_PLANE .github/badges/$BADGE_FILE"
+done
 
 # No diff against the local .github/ -> nothing to sync: exit 0 with no PR
 # (§7.6.3). Under --dry-run there is no clone to diff against, so report the
