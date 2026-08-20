@@ -19,16 +19,19 @@ permissions:
   packages: read
 
 jobs:
-  triage:
+  check:
     if: >
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
       || (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'triage-pending'))
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/menil/jobgitops:latest
+    outputs:
+      sentinel: ${{ steps.setup-check.outputs.sentinel }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            resumes/resume.yaml
 
       # Spec §7.2: block triage until the placeholder resume is replaced.
       # The sentinel check is parsing-free (grep), guarded on file existence
@@ -58,8 +61,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  triage:
+    needs: check
+    if: needs.check.outputs.sentinel == 'absent'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/menil/jobgitops:latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
       - name: Run Triage Coordinator
-        if: steps.setup-check.outputs.sentinel == 'absent'
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             python -m jobgitops.cli.triage --all-pending

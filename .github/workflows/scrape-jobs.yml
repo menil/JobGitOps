@@ -45,6 +45,10 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            resumes/resume.yaml
+            config/settings.yaml
 
       - name: Check if Scraper is Enabled
         id: check-enabled

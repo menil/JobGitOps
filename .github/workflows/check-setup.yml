@@ -23,6 +23,7 @@ jobs:
         # Copies the corresponding pre-downloaded badge SVG to setup-status.svg.
         # This allows the README to display a dynamic, private-safe status badge
         # using a simple relative path without needing external APIs.
+        # Also, if setup is complete, swaps static pending badges in README.md with live workflow badges.
         run: |
           if [ "$GITHUB_REPOSITORY" = "menil/JobGitOps" ]; then
             echo "Template repository, skipping setup check."
@@ -35,10 +36,20 @@ jobs:
           else
             echo "Setup is complete!"
             cp .github/badges/setup-complete.svg .github/badges/setup-status.svg
+            if [ -f README.md ]; then
+              if ! sed -i \
+                -e "s|https://img.shields.io/badge/scrape%20jobs-pending-yellow|https://github.com/$GITHUB_REPOSITORY/actions/workflows/scrape-jobs.yml/badge.svg|g" \
+                -e "s|https://img.shields.io/badge/triage%20%26%20tailor-pending-yellow|https://github.com/$GITHUB_REPOSITORY/actions/workflows/triage-issue.yml/badge.svg|g" \
+                -e "s|https://img.shields.io/badge/auto--format%20resume-pending-yellow|https://github.com/$GITHUB_REPOSITORY/actions/workflows/format-resume.yml/badge.svg|g" \
+                README.md; then
+                echo "::error::Failed to update README.md badges."
+                exit 1
+              fi
+            fi
           fi
 
       - name: Commit badge
-        # If the badge file actually changed, commit and push it back.
+        # If the badge file or README actually changed, commit and push it back.
         # We specify origin HEAD:${{ github.ref_name }} to handle detached HEAD checkouts,
         # and pull with rebase to handle concurrent pushes.
         run: |
@@ -49,6 +60,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .github/badges/setup-status.svg
+          if [ -f README.md ]; then git add README.md; fi
           if ! git diff --cached --quiet; then
             git commit -m "chore: update setup status badge"
             timeout 30 git pull --rebase origin ${{ github.ref_name }}
