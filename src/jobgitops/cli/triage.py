@@ -24,6 +24,7 @@ from jobgitops.git_ops import (
     run_git,
 )
 from jobgitops.github_client import GitHubClient, extract_label_names
+from jobgitops.intent import detect_applied_intent
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings, render_resume_yaml
 from jobgitops.renderer import compile_resume
@@ -584,6 +585,7 @@ def _handle_approved_match(
     settings: Any,
     resume: Any,
     llm_client: LLMClient,
+    already_applied: bool = False,
 ) -> None:
     """Handle the approved match and resume tailoring branch pipeline."""
     logger.info("Fit score meets threshold. Tailoring resume...")
@@ -611,11 +613,20 @@ def _handle_approved_match(
         )
         yaml_path = "resumes/resume.yaml"
         yaml_hash = hashlib.sha256(yaml_path.encode("utf-8")).hexdigest()
+        if already_applied:
+            header = (
+                f"### AI Triage: Already Applied "
+                f"(Fit Score: {triage_res.fit_score:.1f})\n\n"
+            )
+        else:
+            header = (
+                f"### AI Triage: Match Approved! "
+                f"(Fit Score: {triage_res.fit_score:.1f}/{settings.fit_threshold:.1f}, "
+                f"Grade: {get_fit_grade_label(triage_res.fit_score)})\n\n"
+            )
+
         comment_body = (
-            f"### AI Triage: Match Approved! "
-            f"(Fit Score: {triage_res.fit_score:.1f}/{settings.fit_threshold:.1f}, "
-            f"Grade: {get_fit_grade_label(triage_res.fit_score)})\n\n"
-            f"**Reasoning:**\n{triage_res.reasoning}\n\n"
+            header + f"**Reasoning:**\n{triage_res.reasoning}\n\n"
             f"#### Score Breakdown:\n"
             f"- **Tech Stack Match:** {triage_res.tech_stack_fit:.1f}/5.0\n"
             f"- **Experience & Years Fit:** {triage_res.experience_fit:.1f}/5.0\n"
@@ -640,19 +651,23 @@ def _handle_approved_match(
         # Update labels
         if "triage-pending" in issue_labels:
             gh_client.remove_label(issue_number, "triage-pending")
-        gh_client.add_labels(
-            issue_number,
-            [get_fit_grade_label(triage_res.fit_score), "ready-to-apply"],
-        )
+        if already_applied:
+            gh_client.add_labels(issue_number, ["applied"])
+        else:
+            gh_client.add_labels(
+                issue_number,
+                [get_fit_grade_label(triage_res.fit_score), "ready-to-apply"],
+            )
 
         # Update Projects V2 status
         if issue_node_id and gh_client.project_id:
+            target_status = "applied" if already_applied else "ready-to-apply"
             logger.info(
                 "Updating Project status to '%s'",
-                LABEL_TO_STATUS["ready-to-apply"],
+                LABEL_TO_STATUS[target_status],
             )
             gh_client.update_project_status(
-                issue_node_id, LABEL_TO_STATUS["ready-to-apply"]
+                issue_node_id, LABEL_TO_STATUS[target_status]
             )
 
     except Exception as e:
@@ -683,6 +698,7 @@ def run_triage(
     resume: Any,
     llm_client: LLMClient,
     web_client: Any | None = None,
+    already_applied: bool = False,
 ) -> None:
     """Orchestrate the triage and tailoring process for a single issue.
 
@@ -759,7 +775,7 @@ def run_triage(
             logger.warning("Failed to update issue title: %s", e)
 
     # 3. Act on fit score
-    if triage_res.fit_score < settings.fit_threshold:
+    if triage_res.fit_score < settings.fit_threshold and not already_applied:
         _handle_mismatch(
             issue_number=issue_number,
             issue_node_id=issue_node_id,
@@ -780,6 +796,7 @@ def run_triage(
             settings=settings,
             resume=resume,
             llm_client=llm_client,
+            already_applied=already_applied,
         )
 
 
@@ -827,12 +844,19 @@ def run_all_pending(
             issue_number = issue.get("number")
             if not issue_number:
                 continue
-            logger.info("Triage-all: processing issue #%d", issue_number)
+            title = issue.get("title", "") or ""
+            body = issue.get("body", "") or ""
+            already_applied = detect_applied_intent(title, body)
+            logger.info(
+                "Triage-all: processing issue #%d (already_applied=%s)",
+                issue_number,
+                already_applied,
+            )
             try:
                 run_triage(
                     issue_number=issue_number,
-                    issue_title=issue.get("title", ""),
-                    issue_body=issue.get("body", ""),
+                    issue_title=title,
+                    issue_body=body,
                     issue_node_id=issue.get("node_id"),
                     issue_labels=extract_label_names(issue.get("labels", [])),
                     repo_path=repo_path,
@@ -841,6 +865,7 @@ def run_all_pending(
                     resume=resume,
                     llm_client=llm_client,
                     web_client=web_client,
+                    already_applied=already_applied,
                 )
             except QuotaExceededError as e:
                 logger.warning(
@@ -1005,6 +1030,7 @@ def main() -> None:
     try:
         llm_client = get_llm_client()
         web_client = WebClient(settings.research)
+        already_applied = detect_applied_intent(issue_title, issue_body)
         run_triage(
             issue_number=issue_number,
             issue_title=issue_title,
@@ -1017,6 +1043,7 @@ def main() -> None:
             resume=resume,
             llm_client=llm_client,
             web_client=web_client,
+            already_applied=already_applied,
         )
     except QuotaExceededError as e:
         logger.warning("LLM API quota exceeded: %s", e)
