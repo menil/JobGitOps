@@ -7,7 +7,7 @@ import pc from "picocolors";
 import ora from "ora";
 
 import { EXCLUDED_WORKFLOWS } from "./constants";
-import { createProjectV2, getGhCliToken } from "./api";
+import { createProjectV2, fetchRepositoryNodeId, getGhCliToken } from "./api";
 
 export interface InstallOptions {
   repoName: string;
@@ -36,7 +36,8 @@ export async function runInstallation(
     dryRun,
     token,
   } = options;
-  const targetTag = tag || (await resolveLatestTag(token));
+  const resolvedToken = token || (await getGhCliToken());
+  const targetTag = tag || (await resolveLatestTag(resolvedToken));
 
   console.log(
     pc.cyan(
@@ -55,7 +56,7 @@ export async function runInstallation(
   await fs.ensureDir(extractDir);
   await fs.ensureDir(appDir);
 
-  const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
+  const env = { ...process.env, GH_TOKEN: resolvedToken };
 
   try {
     // 2 & 3. Download & Extract tarball
@@ -63,7 +64,7 @@ export async function runInstallation(
       targetTag,
       tarballPath,
       extractDir,
-      token,
+      resolvedToken,
       dryRun,
     );
 
@@ -79,9 +80,21 @@ export async function runInstallation(
       const projectSpinner = ora(
         "Creating GitHub Projects V2 board...",
       ).start();
-      projectNodeId = await createProjectV2(owner, repoName, token);
-      if (projectNodeId) {
+      const repoNodeId = await fetchRepositoryNodeId(
+        owner,
+        repoName,
+        resolvedToken,
+      );
+      const projectResult = await createProjectV2(
+        owner,
+        repoName,
+        repoNodeId,
+        resolvedToken,
+      );
+      if (projectResult) {
+        projectNodeId = projectResult.id;
         projectSpinner.succeed(`Project created: ${projectNodeId}`);
+        patchReadmeWithProjectUrl(appDir, projectResult.url);
       } else {
         projectSpinner.warn(
           "Could not create project (see error above). Skipping project setup.",
@@ -97,7 +110,7 @@ export async function runInstallation(
       primaryKey,
       optionalKeys,
       wantProjects,
-      token,
+      resolvedToken,
       env,
       dryRun,
     );
@@ -111,7 +124,7 @@ export async function runInstallation(
       owner,
       repoName,
       targetTag,
-      token,
+      resolvedToken,
       dryRun,
     );
 
@@ -319,14 +332,7 @@ async function provisionSecretsAndPermissions(
 
     // If Projects V2 is integrated, store PROJECT_V2_TOKEN secret
     if (wantProjects) {
-      const ghTokenVal = token || (await getGhCliToken());
-      await uploadSecret(
-        owner,
-        repoName,
-        "PROJECT_V2_TOKEN",
-        ghTokenVal,
-        token,
-      );
+      await uploadSecret(owner, repoName, "PROJECT_V2_TOKEN", token, token);
     }
 
     // Enable write permissions for GitHub actions
@@ -380,6 +386,21 @@ function patchSettingsWithProjectId(
   fs.writeFileSync(settingsPath, content, "utf8");
 }
 
+/**
+ * Patches the README.md in appDir to link to the specific project V2 board URL
+ * instead of the generic repository /projects endpoint.
+ */
+function patchReadmeWithProjectUrl(appDir: string, projectUrl: string): void {
+  const readmePath = path.join(appDir, "README.md");
+  if (fs.existsSync(readmePath)) {
+    let content = fs.readFileSync(readmePath, "utf8");
+    const pattern =
+      /https?:\/\/(?:www\.)?github\.com\/[^/]+\/[^/]+\/projects\/?/gi;
+    content = content.replace(pattern, projectUrl);
+    fs.writeFileSync(readmePath, content, "utf8");
+  }
+}
+
 async function initializeGitAndPush(
   appDir: string,
   owner: string,
@@ -407,7 +428,7 @@ async function initializeGitAndPush(
     );
 
     // Use authenticated remote URL for initial push, then restore to standard URL
-    const resolvedToken = token || (await getGhCliToken());
+    const resolvedToken = token;
     const authedUrl = `https://x-access-token:${resolvedToken}@github.com/${owner}/${repoName}.git`;
     const cleanUrl = `https://github.com/${owner}/${repoName}.git`;
 
