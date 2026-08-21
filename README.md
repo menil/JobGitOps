@@ -148,7 +148,7 @@ custom_queries:                        # Top-level override for resume-based que
 
    (Replace `1` with your board's number.) Copy the returned `"PVT_..."` string into `config/settings.yaml`.
 
-2. **Add a `PROJECT_V2_TOKEN` secret** with `Projects` (read) plus `Issues`/`Contents`/`Pull requests` (write) scopes — see [API Key Setup](#api-key-setup). **This token is mandatory for full two-way sync**: the built-in `GITHUB_TOKEN` cannot write to Projects V2, so without it the workflows fall back to label-only tracking even when `project_id` is set.
+2. **Add a `GH_PAT` secret** with `Projects` (read) plus `Issues`/`Contents`/`Pull requests` (write) scopes — see [API Key Setup](#api-key-setup). **This token is mandatory for full two-way sync**: the built-in `GITHUB_TOKEN` cannot write to Projects V2, so without it the workflows fall back to label-only tracking even when `project_id` is set.
 
 3. **Sync the board and options** — the lifecycle columns (`Triage Pending`, `Ready to Apply`, `Applied`, `In Loop`, `Offer Received`, `Rejected`, `Mismatched/Closed`) must exist on your Status field before cards can move. Run:
 
@@ -202,12 +202,12 @@ Add the following under **Settings > Secrets and variables > Actions** in your f
 | --- | --- | --- |
 | `GEMINI_API_KEY` | One of the two | Gemini provider key (from [Google AI Studio](https://aistudio.google.com/)) |
 | `OPENROUTER_API_KEY` | One of the two | OpenRouter provider key — also powers the automated PR review |
-| `PROJECT_V2_TOKEN` | Optional | Serves as the single pipeline token when set (Projects V2 plus `Issues`, `Contents`, and `Pull requests` write access). Falls back to `GITHUB_TOKEN` only when **unset** |
+| `GH_PAT` | Optional | GitHub Personal Access Token. Serves as the single pipeline token for Projects V2, Gist status badges, and repository mutations. Falls back to `GITHUB_TOKEN` only when **unset** |
 | `TAVILY_API_KEY` | Optional | Enables the `tavily` search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional | Enables the `brave` search provider for the Issue Assistant's web research |
 | `JINA_API_KEY` | Optional | Free key (jina.ai) for the Jina Reader fallback on JS-heavy job boards; raises the anonymous 20 RPM limit to 500 RPM |
 
-> At least one of `GEMINI_API_KEY` or `OPENROUTER_API_KEY` is required for triage. If `PROJECT_V2_TOKEN` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation then degrades to label-only tracking) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `PROJECT_V2_TOKEN` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token.
+> At least one of `GEMINI_API_KEY` or `OPENROUTER_API_KEY` is required for triage. If `GH_PAT` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation and Gist status badges then degrade/skip) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `GH_PAT` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token.
 
 ### Variables
 
@@ -240,7 +240,7 @@ These workflows run inside a pre-built Docker container hosting WeasyPrint libra
 - **Scraping works but nothing is triaged**: confirm at least one of `GEMINI_API_KEY` / `OPENROUTER_API_KEY` is set; otherwise triage fails on every run.
 - **LLM quota / rate limit**: the daily scraper stops triaging for the day (exit 75) when the LLM provider reports quota exhaustion; per-issue failures post a comment on the issue.
 - **`applied` label set but the board card never moves**: the Projects V2 move only happens when `projects_v2` is configured in `config/settings.yaml` with a real `PVT_...` node ID; otherwise the label alone tracks state.
-- **Board moves but the label never updates (or vice-versa)**: verify `PROJECT_V2_TOKEN` is set and `src/jobgitops/status_model.py` still matches your board's column names; then run `devenv shell python -m jobgitops.cli.project_sync backfill --reverse` to converge both directions.
+- **Board moves but the label never updates (or vice-versa)**: verify `GH_PAT` is set and `src/jobgitops/status_model.py` still matches your board's column names; then run `devenv shell python -m jobgitops.cli.project_sync backfill --reverse` to converge both directions.
 - **`custom_queries` / `fit_threshold` seem ignored**: verify `custom_queries` is a top-level key in `config/settings.yaml` (a sibling of `search`), not nested under it.
 
 ## Issue Labels

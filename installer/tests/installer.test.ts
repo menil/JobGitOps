@@ -157,7 +157,7 @@ describe("runInstallation", () => {
     expect(repoCreateCall).toBeDefined();
     expect(repoCreateCall?.[1]).toContain("job-search-test");
 
-    // Verify secrets upload is called for gemini, tavily, and PROJECT_V2_TOKEN
+    // Verify secrets upload is called for gemini, tavily, and GH_PAT
     const secretCalls = execaCalls.filter(
       (call) =>
         call[0] === "gh" &&
@@ -165,6 +165,13 @@ describe("runInstallation", () => {
         call[1]?.includes("set"),
     );
     expect(secretCalls.length).toBe(3);
+    expect(secretCalls.some((call) => call[1]?.[2] === "GH_PAT")).toBe(true);
+    expect(secretCalls.some((call) => call[1]?.[2] === "GEMINI_API_KEY")).toBe(
+      true,
+    );
+    expect(secretCalls.some((call) => call[1]?.[2] === "TAVILY_API_KEY")).toBe(
+      true,
+    );
 
     // Verify that only core runtime workflows are copied (maintainer workflows excluded)
     const copyCalls = vi.mocked(fs.copy).mock.calls;
@@ -174,5 +181,55 @@ describe("runInstallation", () => {
     );
     expect(workflowCopyCalls.length).toBe(1);
     expect(workflowCopyCalls[0][0]).toContain("test-workflow.yml");
+  });
+
+  it("performs secrets upload for GH_PAT even when wantProjects is false", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("codeload.github.com") || url.includes("/tarball/")) {
+        return {
+          ok: true,
+          body: {
+            getReader: () => ({
+              read: () => Promise.resolve({ done: true, value: undefined }),
+            }),
+          },
+        };
+      }
+      if (url.includes("/repos/testowner/job-search-test")) {
+        return {
+          ok: true,
+          json: async () => ({ node_id: "R_repo_123" }),
+        };
+      }
+      return { ok: false };
+    });
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "private",
+        provider: "gemini",
+        primaryKey: "mock-gemini-key",
+        optionalKeys: {},
+        wantProjects: false,
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const execaCalls = vi.mocked(execa).mock.calls;
+    const secretCalls = execaCalls.filter(
+      (call) =>
+        call[0] === "gh" &&
+        call[1]?.includes("secret") &&
+        call[1]?.includes("set"),
+    );
+    // Should upload GEMINI_API_KEY and GH_PAT
+    expect(secretCalls.length).toBe(2);
+    expect(secretCalls.some((call) => call[1]?.[2] === "GH_PAT")).toBe(true);
+    expect(secretCalls.some((call) => call[1]?.[2] === "GEMINI_API_KEY")).toBe(
+      true,
+    );
   });
 });

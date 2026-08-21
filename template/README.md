@@ -42,7 +42,7 @@ Configure these under **Settings > Secrets and variables > Actions**:
 | --- | --- |
 | `GEMINI_API_KEY` | Gemini LLM key for triage and tailoring ([Google AI Studio](https://aistudio.google.com/)) — one of this or `OPENROUTER_API_KEY` is required |
 | `OPENROUTER_API_KEY` | OpenRouter LLM key — also powers automated PR reviews |
-| `PROJECT_V2_TOKEN` | Optional. Enables Kanban board automation; falls back to label-only tracking without it |
+| `GH_PAT` | Optional. GitHub Personal Access Token. Enables status badges via Gist, and optionally Projects V2 Kanban board automation; falls back to GITHUB_TOKEN without it |
 | `TAVILY_API_KEY` | Optional. Enables the Tavily search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional. Enables the Brave search provider for the Issue Assistant's web research |
 | `JINA_API_KEY` | Optional. Raises page-fetch rate limits from 20 to 500 RPM for JS-heavy job boards |

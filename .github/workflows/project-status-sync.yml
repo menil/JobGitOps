@@ -23,20 +23,20 @@ jobs:
     outputs:
       has_changes: ${{ steps.check.outputs.has_changes }}
     steps:
-      - name: Verify PROJECT_V2_TOKEN is set
+      - name: Verify GH_PAT is set
         id: token
         run: |
-          if [ -z "$PROJECT_V2_TOKEN" ]; then
-            echo "::warning::PROJECT_V2_TOKEN secret is not set — skipping sync."
-            echo "has_pv2_token=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$GH_PAT" ]; then
+            echo "::warning::GH_PAT secret is not set — skipping sync."
+            echo "has_gh_pat=false" >> "$GITHUB_OUTPUT"
           else
-            echo "has_pv2_token=true" >> "$GITHUB_OUTPUT"
+            echo "has_gh_pat=true" >> "$GITHUB_OUTPUT"
           fi
         env:
-          PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
 
       - name: Restore last-sync timestamp
-        if: steps.token.outputs.has_pv2_token == 'true'
+        if: steps.token.outputs.has_gh_pat == 'true'
         id: cache
         uses: actions/cache/restore@v4
         with:
@@ -45,7 +45,7 @@ jobs:
           path: /tmp/last-sync-timestamp
 
       - name: Check for recent issue activity
-        if: steps.token.outputs.has_pv2_token == 'true'
+        if: steps.token.outputs.has_gh_pat == 'true'
         id: check
         run: |
           if [ -f /tmp/last-sync-timestamp ]; then
@@ -70,7 +70,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Save last-sync timestamp
-        if: always() && steps.token.outputs.has_pv2_token == 'true'
+        if: always() && steps.token.outputs.has_gh_pat == 'true'
         uses: actions/cache/save@v4
         with:
           key: project-status-sync-last-run-${{ github.run_id }}
@@ -95,5 +95,5 @@ jobs:
         run: python -m jobgitops.cli.project_sync backfill --reverse
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PROJECT_V2_TOKEN: ${{ secrets.PROJECT_V2_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}

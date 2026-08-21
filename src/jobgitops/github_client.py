@@ -93,7 +93,7 @@ class GitHubClient:
         self.project_id = project_id
         self.status_field_name = status_field_name
         self.timeout = timeout
-        self.project_token = project_token or os.environ.get("PROJECT_V2_TOKEN")
+        self.project_token = project_token or os.environ.get("GH_PAT")
 
         # Number of attempts for transient failures (429/5xx), including the
         # initial try. Kept as an instance attribute so tests can shrink it.

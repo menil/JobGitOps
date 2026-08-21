@@ -44,7 +44,7 @@ custom_queries:
 #   `src/project_sync.py field-options` to align them.
 #
 # Requires a fine-grained PAT with read/write access to Projects and Issues,
-# stored as the PROJECT_V2_TOKEN repository secret (see README "Secrets").
+# stored as the GH_PAT repository secret (see README "Secrets").
 # When unset, the workflows fall back to GITHUB_TOKEN and Projects V2
 # automation degrades to label-only tracking.
 projects_v2:

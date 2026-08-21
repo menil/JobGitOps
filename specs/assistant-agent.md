@@ -148,7 +148,7 @@ contents write).
 rather than racing on labels/columns.
 
 **Environment:** standard Nix/devenv bootstrap (same as `triage-issue.yml`),
-with `GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}`.
+with `GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}`.
 Env: `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `GEMINI_API_KEY` /
 `OPENROUTER_API_KEY`, `LLM_PROVIDER`, `GEMINI_MODEL`, `OPENROUTER_MODEL`,
 plus optional `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`.
@@ -175,7 +175,7 @@ transitions:
   the Projects V2 column for the matching status and no-ops when
   `projects_v2` is unconfigured (label-only fallback).
 - The old `applied_transition.py` is removed; tests are updated accordingly.
-- Environment carries `GITHUB_TOKEN: ${{ secrets.PROJECT_V2_TOKEN || secrets.GITHUB_TOKEN }}` as today.
+- Environment carries `GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}` as today.
 
 ### 4.3.1. Reverse sync: `project-status-sync.yml`
 

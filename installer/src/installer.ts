@@ -109,7 +109,6 @@ export async function runInstallation(
       provider,
       primaryKey,
       optionalKeys,
-      wantProjects,
       resolvedToken,
       env,
       dryRun,
@@ -305,7 +304,6 @@ async function provisionSecretsAndPermissions(
   provider: "gemini" | "openrouter",
   primaryKey: string,
   optionalKeys: Record<string, string>,
-  wantProjects: boolean,
   token: string | undefined,
   env: any,
   dryRun: boolean,
@@ -330,9 +328,9 @@ async function provisionSecretsAndPermissions(
       );
     }
 
-    // If Projects V2 is integrated, store PROJECT_V2_TOKEN secret
-    if (wantProjects) {
-      await uploadSecret(owner, repoName, "PROJECT_V2_TOKEN", token, token);
+    // Always upload GH_PAT secret (needed for Gist status badges and optionally Projects V2)
+    if (token) {
+      await uploadSecret(owner, repoName, "GH_PAT", token, token);
     }
 
     // Enable write permissions for GitHub actions

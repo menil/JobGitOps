@@ -28,7 +28,7 @@ custom_queries: []
 
 # Optional GitHub Projects V2 integration settings for automated status tracking.
 # Disabled by default (commented out) -> label-only tracking. To enable, uncomment
-# and set project_id to a real node ID (PVT_...) and add a PROJECT_V2_TOKEN secret.
+# and set project_id to a real node ID (PVT_...) and add a GH_PAT secret.
 # projects_v2:
 #   project_id: "PVT_YOUR_PROJECT_ID"
 #   status_field_name: "Status"
