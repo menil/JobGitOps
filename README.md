@@ -110,79 +110,17 @@ search:
 - **`custom_queries`**: When non-empty, the scraper uses these queries instead of auto-generating them from your resume — useful for targeting new stacks or domains.
 - **`projects_v2`**: When configured, issue cards move through your Projects V2 board automatically and column moves are reflected back as labels. Without it (or while the placeholder is in place), the system falls back to repository labels (`ready-to-apply`, `applied`, `in-loop`, `rejected`).
 
-### Enabling Projects V2
-
-Enabling the Projects V2 synchronization is a three-step process:
-
-1. **Get your project's node ID** — the `PVT_...` identifier, *not* the `N` number shown in the board URL. In a terminal:
-
-   ```bash
-   gh api graphql -f query='query { viewer { projectV2(number: 1) { id } } }'
-   ```
-
-   (Replace `1` with your board's number.) Copy the returned `"PVT_..."` string into `config/settings.yaml`.
-
-2. **Add a `GH_PAT` secret** with `Projects` (read) plus `Issues`/`Contents`/`Pull requests` (write) scopes — see [API Key Setup](#api-key-setup). 
-
-   > [!IMPORTANT]
-   > This token is mandatory for full two-way sync: the built-in `GITHUB_TOKEN` cannot write to Projects V2, so without it the workflows fall back to label-only tracking even when `project_id` is set.
-
-3. **Sync the board and options** — the lifecycle columns (`Triage Pending`, `Ready to Apply`, `Applied`, `In Loop`, `Offer Received`, `Rejected`, `Mismatched/Closed`) must exist on your Status field before cards can move. 
-
-   Since user-provisioned repositories do not run the Python source code locally, you should trigger these commands via GitHub Actions **workflow_dispatch** under the **Actions** tab on your repository (triggering the `Sync Project Status to Label` workflow).
-   
-   If you are a developer testing inside a clone of the core engine repo, you can run them locally in a nix/devenv shell:
-   ```bash
-   devenv shell -- python -m jobgitops.cli.project_sync field-options   # create missing options
-   devenv shell -- python -m jobgitops.cli.project_sync backfill --reverse   # one-time reconciliation
-   ```
-
-   > [!WARNING]
-   > `backfill` moves every card to the column its labels dictate, overwriting manual column positions, and `field-options --prune` permanently deletes Status options not in the lifecycle model. Run them only when you intend labels to be the source of truth for the board.
-
-   **How the two-way sync works:** labels are the single source of truth in the project's state model (see [DEVELOPMENT.md](DEVELOPMENT.md#issue-labels--lifecycle) for details). Adding a lifecycle label moves the card; moving a card applies the matching label; `backfill` converges the whole board idempotently, and `backfill --reverse` recovers any column move whose webhook event was dropped.
-
----
-
-## API Key Setup
-
-Add the following under **Settings > Secrets and variables > Actions** in your fork.
-
-### Secrets
-
-| Secret | Required | Purpose |
-| --- | --- | --- |
-| `GEMINI_API_KEY` | One of the two | Gemini provider key (from [Google AI Studio](https://aistudio.google.com/)) |
-| `OPENROUTER_API_KEY` | One of the two | OpenRouter provider key — also powers the automated PR review |
-| `GH_PAT` | Optional | GitHub Personal Access Token. Serves as the single pipeline token for Projects V2, Gist status badges, and repository mutations. Falls back to `GITHUB_TOKEN` only when **unset** |
-| `TAVILY_API_KEY` | Optional | Enables the `tavily` search provider for the Issue Assistant's web research |
-| `BRAVE_API_KEY` | Optional | Enables the `brave` search provider for the Issue Assistant's web research |
-| `JINA_API_KEY` | Optional | Free key (jina.ai) for the Jina Reader fallback on JS-heavy job boards; raises the anonymous 20 RPM limit to 500 RPM |
-
-> [!NOTE]
-> At least one of `GEMINI_API_KEY` or `OPENROUTER_API_KEY` is required for triage. If `GH_PAT` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation and Gist status badges then degrade/skip) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `GH_PAT` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token. We recommend using **Fine-Grained Personal Access Tokens (Beta)** scoped strictly to your job search repository.
-
-### Variables
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `LLM_PROVIDER` | auto-detected | `gemini` or `openrouter` (auto-detected from keys when unset) |
-| `GEMINI_MODEL` | `models/gemini-2.5-flash` | Gemini model (`models/` prefix recommended; bare `gemini-*` names also accepted) |
-| `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | OpenRouter model, provider prefix required. Also drives the PR-review action, where it defaults to `openrouter/free` |
-| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenRouter endpoint used by the PR-review action |
-| `OPENROUTER_MAX_TOKENS` | `4096` | Max tokens for the PR-review action |
-
 ---
 
 ## Troubleshooting
 
 - **Check workflow logs**: every run is visible under the **Actions** tab, with the exact command and error output per step.
-- **Scraping works but nothing is triaged**: confirm at least one of `GEMINI_API_KEY` / `OPENROUTER_API_KEY` is set; otherwise triage fails on every run.
+- **Scraping works but nothing is triaged**: confirm your LLM provider key is configured in repository secrets; otherwise triage fails on every run.
 - **LLM quota / rate limit (Exit 75)**: the daily scraper stops triaging for the day when the LLM provider reports quota exhaustion; per-issue failures post a comment on the issue. To recover, wait for the daily quota reset and manually trigger the daily scrape workflow via Actions **workflow_dispatch**, or remove and re-apply the `triage-pending` label on stalled issues.
 - **Setup pending / No jobs scraped**: verify `resumes/resume.yaml` has been updated with real content and no longer contains the `__JOBGITOPS_SETUP_PENDING__` sentinel string.
 - **`applied` label set but the board card never moves**: the Projects V2 move only happens when `projects_v2` is configured in `config/settings.yaml` with a real `PVT_...` node ID; otherwise the label alone tracks state.
-- **Board moves but the label never updates (or vice-versa)**: verify `GH_PAT` is set, active, and has required scopes. To reconcile out-of-sync board columns and issue labels, trigger the `Sync Project Status to Label` workflow manually via **workflow_dispatch** under the Actions tab (see [Enabling Projects V2](#enabling-projects-v2)).
-- **Web research or job URL fetch fails**: if pages fail to parse due to anti-bot protection or rate limiting, add a `JINA_API_KEY` to your secrets (to raise the rate limit to 500 RPM) or configure a dedicated search provider like `tavily` or `brave` in `config/settings.yaml`.
+- **Board moves but the label never updates (or vice-versa)**: verify your configuration has Projects V2 enabled. To reconcile out-of-sync board columns and issue labels, see the manual sync procedures in [DEVELOPMENT.md](DEVELOPMENT.md#project-sync-and-reconciliation-cli).
+- **Web research or job URL fetch fails**: if pages fail to parse due to anti-bot protection or rate limiting, add a Jina API key to your secrets or configure a dedicated search provider in `config/settings.yaml`.
 - **`custom_queries` / `fit_threshold` seem ignored**: verify `custom_queries` is a top-level key in `config/settings.yaml` (a sibling of `search`), not nested under it.
 
 ---
