@@ -70,10 +70,16 @@ def test_github_client_project_token_init(monkeypatch: pytest.MonkeyPatch) -> No
     assert client.project_token == "proj-token"
 
     # Fallback to environment variable
-    monkeypatch.setenv("PROJECT_V2_TOKEN", "env-proj-token")
+    monkeypatch.setenv("GH_PAT", "env-proj-token")
     client_env = GitHubClient(token="main-token", repo="owner/repo")
     assert client_env.token == "main-token"
     assert client_env.project_token == "env-proj-token"
+
+    # Unset state fallback to None
+    monkeypatch.delenv("GH_PAT", raising=False)
+    client_none = GitHubClient(token="main-token", repo="owner/repo")
+    assert client_none.token == "main-token"
+    assert client_none.project_token is None
 
 
 @mock.patch("urllib.request.urlopen")
