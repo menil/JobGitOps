@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   check-setup:
@@ -18,51 +18,45 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Verify resume setup
-        # Checks if resume.yaml is missing or contains the pending setup sentinel.
-        # Copies the corresponding pre-downloaded badge SVG to setup-status.svg.
-        # This allows the README to display a dynamic, private-safe status badge
-        # using a simple relative path without needing external APIs.
-        # Also, if setup is complete, swaps static pending badges in README.md with live workflow badges.
+      - name: Verify Setup and Gist Configuration
+        id: status
         run: |
           if [ "$GITHUB_REPOSITORY" = "menil/JobGitOps" ]; then
-            echo "Template repository, skipping setup check."
+            echo "is_template=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          mkdir -p .github/badges
+          echo "is_template=false" >> "$GITHUB_OUTPUT"
+
           if [ ! -f resumes/resume.yaml ] || grep -q "__JOBGITOPS_SETUP_PENDING__" resumes/resume.yaml; then
-            echo "Setup is still required."
-            cp .github/badges/setup-required.svg .github/badges/setup-status.svg
+            echo "setup_required=true" >> "$GITHUB_OUTPUT"
+            echo "Setup is required."
           else
+            echo "setup_required=false" >> "$GITHUB_OUTPUT"
             echo "Setup is complete!"
-            cp .github/badges/setup-complete.svg .github/badges/setup-status.svg
-            if [ -f README.md ]; then
-              if ! sed -i \
-                -e "s|https://img.shields.io/badge/scrape%20jobs-pending-yellow|https://github.com/$GITHUB_REPOSITORY/actions/workflows/scrape-jobs.yml/badge.svg|g" \
-                -e "s|https://img.shields.io/badge/triage%20%26%20tailor-pending-yellow|https://github.com/$GITHUB_REPOSITORY/actions/workflows/triage-issue.yml/badge.svg|g" \
-                -e "s|https://img.shields.io/badge/auto--format%20resume-pending-yellow|https://github.com/$GITHUB_REPOSITORY/actions/workflows/format-resume.yml/badge.svg|g" \
-                README.md; then
-                echo "::error::Failed to update README.md badges."
-                exit 1
-              fi
-            fi
           fi
 
-      - name: Commit badge
-        # If the badge file or README actually changed, commit and push it back.
-        # We specify origin HEAD:${{ github.ref_name }} to handle detached HEAD checkouts,
-        # and pull with rebase to handle concurrent pushes.
-        run: |
-          if [ "$GITHUB_REPOSITORY" = "menil/JobGitOps" ]; then
-            echo "Template repository, skipping badge commit."
-            exit 0
+          if [ -n "$GH_PAT" ] && [ -n "$GIST_ID" ]; then
+            echo "has_gist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_gist=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GH_PAT or GIST_ID is not set — skipping Gist badge update."
           fi
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/badges/setup-status.svg
-          if [ -f README.md ]; then git add README.md; fi
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: update setup status badge"
-            timeout 30 git pull --rebase origin ${{ github.ref_name }}
-            git push origin HEAD:${{ github.ref_name }}
-          fi
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GIST_ID: ${{ vars.GIST_ID }}
+
+      # Setup is required: update all status badges to required/pending
+      - name: Reset Badges to Required/Pending
+        if: steps.status.outputs.is_template == 'false' && steps.status.outputs.has_gist == 'true' && steps.status.outputs.setup_required == 'true'
+        run: python .github/scripts/update_badge.py --reset
+        env:
+          GIST_ID: ${{ vars.GIST_ID }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      # Setup is complete: update setup badge to complete (green)
+      - name: Update Setup Badge (Complete)
+        if: steps.status.outputs.is_template == 'false' && steps.status.outputs.has_gist == 'true' && steps.status.outputs.setup_required == 'false'
+        run: python .github/scripts/update_badge.py "Setup" "complete" "green" "setup-status.json"
+        env:
+          GIST_ID: ${{ vars.GIST_ID }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}

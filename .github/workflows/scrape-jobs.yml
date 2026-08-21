@@ -99,6 +99,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Set Badge (Running)
+        if: github.repository != 'menil/JobGitOps' && vars.GIST_ID != '' && secrets.GH_PAT != ''
+        run: python .github/scripts/update_badge.py "Daily Job Scraper" "running" "yellow" "scrape-status.json"
+        env:
+          GIST_ID: ${{ vars.GIST_ID }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
       - name: Verify Resume
         run: |
           if [ -f resumes/resume.yaml ]; then
@@ -149,4 +156,18 @@ jobs:
             echo "::warning::GH_PAT is not set. GITHUB_TOKEN does not have permission to write repository variables. Please set JOBGITOPS_INITIALIZED to 'true' manually in your repository Settings -> Secrets and variables -> Actions -> Variables to prevent the bootstrap trigger from refiring on future resume pushes."
           fi
         env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Update Badge (Failed)
+        if: failure() && github.repository != 'menil/JobGitOps' && vars.GIST_ID != '' && secrets.GH_PAT != ''
+        run: python .github/scripts/update_badge.py "Daily Job Scraper" "failing" "red" "scrape-status.json"
+        env:
+          GIST_ID: ${{ vars.GIST_ID }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Update Badge (Passed)
+        if: success() && github.repository != 'menil/JobGitOps' && vars.GIST_ID != '' && secrets.GH_PAT != ''
+        run: python .github/scripts/update_badge.py "Daily Job Scraper" "passing" "green" "scrape-status.json"
+        env:
+          GIST_ID: ${{ vars.GIST_ID }}
           GH_TOKEN: ${{ secrets.GH_PAT }}

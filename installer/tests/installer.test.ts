@@ -20,6 +20,7 @@ vi.mock("fs-extra", async (importOriginal) => {
     default: {
       ...actual.default,
       copy: vi.fn().mockResolvedValue(undefined),
+      pathExists: vi.fn().mockResolvedValue(true),
       writeFile: vi.fn().mockResolvedValue(undefined),
       readFile: vi
         .fn()
@@ -133,6 +134,12 @@ describe("runInstallation", () => {
           }),
         };
       }
+      if (url.includes("/gists")) {
+        return {
+          ok: true,
+          json: async () => ({ id: "mock-gist-id" }),
+        };
+      }
       return { ok: false };
     });
 
@@ -173,6 +180,16 @@ describe("runInstallation", () => {
       true,
     );
 
+    // Verify GIST_ID variable upload is called
+    const varCalls = execaCalls.filter(
+      (call) =>
+        call[0] === "gh" && call[1]?.some((arg) => arg.includes("variables")),
+    );
+    expect(varCalls.length).toBeGreaterThanOrEqual(1);
+    expect(
+      varCalls.some((call) => call[1]?.some((arg) => arg.includes("GIST_ID"))),
+    ).toBe(true);
+
     // Verify that only core runtime workflows are copied (maintainer workflows excluded)
     const copyCalls = vi.mocked(fs.copy).mock.calls;
     const workflowCopyCalls = copyCalls.filter(
@@ -181,6 +198,12 @@ describe("runInstallation", () => {
     );
     expect(workflowCopyCalls.length).toBe(1);
     expect(workflowCopyCalls[0][0]).toContain("test-workflow.yml");
+
+    const scriptCopyCalls = copyCalls.filter(
+      (call) =>
+        typeof call[0] === "string" && call[0].includes(".github/scripts"),
+    );
+    expect(scriptCopyCalls.length).toBe(1);
   });
 
   it("performs secrets upload for GH_PAT even when wantProjects is false", async () => {
@@ -200,6 +223,12 @@ describe("runInstallation", () => {
         return {
           ok: true,
           json: async () => ({ node_id: "R_repo_123" }),
+        };
+      }
+      if (url.includes("/gists")) {
+        return {
+          ok: true,
+          json: async () => ({ id: "mock-gist-id" }),
         };
       }
       return { ok: false };

@@ -1,9 +1,11 @@
 # JobGitOps
 
-![Setup Status](.github/badges/setup-status.svg)
-[![Scrape Jobs](https://img.shields.io/badge/scrape%20jobs-pending-yellow)](https://github.com/__OWNER__/__REPO__/actions/workflows/scrape-jobs.yml)
-[![Triage & Tailor](https://img.shields.io/badge/triage%20%26%20tailor-pending-yellow)](https://github.com/__OWNER__/__REPO__/actions/workflows/triage-issue.yml)
-[![Auto-Format Resume](https://img.shields.io/badge/auto--format%20resume-pending-yellow)](https://github.com/__OWNER__/__REPO__/actions/workflows/format-resume.yml)
+[![Setup](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/setup-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/check-setup.yml)
+[![Resume Format](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/format-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/format-resume.yml)
+[![Daily Job Scraper](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/scrape-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/scrape-jobs.yml)
+[![Triage & Tailor](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/triage-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/triage-issue.yml)
+[![Issue Assistant](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/respond-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/respond-issue.yml)
+
 
 A serverless, GitOps-driven job application and tracking system. GitHub Issues are your pipeline, GitHub Projects is your Kanban board, and GitHub Actions is the automation plane that scrapes roles, AI-triages fit, and tailors your resume — all running free on GitHub's infrastructure.
 

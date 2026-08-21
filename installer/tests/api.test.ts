@@ -5,6 +5,7 @@ import {
   validateApiKey,
   createProjectV2,
   fetchRepositoryNodeId,
+  createGist,
 } from "../src/api.js";
 import { execa } from "execa";
 
@@ -66,7 +67,7 @@ describe("fetchGithubUser", () => {
 });
 
 describe("verifyAndRefreshScopes", () => {
-  const dummyUser = { login: "testuser", scopes: ["repo", "workflow"] };
+  const dummyUser = { login: "testuser", scopes: ["repo", "workflow", "gist"] };
 
   it("succeeds directly when all required scopes are present", async () => {
     const result = await verifyAndRefreshScopes(dummyUser, false, false, false);
@@ -89,7 +90,7 @@ describe("verifyAndRefreshScopes", () => {
     await expect(
       verifyAndRefreshScopes(missingUser, false, true, true),
     ).rejects.toThrow(
-      "Your GitHub token is missing the required scope(s): workflow.",
+      "Your GitHub token is missing the required scope(s): workflow, gist.",
     );
   });
 
@@ -98,7 +99,7 @@ describe("verifyAndRefreshScopes", () => {
     await expect(
       verifyAndRefreshScopes(missingUser, false, false, false),
     ).rejects.toThrow(
-      "Your GitHub token is missing the required scope(s): workflow.",
+      "Your GitHub token is missing the required scope(s): workflow, gist.",
     );
   });
 
@@ -315,5 +316,54 @@ describe("fetchRepositoryNodeId", () => {
 
     const result2 = await fetchRepositoryNodeId("owner", "");
     expect(result2).toBeNull();
+  });
+});
+
+describe("createGist", () => {
+  it("successfully creates a gist and returns the id", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: "mock_gist_id" }),
+    } as any);
+
+    const result = await createGist(
+      "test description",
+      {
+        "test.json": { content: "test content" },
+      },
+      "mock_token",
+    );
+
+    expect(result).toBe("mock_gist_id");
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://api.github.com/gists",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          description: "test description",
+          public: true,
+          files: {
+            "test.json": { content: "test content" },
+          },
+        }),
+      }),
+    );
+  });
+
+  it("returns null if response is not ok", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    } as any);
+
+    const result = await createGist("test description", {});
+    expect(result).toBeNull();
+  });
+
+  it("returns null if fetch throws an error", async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error("Network Error"));
+
+    const result = await createGist("test description", {});
+    expect(result).toBeNull();
   });
 });
