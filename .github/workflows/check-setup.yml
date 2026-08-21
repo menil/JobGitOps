@@ -21,7 +21,7 @@ jobs:
       - name: Verify Setup and Gist Configuration
         id: status
         run: |
-          if [ "$GITHUB_REPOSITORY" = "menil/JobGitOps" ]; then
+          if [ "$GITHUB_REPOSITORY" = "$TEMPLATE_REPO" ]; then
             echo "is_template=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -44,6 +44,7 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           GIST_ID: ${{ vars.GIST_ID }}
+          TEMPLATE_REPO: ${{ vars.TEMPLATE_REPO }}
 
       # Setup is required: update all status badges to required/pending
       - name: Reset Badges to Required/Pending
