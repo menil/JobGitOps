@@ -81,7 +81,7 @@ export async function verifyAndRefreshScopes(
   hasTokenEnv: boolean,
   interactive: boolean,
 ): Promise<GithubUser> {
-  const required = ["repo", "workflow"];
+  const required = ["repo", "workflow", "gist"];
   if (wantProjects) {
     required.push("project", "write:discussion");
   }
@@ -223,6 +223,44 @@ export async function createProjectV2(
     return { id: projectV2.id, url: projectV2.url };
   } catch (error: any) {
     console.error(`Failed to create Projects V2: ${error.message || error}`);
+    return null;
+  }
+}
+
+/**
+ * Creates a GitHub Gist with the provided files.
+ * Returns the gist ID on success, or null on failure.
+ */
+export async function createGist(
+  description: string,
+  files: Record<string, { content: string }>,
+  token?: string,
+): Promise<string | null> {
+  const resolvedToken = token || (await getGhCliToken());
+  const authHeaders = {
+    Authorization: `Bearer ${resolvedToken}`,
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const resp = await fetch("https://api.github.com/gists", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        description,
+        public: true,
+        files,
+      }),
+    });
+    if (!resp.ok) {
+      console.error(`Failed to create Gist: HTTP ${resp.status}`);
+      return null;
+    }
+    const result = (await resp.json()) as { id?: string };
+    return result?.id || null;
+  } catch (error: any) {
+    console.error(`Failed to create Gist: ${error.message || error}`);
     return null;
   }
 }

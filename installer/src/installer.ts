@@ -7,7 +7,12 @@ import pc from "picocolors";
 import ora from "ora";
 
 import { EXCLUDED_WORKFLOWS } from "./constants";
-import { createProjectV2, fetchRepositoryNodeId, getGhCliToken } from "./api";
+import {
+  createProjectV2,
+  fetchRepositoryNodeId,
+  getGhCliToken,
+  createGist,
+} from "./api";
 
 export interface InstallOptions {
   repoName: string;
@@ -68,8 +73,96 @@ export async function runInstallation(
       dryRun,
     );
 
+    // 3.5. Create dynamic status Gist
+    let gistId = "mock_gist_id";
+    if (!dryRun) {
+      const gistSpinner = ora("Creating status Gist...").start();
+      const files = {
+        "setup-status.json": {
+          content: JSON.stringify(
+            {
+              schemaVersion: 1,
+              label: "Setup",
+              message: "required",
+              color: "yellow",
+            },
+            null,
+            2,
+          ),
+        },
+        "format-status.json": {
+          content: JSON.stringify(
+            {
+              schemaVersion: 1,
+              label: "Resume Format",
+              message: "pending",
+              color: "inactive",
+            },
+            null,
+            2,
+          ),
+        },
+        "scrape-status.json": {
+          content: JSON.stringify(
+            {
+              schemaVersion: 1,
+              label: "Daily Job Scraper",
+              message: "pending",
+              color: "inactive",
+            },
+            null,
+            2,
+          ),
+        },
+        "triage-status.json": {
+          content: JSON.stringify(
+            {
+              schemaVersion: 1,
+              label: "Triage & Tailor",
+              message: "pending",
+              color: "inactive",
+            },
+            null,
+            2,
+          ),
+        },
+        "respond-status.json": {
+          content: JSON.stringify(
+            {
+              schemaVersion: 1,
+              label: "Issue Assistant",
+              message: "pending",
+              color: "inactive",
+            },
+            null,
+            2,
+          ),
+        },
+      };
+      const createdGistId = await createGist(
+        `JobGitOps status badges mapping store for ${owner}/${repoName}`,
+        files,
+        resolvedToken,
+      );
+      if (createdGistId) {
+        gistId = createdGistId;
+        gistSpinner.succeed(`Status Gist created: ${gistId}`);
+      } else {
+        gistSpinner.warn(
+          "Could not create status Gist. Falling back to default.",
+        );
+      }
+    }
+
     // 4. Assemble workspace files
-    await assembleFiles(templateSourceDir, appDir, owner, repoName, dryRun);
+    await assembleFiles(
+      templateSourceDir,
+      appDir,
+      owner,
+      repoName,
+      gistId,
+      dryRun,
+    );
 
     // 5. GitHub Repository Provisioning
     await createGitHubRepository(owner, repoName, visibility, env, dryRun);
@@ -102,7 +195,7 @@ export async function runInstallation(
       }
     }
 
-    // 6. Secrets Provisioning
+    // 6. Secrets & Variable Provisioning
     await provisionSecretsAndPermissions(
       owner,
       repoName,
@@ -110,6 +203,7 @@ export async function runInstallation(
       primaryKey,
       optionalKeys,
       resolvedToken,
+      gistId,
       env,
       dryRun,
     );
@@ -197,6 +291,7 @@ async function assembleFiles(
   appDir: string,
   owner: string,
   repoName: string,
+  gistId: string,
   dryRun: boolean,
 ): Promise<void> {
   const assembleSpinner = ora("Assembling repository files...").start();
@@ -260,12 +355,20 @@ async function assembleFiles(
       }
     }
 
+    // Copy scripts
+    const scriptSrc = path.join(templateSourceDir, ".github", "scripts");
+    const scriptDest = path.join(appDir, ".github", "scripts");
+    if (await fs.pathExists(scriptSrc)) {
+      await fs.copy(scriptSrc, scriptDest);
+    }
+
     // Replace placeholders in README
     const readmePath = path.join(appDir, "README.md");
     let readmeContent = await fs.readFile(readmePath, "utf-8");
     readmeContent = readmeContent
       .replace(/__OWNER__/g, owner)
-      .replace(/__REPO__/g, repoName);
+      .replace(/__REPO__/g, repoName)
+      .replace(/__GIST_ID__/g, gistId);
     await fs.writeFile(readmePath, readmeContent, "utf-8");
 
     assembleSpinner.succeed("Files assembled successfully.");
@@ -305,6 +408,7 @@ async function provisionSecretsAndPermissions(
   primaryKey: string,
   optionalKeys: Record<string, string>,
   token: string | undefined,
+  gistId: string,
   env: any,
   dryRun: boolean,
 ): Promise<void> {
@@ -331,6 +435,37 @@ async function provisionSecretsAndPermissions(
     // Always upload GH_PAT secret (needed for Gist status badges and optionally Projects V2)
     if (token) {
       await uploadSecret(owner, repoName, "GH_PAT", token, token);
+    }
+
+    // Upload Gist ID variable
+    try {
+      await execa(
+        "gh",
+        [
+          "api",
+          "--method",
+          "PATCH",
+          `repos/${owner}/${repoName}/actions/variables/GIST_ID`,
+          "-f",
+          `value=${gistId}`,
+        ],
+        { env },
+      );
+    } catch {
+      await execa(
+        "gh",
+        [
+          "api",
+          "--method",
+          "POST",
+          `repos/${owner}/${repoName}/actions/variables`,
+          "-f",
+          "name=GIST_ID",
+          "-f",
+          `value=${gistId}`,
+        ],
+        { env },
+      );
     }
 
     // Enable write permissions for GitHub actions
