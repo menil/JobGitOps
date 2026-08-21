@@ -25,8 +25,9 @@ export async function promptRepoName(defaultName: string): Promise<string> {
 
 export async function promptProjectsV2(): Promise<boolean> {
   return confirm({
-    message: "Do you want to integrate with GitHub Projects V2?",
-    default: false,
+    message:
+      "Do you want to create a GitHub Projects Kanban board to visually track job applications? (may require an additional scope on your GitHub token)",
+    default: true,
   });
 }
 
