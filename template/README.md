@@ -53,8 +53,8 @@ Configure these under **Settings > Secrets and variables > Actions**:
 
 | Workflow | What it does |
 | --- | --- |
-| `scrape-jobs` | Daily cron that discovers new roles from LinkedIn, Indeed, and ZipRecruiter, then opens issues |
-| `triage-issue` | AI-scores each listing against your resume and tailors a fit resume if it passes the threshold |
-| `respond-issue` | Answers questions on issue threads via live web research, and applies status labels from conversation |
-| `status-transition` | Moves your board card when you apply a lifecycle label (`applied`, `in-loop`, `rejected`) |
-| `project-status-sync` | Reverse sync: applies the matching label when you drag a card to a new column |
+| `scrape-jobs.yml` | Daily cron that discovers new roles from LinkedIn, Indeed, and ZipRecruiter, then opens issues |
+| `triage-issue.yml` | AI-scores each listing against your resume and tailors a fit resume if it passes the threshold |
+| `respond-issue.yml` | Answers questions on issue threads via live web research, and applies status labels from conversation |
+| `status-transition.yml` | Moves your board card when you apply a lifecycle label (`applied`, `in-loop`, `rejected`) |
+| `project-status-sync.yml` | Reverse sync: applies the matching label when you drag a card to a new column |
