@@ -5,6 +5,8 @@ import os from "os";
 import * as tar from "tar";
 import pc from "picocolors";
 import ora from "ora";
+import { pipeline } from "stream/promises";
+import { Readable } from "stream";
 
 import { EXCLUDED_WORKFLOWS } from "./constants";
 import {
@@ -609,18 +611,14 @@ async function downloadTarball(
     const response = await fetch(codeloadUrl);
     if (response.ok && response.body) {
       const fileStream = fs.createWriteStream(destPath);
-      const reader = response.body.getReader();
-      let reading = true;
-      while (reading) {
-        const { done, value } = await reader.read();
-        if (done) {
-          reading = false;
-        } else {
-          fileStream.write(Buffer.from(value));
-        }
+      try {
+        await pipeline(Readable.fromWeb(response.body as any), fileStream);
+        return;
+      } catch (err) {
+        fileStream.destroy();
+        await fs.remove(destPath).catch(() => {});
+        throw err;
       }
-      fileStream.end();
-      return;
     }
   } catch {
     // Fall back to authenticated API endpoint
