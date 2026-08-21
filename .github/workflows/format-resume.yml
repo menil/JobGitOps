@@ -8,7 +8,7 @@ on:
       - 'resumes/resume.yaml'
 
 concurrency:
-  group: push-main-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
