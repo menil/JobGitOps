@@ -118,7 +118,7 @@ Targeted test execution for the TypeScript installer package with `vitest`:
 npm test --prefix installer                  # Run Vitest test suite with coverage
 ```
 
-### Project Sync & Reconciliation CLI
+### Project Sync and Reconciliation CLI
 
 The `project_sync` CLI utility helps initialize Projects V2 columns and reconcile status mismatch states between board columns and issue labels:
 
@@ -170,7 +170,60 @@ specs/                        # Architecture specs + user stories
 While the interactive installer package is the recommended installation path, JobGitOps can also be set up manually by developers testing modifications in a personal fork:
 
 1. **Fork the repository** to your personal GitHub account.
-2. **Configure secrets & variables** — see the [API Key Setup](README.md#api-key-setup) section in the main README.
+2. **Configure secrets & variables** — see [API Key Setup](#api-key-setup) below.
 3. **Customize your resume & preferences** — see the [Configuration](README.md#configuration) section in the main README.
 4. **Enable Actions**: open the **Actions** tab in your fork and click *"I understand my workflows, go ahead and enable them"* (required by GitHub for all forks).
 5. **Run**: the daily cron automatically begins scraping, and the triage webhook triages every new listing. You can also trigger a scrape manually anytime via the **Run workflow** button under the **Actions** tab with optional overrides (work preference, job type, hours, dry-run).
+
+### API Key Setup
+
+Configure the following secrets and variables under **Settings > Secrets and variables > Actions** in your fork.
+
+#### Secrets
+
+| Secret | Required | Purpose |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | One of the two | Gemini provider key (from [Google AI Studio](https://aistudio.google.com/)) |
+| `OPENROUTER_API_KEY` | One of the two | OpenRouter provider key — also powers the automated PR review |
+| `GH_PAT` | Optional | GitHub Personal Access Token. Serves as the single pipeline token for Projects V2, Gist status badges, and repository mutations. Falls back to `GITHUB_TOKEN` only when **unset** |
+| `TAVILY_API_KEY` | Optional | Enables the `tavily` search provider for the Issue Assistant's web research |
+| `BRAVE_API_KEY` | Optional | Enables the `brave` search provider for the Issue Assistant's web research |
+| `JINA_API_KEY` | Optional | Free key (jina.ai) for the Jina Reader fallback on JS-heavy job boards; raises the anonymous 20 RPM limit to 500 RPM |
+
+> [!NOTE]
+> At least one of `GEMINI_API_KEY` or `OPENROUTER_API_KEY` is required for triage. If `GH_PAT` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation and Gist status badges then degrade/skip) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `GH_PAT` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token. We recommend using **Fine-Grained Personal Access Tokens (Beta)** scoped strictly to your job search repository.
+
+#### Variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LLM_PROVIDER` | auto-detected | `gemini` or `openrouter` (auto-detected from keys when unset) |
+| `GEMINI_MODEL` | `models/gemini-2.5-flash` | Gemini model (`models/` prefix recommended; bare `gemini-*` names also accepted) |
+| `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | OpenRouter model, provider prefix required. Also drives the PR-review action, where it defaults to `openrouter/free` |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenRouter endpoint used by the PR-review action |
+| `OPENROUTER_MAX_TOKENS` | `4096` | Max tokens for the PR-review action |
+
+### Enabling Projects V2 Manually
+
+If you choose to enable the Projects V2 Kanban board manually on your fork:
+
+1. **Get your project's node ID** — the `PVT_...` identifier, *not* the `N` number shown in the board URL. In a terminal:
+
+   ```bash
+   gh api graphql -f query='query { viewer { projectV2(number: 1) { id } } }'
+   ```
+
+   (Replace `1` with your board's number.) Copy the returned `"PVT_..."` string into `config/settings.yaml`.
+
+2. **Add a `GH_PAT` secret** with `project` (read) plus `repo`, `workflow`, and `gist` scopes — see [API Key Setup](#api-key-setup) above.
+
+   > [!IMPORTANT]
+   > This token is mandatory for full two-way sync: the built-in `GITHUB_TOKEN` cannot write to Projects V2, so without it the workflows fall back to label-only tracking even when `project_id` is set.
+
+3. **Sync the board and options** — the lifecycle columns (`Triage Pending`, `Ready to Apply`, `Applied`, `In Loop`, `Offer Received`, `Rejected`, `Mismatched/Closed`) must exist on your Status field before cards can move. 
+
+   You can initialize status options and reconcile cards by running:
+   ```bash
+   devenv shell -- python -m jobgitops.cli.project_sync field-options   # create missing options
+   devenv shell -- python -m jobgitops.cli.project_sync backfill --reverse   # one-time reconciliation
+   ```
