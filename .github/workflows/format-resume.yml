@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set Badge (Running)
-        if: github.repository != 'menil/JobGitOps' && vars.GIST_ID != '' && secrets.GH_PAT != ''
+        if: github.repository != vars.TEMPLATE_REPO
         run: python .github/scripts/update_badge.py "Resume Format" "running" "yellow" "format-status.json"
         env:
           GIST_ID: ${{ vars.GIST_ID }}
@@ -60,14 +60,14 @@ jobs:
           fi
 
       - name: Update Badge (Failed)
-        if: failure() && github.repository != 'menil/JobGitOps' && vars.GIST_ID != '' && secrets.GH_PAT != ''
+        if: failure() && github.repository != vars.TEMPLATE_REPO
         run: python .github/scripts/update_badge.py --reset
         env:
           GIST_ID: ${{ vars.GIST_ID }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Update Badge (Passed)
-        if: success() && github.repository != 'menil/JobGitOps' && vars.GIST_ID != '' && secrets.GH_PAT != ''
+        if: success() && github.repository != vars.TEMPLATE_REPO
         run: python .github/scripts/update_badge.py "Resume Format" "passed" "green" "format-status.json"
         env:
           GIST_ID: ${{ vars.GIST_ID }}
