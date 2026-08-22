@@ -328,27 +328,33 @@ async function assembleFiles(
       path.join(templateSourceDir, "template", ".gitignore"),
       path.join(appDir, ".gitignore"),
     );
+    const templateGitHubDir = path.join(
+      templateSourceDir,
+      "template",
+      ".github",
+    );
+
     await fs.copy(
-      path.join(templateSourceDir, ".github", "labels.yml"),
+      path.join(templateGitHubDir, "labels.yml"),
       path.join(appDir, ".github", "labels.yml"),
     );
 
     // Copy setup status SVGs
     await fs.copy(
-      path.join(templateSourceDir, ".github", "badges", "setup-status.svg"),
+      path.join(templateGitHubDir, "badges", "setup-status.svg"),
       path.join(appDir, ".github", "badges", "setup-status.svg"),
     );
     await fs.copy(
-      path.join(templateSourceDir, ".github", "badges", "setup-required.svg"),
+      path.join(templateGitHubDir, "badges", "setup-required.svg"),
       path.join(appDir, ".github", "badges", "setup-required.svg"),
     );
     await fs.copy(
-      path.join(templateSourceDir, ".github", "badges", "setup-complete.svg"),
+      path.join(templateGitHubDir, "badges", "setup-complete.svg"),
       path.join(appDir, ".github", "badges", "setup-complete.svg"),
     );
 
     // Copy workflows (except maintainer-only ones)
-    const workflowSrc = path.join(templateSourceDir, ".github", "workflows");
+    const workflowSrc = path.join(templateGitHubDir, "workflows");
     const workflowDest = path.join(appDir, ".github", "workflows");
     const workflows = await fs.readdir(workflowSrc);
     for (const wf of workflows) {
@@ -358,7 +364,7 @@ async function assembleFiles(
     }
 
     // Copy scripts
-    const scriptSrc = path.join(templateSourceDir, ".github", "scripts");
+    const scriptSrc = path.join(templateGitHubDir, "scripts");
     const scriptDest = path.join(appDir, ".github", "scripts");
     if (await fs.pathExists(scriptSrc)) {
       await fs.copy(scriptSrc, scriptDest);
