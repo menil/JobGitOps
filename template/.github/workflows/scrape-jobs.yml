@@ -99,20 +99,30 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Verify Resume
+        id: verify
+        run: |
+          if [ -f resumes/resume.yaml ]; then
+            if python -m jobgitops.cli.validate_resume --check-canonical resumes/resume.yaml; then
+              echo "valid=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Resume is not canonically formatted or valid. Skipping scrape and keeping status pending."
+              echo "valid=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Resume file not found. Skipping."
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set Badge (Running)
-        if: github.repository != vars.TEMPLATE_REPO
+        if: steps.verify.outputs.valid == 'true' && github.repository != vars.TEMPLATE_REPO
         run: python .github/scripts/update_badge.py "Daily Job Scraper" "running" "yellow" "scrape-status.json"
         env:
           GIST_ID: ${{ vars.GIST_ID }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
-      - name: Verify Resume
-        run: |
-          if [ -f resumes/resume.yaml ]; then
-            python -m jobgitops.cli.validate_resume resumes/resume.yaml
-          fi
-
       - name: Run Job Scraper
+        if: steps.verify.outputs.valid == 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -145,6 +155,7 @@ jobs:
       # loudly and the bootstrap re-fires on the next resume push (S3) — the
       # scrape itself already succeeded, so jobs are never dropped.
       - name: Set Bootstrap Initialized
+        if: steps.verify.outputs.valid == 'true'
         run: |
           if [ -n "$GH_TOKEN" ]; then
             gh api --method PATCH "repos/${{ github.repository }}/actions/variables/JOBGITOPS_INITIALIZED" \
@@ -159,15 +170,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Update Badge (Failed)
-        if: failure() && github.repository != vars.TEMPLATE_REPO
+        if: failure() && steps.verify.outputs.valid != 'false' && github.repository != vars.TEMPLATE_REPO
         run: python .github/scripts/update_badge.py "Daily Job Scraper" "failing" "red" "scrape-status.json"
         env:
           GIST_ID: ${{ vars.GIST_ID }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Update Badge (Passed)
-        if: success() && github.repository != vars.TEMPLATE_REPO
+        if: success() && steps.verify.outputs.valid == 'true' && github.repository != vars.TEMPLATE_REPO
         run: python .github/scripts/update_badge.py "Daily Job Scraper" "passing" "green" "scrape-status.json"
+        env:
+          GIST_ID: ${{ vars.GIST_ID }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Update Badge (Pending)
+        if: success() && steps.verify.outputs.valid == 'false' && github.repository != vars.TEMPLATE_REPO
+        run: python .github/scripts/update_badge.py "Daily Job Scraper" "pending" "inactive" "scrape-status.json"
         env:
           GIST_ID: ${{ vars.GIST_ID }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
