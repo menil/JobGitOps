@@ -61,7 +61,7 @@ jobs:
 
       - name: Update Badge (Failed)
         if: failure() && github.repository != vars.TEMPLATE_REPO
-        run: python .github/scripts/update_badge.py --reset
+        run: python .github/scripts/update_badge.py "Resume Format" "failed" "red" "format-status.json"
         env:
           GIST_ID: ${{ vars.GIST_ID }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
