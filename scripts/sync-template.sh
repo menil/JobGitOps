@@ -221,8 +221,17 @@ run git -C "$REPO" checkout "$DEFAULT"
 # Only these are ever overwritten; maintainer workflows and the user's own
 # config/resumes/status/README are never touched. Copied verbatim, the same
 # way the installer assembled them, so the two never drift.
+if [ -d "$SRC/template/.github" ]; then
+    TEMPLATE_GITHUB_DIR="$SRC/template/.github"
+elif [ -d "$SRC/.github" ]; then
+    TEMPLATE_GITHUB_DIR="$SRC/.github"
+    log "⚠️ Warning: Falling back to legacy root-level .github folder layout from $TEMPLATE_GITHUB_DIR"
+else
+    die "Template .github directory not found: looked at $SRC/template/.github and $SRC/.github"
+fi
+
 SHELL_PLANE=".github/labels.yml"
-for WF_PATH in "$SRC"/template/.github/workflows/*.yml; do
+for WF_PATH in "$TEMPLATE_GITHUB_DIR"/workflows/*.yml; do
     WF="$(basename "$WF_PATH")"
     case "$WF" in
         build-runner.yml|ci.yml|pr-review.yml|release-on-merge.yml)
@@ -234,14 +243,14 @@ for WF_PATH in "$SRC"/template/.github/workflows/*.yml; do
     esac
 done
 
-run cp -f "$SRC/template/.github/labels.yml" "$REPO/.github/labels.yml"
+run cp -f "$TEMPLATE_GITHUB_DIR/labels.yml" "$REPO/.github/labels.yml"
 
 # Copy setup status SVGs: sync only template assets (setup-required.svg,
 # setup-complete.svg); do not touch setup-status.svg, which check-setup.yml
 # dynamically copies based on the repository's setup status.
 run mkdir -p "$REPO/.github/badges"
 for BADGE_FILE in setup-required.svg setup-complete.svg; do
-    SRC_PATH="$SRC/template/.github/badges/$BADGE_FILE"
+    SRC_PATH="$TEMPLATE_GITHUB_DIR/badges/$BADGE_FILE"
     DEST_PATH="$REPO/.github/badges/$BADGE_FILE"
     if [ ! -f "$SRC_PATH" ]; then
         die "Required badge file not found: $SRC_PATH"

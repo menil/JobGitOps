@@ -56,6 +56,9 @@ vi.mock("fs-extra", async (importOriginal) => {
           "test-workflow.yml",
         ];
       }),
+      stat: vi.fn().mockImplementation(async (dirPath: string) => {
+        return { isDirectory: () => true };
+      }),
       statSync: vi.fn().mockImplementation((dirPath: string) => {
         return { isDirectory: () => true };
       }),

@@ -328,11 +328,35 @@ async function assembleFiles(
       path.join(templateSourceDir, "template", ".gitignore"),
       path.join(appDir, ".gitignore"),
     );
-    const templateGitHubDir = path.join(
-      templateSourceDir,
-      "template",
-      ".github",
-    );
+    let templateGitHubDir = path.join(templateSourceDir, "template", ".github");
+    let isNewLayout = false;
+    try {
+      const stat = await fs.stat(templateGitHubDir);
+      isNewLayout = stat.isDirectory();
+    } catch {
+      // Falls back to root-level .github
+    }
+
+    if (!isNewLayout) {
+      const legacyGitHubDir = path.join(templateSourceDir, ".github");
+      let isLegacyLayout = false;
+      try {
+        const stat = await fs.stat(legacyGitHubDir);
+        isLegacyLayout = stat.isDirectory();
+      } catch {
+        // Legacy path is also missing
+      }
+
+      if (!isLegacyLayout) {
+        throw new Error(
+          `Template .github directory not found: looked at "${templateGitHubDir}" and "${legacyGitHubDir}"`,
+        );
+      }
+      console.warn(
+        `⚠️ Warning: Falling back to legacy root-level .github folder layout from "${legacyGitHubDir}"`,
+      );
+      templateGitHubDir = legacyGitHubDir;
+    }
 
     await fs.copy(
       path.join(templateGitHubDir, "labels.yml"),
