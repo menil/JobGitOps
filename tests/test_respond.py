@@ -631,7 +631,7 @@ def test_respond_workflow_short_circuit_label_in_job_labels() -> None:
     with the authoritative ``JOB_LABELS`` set in ``respond.py``.
     """
     repo_root = Path(__file__).resolve().parents[1]
-    workflow_path = repo_root / ".github/workflows/respond-issue.yml"
+    workflow_path = repo_root / "template/.github/workflows/respond-issue.yml"
     assert workflow_path.is_file(), "respond-issue.yml must exist"
 
     raw = workflow_path.read_text(encoding="utf-8")
