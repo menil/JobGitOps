@@ -116,16 +116,17 @@ def parse_action(text: str) -> AgentAction:
         )
 
     status: str | None = None
-    if action == ACTION_STATUS_UPDATE:
-        raw_status = data.get("status")
-        if raw_status is None:
-            raise ValidationError("status_update requires a 'status' field.")
-        status = str(raw_status).strip().lower()
-        if status not in VALID_STATUSES:
-            raise ValidationError(
-                "Unknown status "
-                f"'{status}'. Allowed: applied, interviewing, offer_received, rejected."
-            )
+    raw_status = data.get("status")
+    if raw_status is not None:
+        if action in (ACTION_STATUS_UPDATE, ACTION_TRIAGE):
+            status = str(raw_status).strip().lower()
+            if status not in VALID_STATUSES:
+                raise ValidationError(
+                    f"Unknown status '{status}'. Allowed: "
+                    "applied, interviewing, offer_received, rejected."
+                )
+    elif action == ACTION_STATUS_UPDATE:
+        raise ValidationError("status_update requires a 'status' field.")
 
     reply_raw = data.get("reply")
     if reply_raw is None:
@@ -215,7 +216,11 @@ def build_system_prompt(
         "yourself in a 'reply' action. The `reply` field is unused for "
         "this action.\n"
         "- action 'skip': no comment at all (use for noise like 'thanks').\n"
-        "- Set `status` ONLY for the 'status_update' action.\n"
+        "- Set `status` for the 'status_update' action. For the 'triage' "
+        "action, you may set `status` to any of the valid statuses (applied, "
+        "interviewing, offer_received, rejected) if the user indicates they "
+        "already have an active status (applied, in progress, interview "
+        "loop, offer, or rejection) on this job posting.\n"
     )
 
 

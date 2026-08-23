@@ -92,7 +92,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Project Status Sync
-        run: python -m jobgitops.cli.project_sync backfill --reverse
+        run: |
+          python -m jobgitops.cli.project_sync field-options
+          python -m jobgitops.cli.project_sync backfill --reverse
+          python -m jobgitops.cli.project_sync field-options --prune
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}

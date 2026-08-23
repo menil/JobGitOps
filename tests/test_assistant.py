@@ -141,6 +141,14 @@ def test_parse_action_status_update() -> None:
     assert action.reply == "Marked."
 
 
+def test_parse_action_triage_with_status() -> None:
+    """A triage action can optionally carry status (e.g. applied)."""
+    action = assistant.parse_action('{"action": "triage", "status": "applied"}')
+    assert action.action == "triage"
+    assert action.status == "applied"
+    assert action.reply == ""
+
+
 def test_parse_action_reply_scalar_coerced_to_string() -> None:
     """A non-string scalar reply (e.g. a number) is coerced to a string."""
     action = assistant.parse_action('{"action": "reply", "reply": 5}')
@@ -156,6 +164,7 @@ def test_parse_action_reply_scalar_coerced_to_string() -> None:
         ('{"action": "explode"}', "Unknown action 'explode'"),
         ('{"action": "status_update", "reply": "x"}', "requires a 'status'"),
         ('{"action": "status_update", "status": "hired"}', "Unknown status 'hired'"),
+        ('{"action": "triage", "status": "hired"}', "Unknown status 'hired'"),
         ('{"action": "reply", "reply": ["a"]}', "reply must be a string"),
     ],
 )
@@ -163,6 +172,16 @@ def test_parse_action_invalid_inputs(text: str, match: str) -> None:
     """Invalid action payloads raise a descriptive ValidationError."""
     with pytest.raises(ValidationError, match=match):
         assistant.parse_action(text)
+
+
+def test_parse_action_reply_with_status_ignored() -> None:
+    """A reply action with status is parsed successfully and status is ignored."""
+    action = assistant.parse_action(
+        '{"action": "reply", "status": "applied", "reply": "Thanks"}'
+    )
+    assert action.action == "reply"
+    assert action.status is None
+    assert action.reply == "Thanks"
 
 
 # --- Status mapping is code-owned --------------------------------------------

@@ -978,7 +978,7 @@ def test_run_triage_already_applied(
     mock_settings: Settings,
     tmp_path: pathlib.Path,
 ) -> None:
-    """Test run_triage with already_applied = True."""
+    """Test run_triage with initial_status = 'applied'."""
     mock_llm_client = mock.MagicMock(spec=LLMClient)
     mock_llm_client.triage_job.return_value = TriageResult(
         fit_score=3.0,
@@ -1018,7 +1018,7 @@ def test_run_triage_already_applied(
             settings=mock_settings,
             resume=mock_resume,
             llm_client=mock_llm_client,
-            already_applied=True,
+            initial_status="applied",
         )
 
     # Verify approved match branch creation was still called
@@ -1038,6 +1038,75 @@ def test_run_triage_already_applied(
     mock_gh_client.remove_label.assert_called_once_with(15, "triage-pending")
     mock_gh_client.add_labels.assert_called_once_with(15, ["applied"])
     mock_gh_client.update_project_status.assert_called_once_with("node_xyz", "Applied")
+
+
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.commit_changes")
+@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
+def test_run_triage_interviewing(
+    mock_run_git: mock.MagicMock,
+    mock_checkout_branch: mock.MagicMock,
+    mock_push_branch: mock.MagicMock,
+    mock_commit: mock.MagicMock,
+    mock_compile: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Test run_triage with initial_status = 'interviewing'."""
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=3.0,
+        tech_stack_fit=3.0,
+        experience_fit=3.0,
+        location_fit=3.0,
+        salary_fit=3.0,
+        industry_fit=3.0,
+        reasoning="Good enough, interviewing.",
+    )
+    tailored_res = Resume.from_dict(mock_resume.to_dict())
+    mock_llm_client.tailor_resume.return_value = tailored_res
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "my-owner/my-repo"
+    mock_gh_client.project_id = "proj_123"
+
+    mock_run_git.return_value = "main-branch"
+
+    body = (
+        "**Company:** Google\n"
+        "**Role:** Senior Py Dev\n"
+        "**Apply URL:** https://google.com/apply\n"
+        "## Job Description\n"
+        "Looking for Python expert."
+    )
+
+    with mock.patch("pathlib.Path.open", mock.mock_open()):
+        run_triage(
+            issue_number=15,
+            issue_title="[Google] Senior Py Dev",
+            issue_body=body,
+            issue_node_id="node_xyz",
+            issue_labels=["triage-pending"],
+            repo_path=tmp_path,
+            gh_client=mock_gh_client,
+            settings=mock_settings,
+            resume=mock_resume,
+            llm_client=mock_llm_client,
+            initial_status="interviewing",
+        )
+
+    # Verify comment details
+    mock_gh_client.post_comment.assert_called_once()
+    comment_arg = mock_gh_client.post_comment.call_args[0][1]
+    assert "Interviewing / In Loop" in comment_arg
+
+    # Verify labels and projects v2 status
+    mock_gh_client.remove_label.assert_called_once_with(15, "triage-pending")
+    mock_gh_client.add_labels.assert_called_once_with(15, ["in-loop"])
+    mock_gh_client.update_project_status.assert_called_once_with("node_xyz", "In Loop")
 
 
 @mock.patch("jobgitops.cli.triage.get_llm_client")
@@ -1109,7 +1178,7 @@ def test_main_cli_args(
         resume=mock_resume,
         llm_client=mock.ANY,
         web_client=mock.ANY,
-        already_applied=False,
+        initial_status=None,
     )
 
 
@@ -1183,7 +1252,7 @@ def test_main_event_path(
         resume=mock_resume,
         llm_client=mock.ANY,
         web_client=mock.ANY,
-        already_applied=False,
+        initial_status=None,
     )
 
 
@@ -1259,7 +1328,7 @@ def test_main_issue_number_env(
         resume=mock_resume,
         llm_client=mock.ANY,
         web_client=mock.ANY,
-        already_applied=False,
+        initial_status=None,
     )
 
 
@@ -1372,7 +1441,6 @@ def test_run_all_pending_triages_each_labeled_issue(
         resume=mock_resume,
         llm_client=mock_llm_client,
         web_client=None,
-        already_applied=False,
     )
     mock_run_triage.assert_any_call(
         issue_number=11,
@@ -1386,7 +1454,6 @@ def test_run_all_pending_triages_each_labeled_issue(
         resume=mock_resume,
         llm_client=mock_llm_client,
         web_client=None,
-        already_applied=False,
     )
 
 
