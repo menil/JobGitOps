@@ -10,6 +10,7 @@ import google.api_core.exceptions
 import pytest
 
 from jobgitops.llm import (
+    _DEFAULT_OPENROUTER_MODEL,
     ChatMessage,
     GeminiClient,
     OpenRouterClient,
@@ -282,7 +283,7 @@ def test_get_llm_client_default_openrouter() -> None:
     client = get_llm_client()
     assert isinstance(client, OpenRouterClient)
     assert client.api_key == "fake-or-key"
-    assert client.model_name == "google/gemini-2.5-flash"
+    assert client.model_name == _DEFAULT_OPENROUTER_MODEL
 
 
 @patch.dict(
@@ -1040,7 +1041,7 @@ def test_openrouter_chat_plain_text(mock_urlopen: MagicMock) -> None:
 
     called_req = mock_urlopen.call_args[0][0]
     body = json.loads(called_req.data.decode("utf-8"))
-    assert body["model"] == "google/gemini-2.5-flash"
+    assert body["model"] == _DEFAULT_OPENROUTER_MODEL
     assert body["messages"] == [
         {"role": "system", "content": "Be concise."},
         {"role": "user", "content": "hi"},

@@ -519,8 +519,8 @@ research:
 fields with the defaults above, so existing configs parse unchanged.
 
 **Model default resolution:** the stock defaults —
-`models/gemini-2.5-flash` (Gemini) and `google/gemini-2.5-flash` (OpenRouter)
-— both support function calling and are used as the responder's defaults.
+`models/gemini-2.5-flash` (Gemini) and `openrouter/free` (OpenRouter)
+— are used as the responder's defaults. While `models/gemini-2.5-flash` natively supports function calling, `openrouter/free` acts as a dynamic router. Although the OpenRouter auto-router filters dynamically for requested capabilities (like tool use), free models cannot guarantee consistent capability support or high rate limits compared to pinned paid models.
 `research.model`, when set, overrides the provider default for the responder
 only (triage/tailor keep `GEMINI_MODEL` / `OPENROUTER_MODEL`).
 
@@ -657,8 +657,7 @@ best-effort fallback; description always comes from the fetched text. See
 
 ### 13.3. Responder default model (resolved)
 
-Stock defaults (`models/gemini-2.5-flash` / `google/gemini-2.5-flash`) support
-function calling; `research.model` is the per-responder override. See §8.1.
+Stock defaults (`models/gemini-2.5-flash` / `openrouter/free`); `research.model` is the per-responder override. See §8.1.
 
 ### 13.4. Deprecated Gemini SDK (follow-up, out of scope)
 

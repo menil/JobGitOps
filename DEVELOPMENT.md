@@ -199,7 +199,7 @@ Configure the following secrets and variables under **Settings > Secrets and var
 | --- | --- | --- |
 | `LLM_PROVIDER` | auto-detected | `gemini` or `openrouter` (auto-detected from keys when unset) |
 | `GEMINI_MODEL` | `models/gemini-2.5-flash` | Gemini model (`models/` prefix recommended; bare `gemini-*` names also accepted) |
-| `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | OpenRouter model, provider prefix required. Also drives the PR-review action, where it defaults to `openrouter/free` |
+| `OPENROUTER_MODEL` | `openrouter/free` | OpenRouter model, provider prefix required. Also drives the PR-review action, where it inherits this default or falls back to `openrouter/free` |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenRouter endpoint used by the PR-review action |
 | `OPENROUTER_MAX_TOKENS` | `4096` | Max tokens for the PR-review action |
 
