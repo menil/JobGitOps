@@ -75,3 +75,14 @@ jobs:
         env:
           GIST_ID: ${{ vars.GIST_ID }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      # Initialize the Projects V2 board columns immediately upon setup push.
+      # This ensures the user sees the canonical columns immediately without
+      # waiting for the 30-minute status sync cron.
+      - name: Initialize Project Board Columns
+        if: steps.status.outputs.is_template == 'false' && steps.status.outputs.has_gist == 'true'
+        continue-on-error: true
+        run: python -m jobgitops.cli.project_sync field-options
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
