@@ -56,7 +56,7 @@ jobs:
                      || date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')
           fi
 
-          UPDATED=$(gh api "repos/{owner}/{repo}/issues?since=${SINCE}&state=all&per_page=1" \
+          UPDATED=$(gh api "repos/${REPO_SLUG}/issues?since=${SINCE}&state=all&per_page=1" \
             --jq 'length')
 
           if [ "$UPDATED" -gt 0 ]; then
@@ -67,6 +67,7 @@ jobs:
 
           date -u '+%Y-%m-%dT%H:%M:%SZ' > /tmp/last-sync-timestamp
         env:
+          REPO_SLUG: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Save last-sync timestamp
