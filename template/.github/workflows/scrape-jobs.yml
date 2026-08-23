@@ -22,13 +22,13 @@ on:
         type: boolean
         required: false
         default: false
-  # Bootstrap trigger: replacing the placeholder resume and pushing to main
-  # fires the first scrape. config/** changes intentionally never trigger (S3).
-  push:
-    branches:
-      - main
-    paths:
-      - 'resumes/resume.yaml'
+  # Bootstrap trigger: runs once when setup is completed (placeholder replaced).
+  # Chained to 'Auto-Format Resume' to ensure the resume is canonically formatted
+  # before scraping runs. Silent contract: dependent on the 'Auto-Format Resume'
+  # workflow keeping its exact name and completing successfully.
+  workflow_run:
+    workflows: [Auto-Format Resume]
+    types: [completed]
 
 permissions:
   contents: write
@@ -40,6 +40,13 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == github.event.repository.default_branch
+      )
     outputs:
       enabled: ${{ steps.check-enabled.outputs.enabled }}
     steps:
@@ -54,17 +61,17 @@ jobs:
         id: check-enabled
         run: |
           # S4: a placeholder resume means setup is pending — never scrape on
-          # it. Applies to every event type (dispatch, schedule, push).
+          # it. Applies to every event type (dispatch, schedule, workflow_run).
           if [ -f resumes/resume.yaml ] && grep -q '__JOBGITOPS_SETUP_PENDING__' resumes/resume.yaml; then
             echo "Setup pending — replace resumes/resume.yaml and push to main. Skipping scrape."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # S2: the bootstrap trigger (push on resumes/resume.yaml) is one-time.
+          # S2: the bootstrap trigger (workflow_run of Auto-Format Resume) is one-time.
           # Once a scrape succeeds, JOBGITOPS_INITIALIZED is set and later
           # resume pushes no longer fire a scrape; self-healing if unset.
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
             INITIALIZED=$(gh variable get JOBGITOPS_INITIALIZED 2>/dev/null || echo "false")
             if [ "$INITIALIZED" = "true" ]; then
               echo "Bootstrap scrape already completed; skipping."
@@ -80,7 +87,7 @@ jobs:
             exit 0
           fi
 
-          # schedule / push: honor the user's search.enabled setting.
+          # schedule / workflow_run: honor the user's search.enabled setting.
           ENABLED=$(yq '.search.enabled' config/settings.yaml)
           if [ "$ENABLED" = "false" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
