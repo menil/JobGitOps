@@ -36,9 +36,11 @@ Each scraped job listing becomes a GitHub Issue. The AI triage engine scores eve
 
 An optional Kanban board for tracking your application lifecycle (Triage Pending → Ready to Apply → Applied → In Loop → Rejected). Requires [Project V2 setup](https://github.com/menil/jobgitops#enabling-projects-v2); without it, issue labels track state instead.
 
-### [Secrets](https://github.com/__OWNER__/__REPO__/settings/secrets/actions)
+### [Secrets & Variables](https://github.com/__OWNER__/__REPO__/settings/secrets/actions)
 
 Configure these under **Settings > Secrets and variables > Actions**:
+
+#### Secrets
 
 | Secret | Purpose |
 | --- | --- |
@@ -48,6 +50,16 @@ Configure these under **Settings > Secrets and variables > Actions**:
 | `TAVILY_API_KEY` | Optional. Enables the Tavily search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional. Enables the Brave search provider for the Issue Assistant's web research |
 | `JINA_API_KEY` | Optional. Raises page-fetch rate limits from 20 to 500 RPM for JS-heavy job boards |
+
+#### Variables (Optional)
+
+Configure these under the **Variables** tab:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LLM_PROVIDER` | *auto-detected* | `gemini` or `openrouter` (auto-detected from keys when unset) |
+| `OPENROUTER_MODEL` | `openrouter/free` | OpenRouter model (requires provider prefix, e.g., `openrouter/free` or `google/gemini-2.5-flash`). |
+| `GEMINI_MODEL` | `models/gemini-2.5-flash` | Gemini model (e.g., `models/gemini-2.5-flash` or `gemini-2.5-flash`) |
 
 ### [Actions](https://github.com/__OWNER__/__REPO__/actions)
 

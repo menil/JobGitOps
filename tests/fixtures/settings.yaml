@@ -94,6 +94,6 @@ research:
 
   # Optional model override for the responder agent only. Empty (default) uses
   # the provider default (models/gemini-2.5-flash for Gemini,
-  # google/gemini-2.5-flash for OpenRouter); triage/tailor keep using
+  # openrouter/free for OpenRouter); triage/tailor keep using
   # GEMINI_MODEL / OPENROUTER_MODEL regardless.
   model: ""

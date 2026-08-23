@@ -651,9 +651,7 @@ class GeminiClient(LLMClient):
 class OpenRouterClient(LLMClient):
     """LLM client implementation utilizing standard HTTP requests."""
 
-    def __init__(
-        self, api_key: str, model_name: str = "google/gemini-2.5-flash"
-    ) -> None:
+    def __init__(self, api_key: str, model_name: str = "openrouter/free") -> None:
         self.api_key = api_key
         self.model_name = model_name
 
@@ -767,7 +765,7 @@ class OpenRouterClient(LLMClient):
 
 
 _DEFAULT_GEMINI_MODEL = "models/gemini-2.5-flash"
-_DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash"
+_DEFAULT_OPENROUTER_MODEL = "openrouter/free"
 
 
 def _get_model_name(env_var: str, default_val: str) -> str:
