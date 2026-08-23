@@ -37,7 +37,6 @@ from jobgitops.assistant import (
 )
 from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
 from jobgitops.github_client import GitHubClient, GitHubClientError, extract_label_names
-from jobgitops.intent import detect_applied_intent
 from jobgitops.llm import QuotaExceededError, get_llm_client
 from jobgitops.loader import load_resume, load_settings
 from jobgitops.status_model import (
@@ -401,7 +400,7 @@ def handle_opened_event(
     issue_body = issue.get("body", "") or ""
     issue_node_id = issue.get("node_id")
     labels = extract_label_names(issue.get("labels", []))
-    already_applied = False
+    initial_status: str | None = None
 
     if "triage-pending" in labels:
         logger.info(
@@ -442,28 +441,28 @@ def handle_opened_event(
 
         url = _extract_url(issue_body)
         is_applied_status = (
-            action.action == ACTION_STATUS_UPDATE and action.status == "applied" and url
+            action.action == ACTION_STATUS_UPDATE and action.status is not None and url
         )
         is_triage_applied = (
-            action.action == ACTION_TRIAGE
-            and url
-            and detect_applied_intent(issue_title, issue_body)
+            action.action == ACTION_TRIAGE and url and action.status is not None
         )
 
         if is_applied_status:
             logger.info(
-                "Auto-detected applied status update with job URL for issue #%d; "
-                "running triage with already_applied.",
+                "Auto-detected status update (%s) with job URL for issue #%d; "
+                "running triage with initial_status.",
+                action.status,
                 issue_number,
             )
-            already_applied = True
+            initial_status = action.status
         elif is_triage_applied:
             logger.info(
-                "Auto-detected triage action with applied intent in issue #%d; "
-                "running triage with already_applied.",
+                "Auto-detected triage action with status intent (%s) in issue #%d; "
+                "running triage with initial_status.",
+                action.status,
                 issue_number,
             )
-            already_applied = True
+            initial_status = action.status
         elif action.action in (ACTION_STATUS_UPDATE, ACTION_SKIP, ACTION_REPLY):
             execute_action(
                 action,
@@ -520,7 +519,7 @@ def handle_opened_event(
         resume=resume,
         llm_client=llm_client,
         web_client=web_client,
-        already_applied=already_applied,
+        initial_status=initial_status,
     )
 
 

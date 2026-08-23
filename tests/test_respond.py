@@ -903,7 +903,7 @@ def test_handle_opened_event_runs_intent_classification_for_non_bare_url() -> No
 def test_handle_opened_event_with_applied_intent() -> None:
     """Verify opened event with applied intent fetches and triages.
 
-    Tests that already_applied=True is forwarded to run_triage.
+    Tests that initial_status="applied" is forwarded to run_triage.
     """
     gh = FakeGitHubClient()
     settings = sample_settings()
@@ -968,7 +968,81 @@ def test_handle_opened_event_with_applied_intent() -> None:
     triage_mock.assert_called_once()
     kwargs = triage_mock.call_args.kwargs
     assert kwargs["issue_number"] == 6
-    assert kwargs["already_applied"] is True
+    assert kwargs["initial_status"] == "applied"
+
+    # We should NOT execute the simple status_update action directly
+    execute_mock.assert_not_called()
+
+
+def test_handle_opened_event_with_interviewing_intent() -> None:
+    """Verify opened event with interviewing intent fetches and triages.
+
+    Tests that initial_status="interviewing" is forwarded to run_triage.
+    """
+    gh = FakeGitHubClient()
+    settings = sample_settings()
+    settings.projects_v2 = ProjectsV2Config(
+        project_id="proj-123", status_field_name="Status"
+    )
+
+    event = opened_event()
+    event["issue"]["title"] = "Interviewing for Software Engineer at Acme"
+    event["issue"]["body"] = "Here is the URL: https://acme.com/jobs/123"
+
+    mock_llm = MagicMock()
+
+    mock_llm.chat.return_value = ChatMessage(
+        role="assistant",
+        content=json.dumps(
+            {
+                "action": "triage",
+                "status": "interviewing",
+                "reply": "Got it, evaluating and marking as interviewing.",
+            }
+        ),
+    )
+
+    fetched = {
+        "title": "Software Engineer at Acme",
+        "description": "Acme hires Software Engineers.",
+    }
+    details = {
+        "company": "Acme",
+        "role": "Software Engineer",
+        "location": "Remote",
+        "salary": "Not specified",
+        "source": "manual",
+        "description": "Acme hires Software Engineers.",
+    }
+
+    with (
+        patch(
+            "jobgitops.cli.respond.triage.fetch_job_page",
+            return_value=fetched,
+        ) as fetch_mock,
+        patch(
+            "jobgitops.cli.respond.triage.infer_job_details_from_page",
+            return_value=details,
+        ),
+        patch("jobgitops.cli.respond.execute_action") as execute_mock,
+        patch("jobgitops.cli.respond.triage.run_triage") as triage_mock,
+    ):
+        respond.handle_opened_event(
+            event,
+            gh_client=gh,
+            web_client=MagicMock(),
+            llm_client=mock_llm,
+            settings=settings,
+            resume=sample_resume(),
+            repo_path=Path("/repo"),
+        )
+
+    # We should fetch and triage
+    fetch_mock.assert_called_once()
+    triage_mock.assert_called_once()
+    kwargs = triage_mock.call_args.kwargs
+    assert kwargs["issue_number"] == 6
+    assert kwargs["initial_status"] == "interviewing"
 
     # We should NOT execute the simple status_update action directly
     execute_mock.assert_not_called()
