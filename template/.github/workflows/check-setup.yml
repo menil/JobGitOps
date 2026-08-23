@@ -10,10 +10,13 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   check-setup:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/menil/jobgitops:latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -27,12 +30,23 @@ jobs:
           fi
           echo "is_template=false" >> "$GITHUB_OUTPUT"
 
-          if [ ! -f resumes/resume.yaml ] || grep -q "__JOBGITOPS_SETUP_PENDING__" resumes/resume.yaml; then
+          if [ ! -f resumes/resume.yaml ]; then
             echo "setup_required=true" >> "$GITHUB_OUTPUT"
-            echo "Setup is required."
+            echo "Setup is required (resume.yaml missing)."
+          elif grep -q "__JOBGITOPS_SETUP_PENDING__" resumes/resume.yaml; then
+            echo "setup_required=true" >> "$GITHUB_OUTPUT"
+            echo "Setup is required (placeholder still present)."
           else
-            echo "setup_required=false" >> "$GITHUB_OUTPUT"
-            echo "Setup is complete!"
+            if VALIDATE_OUTPUT=$(python -m jobgitops.cli.validate_resume resumes/resume.yaml 2>&1); then
+              echo "setup_required=false" >> "$GITHUB_OUTPUT"
+              echo "Setup is complete!"
+            else
+              # Escape newlines to make it a valid GitHub Actions single-line annotation
+              ANNOTATION=$(echo "$VALIDATE_OUTPUT" | tr '\n' ' ')
+              echo "::error file=resumes/resume.yaml::$ANNOTATION"
+              echo "setup_required=true" >> "$GITHUB_OUTPUT"
+              echo "Setup is required (resume format is invalid)."
+            fi
           fi
 
           if [ -n "$GH_PAT" ] && [ -n "$GIST_ID" ]; then
