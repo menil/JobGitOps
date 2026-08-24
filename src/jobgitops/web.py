@@ -66,10 +66,13 @@ _JS_HEAVY_DOMAINS = (
 def _error(message: str) -> dict[str, str]:
     """Return a tool-error result instead of raising, so the model can recover.
 
-    Logged as a warning so production failures are observable even though the
-    model continues from the returned error result.
+    Logged at debug only: the agent loop warns with correlation context when
+    it executes the failing tool, and non-agent callers (triage) surface the
+    error through their own ``JobFetchError`` handling — a warning here would
+    duplicate those operator-facing lines. Error strings must stay free of
+    secrets and response bodies so the assistant-level warning stays log-safe.
     """
-    logger.warning("Web tool returned an error result: %s", message)
+    logger.debug("Web tool returned an error result: %s", message)
     return {"error": message}
 
 
