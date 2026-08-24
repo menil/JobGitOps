@@ -66,6 +66,57 @@ vi.mock("fs-extra", async (importOriginal) => {
   };
 });
 
+type GraphqlRouteHandler = (body: string) => {
+  ok: boolean;
+  json?: () => Promise<unknown>;
+};
+
+const createProjectV2Response = () => ({
+  ok: true,
+  json: async () => ({
+    data: {
+      createProjectV2: {
+        projectV2: {
+          id: "PVT_123",
+          url: "https://github.com/users/testowner/projects/1",
+        },
+      },
+    },
+  }),
+});
+
+// Shared URL-routing fetch stub covering every endpoint runInstallation hits,
+// so tests only customize the GraphQL responses they actually care about.
+function mockGithubFetch(
+  graphql: GraphqlRouteHandler = () => createProjectV2Response(),
+) {
+  return vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.includes("codeload.github.com") || url.includes("/tarball/")) {
+      return {
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: () => Promise.resolve({ done: true, value: undefined }),
+          }),
+        },
+      };
+    }
+    if (url.includes("/repos/testowner/job-search-test")) {
+      return { ok: true, json: async () => ({ node_id: "R_repo_123" }) };
+    }
+    if (url.includes("/users/testowner")) {
+      return { ok: true, json: async () => ({ node_id: "U_owner_123" }) };
+    }
+    if (url.includes("/graphql")) {
+      return graphql(String(init?.body ?? ""));
+    }
+    if (url.includes("/gists")) {
+      return { ok: true, json: async () => ({ id: "mock-gist-id" }) };
+    }
+    return { ok: false };
+  });
+}
+
 describe("runInstallation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -98,53 +149,7 @@ describe("runInstallation", () => {
 
   it("performs full download, template copies, repo creation and secrets upload under live run", async () => {
     vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
-    // Stub global fetch to prevent actual network calls during downloadTarball and other API calls
-    global.fetch = vi.fn().mockImplementation(async (url: string) => {
-      if (url.includes("codeload.github.com") || url.includes("/tarball/")) {
-        return {
-          ok: true,
-          body: {
-            getReader: () => ({
-              read: () => Promise.resolve({ done: true, value: undefined }),
-            }),
-          },
-        };
-      }
-      if (url.includes("/repos/testowner/job-search-test")) {
-        return {
-          ok: true,
-          json: async () => ({ node_id: "R_repo_123" }),
-        };
-      }
-      if (url.includes("/users/testowner")) {
-        return {
-          ok: true,
-          json: async () => ({ node_id: "U_owner_123" }),
-        };
-      }
-      if (url.includes("/graphql")) {
-        return {
-          ok: true,
-          json: async () => ({
-            data: {
-              createProjectV2: {
-                projectV2: {
-                  id: "PVT_123",
-                  url: "https://github.com/users/testowner/projects/1",
-                },
-              },
-            },
-          }),
-        };
-      }
-      if (url.includes("/gists")) {
-        return {
-          ok: true,
-          json: async () => ({ id: "mock-gist-id" }),
-        };
-      }
-      return { ok: false };
-    });
+    global.fetch = mockGithubFetch();
 
     await runInstallation(
       {
@@ -211,31 +216,7 @@ describe("runInstallation", () => {
 
   it("performs secrets upload for GH_PAT even when wantProjects is false", async () => {
     vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
-    global.fetch = vi.fn().mockImplementation(async (url: string) => {
-      if (url.includes("codeload.github.com") || url.includes("/tarball/")) {
-        return {
-          ok: true,
-          body: {
-            getReader: () => ({
-              read: () => Promise.resolve({ done: true, value: undefined }),
-            }),
-          },
-        };
-      }
-      if (url.includes("/repos/testowner/job-search-test")) {
-        return {
-          ok: true,
-          json: async () => ({ node_id: "R_repo_123" }),
-        };
-      }
-      if (url.includes("/gists")) {
-        return {
-          ok: true,
-          json: async () => ({ id: "mock-gist-id" }),
-        };
-      }
-      return { ok: false };
-    });
+    global.fetch = mockGithubFetch();
 
     await runInstallation(
       {
@@ -263,5 +244,101 @@ describe("runInstallation", () => {
     expect(secretCalls.some((call) => call[1]?.[2] === "GEMINI_API_KEY")).toBe(
       true,
     );
+  });
+
+  it("publishes the Projects V2 board when repository visibility is public", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    const fetchMock = mockGithubFetch((body) =>
+      body.includes("updateProjectV2")
+        ? {
+            ok: true,
+            json: async () => ({
+              data: { updateProjectV2: { projectV2: { id: "PVT_123" } } },
+            }),
+          }
+        : createProjectV2Response(),
+    );
+    global.fetch = fetchMock;
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "public",
+        provider: "gemini",
+        primaryKey: "mock-gemini-key",
+        optionalKeys: {},
+        wantProjects: true,
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const updateBodies = fetchMock.mock.calls
+      .filter(([url]) => String(url).includes("/graphql"))
+      .map(([, init]) => String((init as RequestInit)?.body ?? ""))
+      .filter((b) => b.includes("updateProjectV2"));
+    expect(updateBodies).toHaveLength(1);
+    expect(JSON.parse(updateBodies[0]).variables).toEqual({
+      projectId: "PVT_123",
+      public: true,
+    });
+  });
+
+  it("keeps the Projects V2 board private when repository visibility is private", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    const fetchMock = mockGithubFetch();
+    global.fetch = fetchMock;
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "private",
+        provider: "gemini",
+        primaryKey: "mock-gemini-key",
+        optionalKeys: {},
+        wantProjects: true,
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const graphqlBodies = fetchMock.mock.calls
+      .filter(([url]) => String(url).includes("/graphql"))
+      .map(([, init]) => String((init as RequestInit)?.body ?? ""));
+    expect(graphqlBodies.length).toBeGreaterThanOrEqual(1);
+    expect(graphqlBodies.every((b) => !b.includes("updateProjectV2"))).toBe(
+      true,
+    );
+  });
+
+  it("continues installation when publishing the board fails on a public repository", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = mockGithubFetch((body) =>
+      body.includes("updateProjectV2")
+        ? { ok: false }
+        : createProjectV2Response(),
+    );
+
+    await expect(
+      runInstallation(
+        {
+          repoName: "job-search-test",
+          visibility: "public",
+          provider: "gemini",
+          primaryKey: "mock-gemini-key",
+          optionalKeys: {},
+          wantProjects: true,
+          dryRun: false,
+        },
+        "testowner",
+      ),
+    ).resolves.toBeUndefined();
+
+    // The board was still created, so settings.yaml must be patched with its ID
+    const settingsWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith("settings.yaml"));
+    expect(settingsWrite).toBeDefined();
+    expect(String(settingsWrite?.[1])).toContain("PVT_123");
   });
 });

@@ -152,6 +152,9 @@ export async function fetchRepositoryNodeId(
 /**
  * Creates a GitHub Projects V2 board owned by the given user via the GraphQL API,
  * optionally linking it to the repository.
+ * When `visibility` is "public", flips the board to public after creation so the
+ * README link works for visitors of a public repository — the createProjectV2
+ * mutation has no visibility input and always defaults to private.
  * Returns the project node ID and URL on success, or null on failure.
  */
 export async function createProjectV2(
@@ -159,6 +162,7 @@ export async function createProjectV2(
   title: string,
   repositoryId?: string,
   token?: string,
+  visibility?: "private" | "public",
 ): Promise<{ id: string; url: string } | null> {
   if (!ownerLogin || !title) {
     throw new Error("ownerLogin and title are required.");
@@ -220,10 +224,58 @@ export async function createProjectV2(
         "GraphQL response missing projectV2.id or projectV2.url.",
       );
     }
+    if (visibility === "public") {
+      await setProjectV2Public(projectV2.id, authHeaders);
+    }
     return { id: projectV2.id, url: projectV2.url };
   } catch (error: any) {
     console.error(`Failed to create Projects V2: ${error.message || error}`);
     return null;
+  }
+}
+
+/**
+ * Best-effort flip of a Projects V2 board to public via GraphQL. Failures only
+ * warn: a private board degrades the README link but does not break the install.
+ */
+async function setProjectV2Public(
+  projectId: string,
+  authHeaders: Record<string, string>,
+): Promise<void> {
+  const query = `
+    mutation($projectId: ID!, $public: Boolean!) {
+      updateProjectV2(input: { projectId: $projectId, public: $public }) {
+        projectV2 { id }
+      }
+    }
+  `;
+  try {
+    const resp = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { ...authHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        variables: { projectId, public: true },
+      }),
+    });
+    if (!resp.ok) {
+      console.error(
+        `Could not set project visibility to public (HTTP ${resp.status}). The board stays private.`,
+      );
+      return;
+    }
+    const result = (await resp.json()) as {
+      errors?: Array<{ message: string }>;
+    };
+    if (result.errors?.length) {
+      console.error(
+        `Could not set project visibility to public: ${result.errors[0].message}`,
+      );
+    }
+  } catch (error: any) {
+    console.error(
+      `Could not set project visibility to public: ${error.message || error}`,
+    );
   }
 }
 

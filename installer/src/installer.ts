@@ -18,7 +18,7 @@ import {
 
 export interface InstallOptions {
   repoName: string;
-  visibility: "private" | "main"; // Wait, 'private' or 'public'
+  visibility: "private" | "public";
   provider: "gemini" | "openrouter";
   primaryKey: string;
   optionalKeys: Record<string, string>;
@@ -185,6 +185,7 @@ export async function runInstallation(
         repoName,
         repoNodeId,
         resolvedToken,
+        visibility,
       );
       if (projectResult) {
         projectNodeId = projectResult.id;
@@ -417,7 +418,7 @@ async function createGitHubRepository(
   dryRun: boolean,
 ): Promise<void> {
   const repoSpinner = ora(
-    `Creating private GitHub repository ${owner}/${repoName}...`,
+    `Creating ${visibility} GitHub repository ${owner}/${repoName}...`,
   ).start();
   if (!dryRun) {
     await execa("gh", ["repo", "create", repoName, `--${visibility}`], {
