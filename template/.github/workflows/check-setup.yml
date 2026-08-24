@@ -78,11 +78,15 @@ jobs:
 
       # Initialize the Projects V2 board columns immediately upon setup push.
       # This ensures the user sees the canonical columns immediately without
-      # waiting for the 30-minute status sync cron.
+      # waiting for the 30-minute status sync cron. Pruning drops GitHub's
+      # default "Done" option, which permanently disarms the built-in
+      # "item closed -> Done" automation before any issue can be closed.
       - name: Initialize Project Board Columns
         if: steps.status.outputs.is_template == 'false' && steps.status.outputs.has_gist == 'true'
         continue-on-error: true
-        run: python -m jobgitops.cli.project_sync field-options
+        run: |
+          python -m jobgitops.cli.project_sync field-options
+          python -m jobgitops.cli.project_sync field-options --prune
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}

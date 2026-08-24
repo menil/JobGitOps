@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger("jobgitops.github_client")
@@ -485,7 +486,7 @@ class GitHubClient:
             raise GitHubClientError(f"Unexpected response format: {res}")
         return res
 
-    def update_project_status(self, issue_node_id: str, status_name: str) -> None:
+    def update_project_status(self, issue_node_id: str, status_name: str) -> bool:
         """Add the issue to the Project V2 and transition its status.
 
         Does nothing if project_id is not set.
@@ -494,11 +495,18 @@ class GitHubClient:
             issue_node_id: The GraphQL node ID of the issue.
             status_name: The name of the target status column/option.
 
+        Returns:
+            True when the column move was applied (or the project is
+            unconfigured); False when Projects V2 rejected the write due to
+            permissions and tracking degraded to label-only. Callers that
+            must distinguish "written" from "degraded" check this value;
+            ignoring it preserves the old fire-and-forget behavior.
+
         Raises:
-            GitHubClientError: If any GraphQL operations fail.
+            GitHubClientError: If any non-permission GraphQL operation fails.
         """
         if not self.project_id:
-            return
+            return True
 
         try:
             # 1. Add/retrieve the item in the project
@@ -580,7 +588,154 @@ class GitHubClient:
                 "Degrading to label-only tracking.",
                 e,
             )
-            return
+            return False
+        return True
+
+    def get_project_item_status(self, issue_node_id: str) -> str | None:
+        """Return the issue's current Status column name on the project.
+
+        Looks the value up through the issue's project memberships and filters
+        to this client's project and status field, so issues shared across
+        several projects resolve to the column this pipeline manages.
+
+        Returns:
+            The selected option name, or None when the project is
+            unconfigured, the issue is not on the board, or no status value
+            is set.
+
+        Args:
+            issue_node_id: The GraphQL node ID of the issue.
+
+        Raises:
+            GitHubClientError: If the GraphQL query fails.
+        """
+        if not self.project_id:
+            return None
+
+        query = """
+        query GetIssueProjectStatus($nodeId: ID!) {
+          node(id: $nodeId) {
+            ... on Issue {
+              projectItems(first: 10) {
+                nodes {
+                  project { id }
+                  fieldValues(first: 20) {
+                    nodes {
+                      ... on ProjectV2ItemFieldSingleSelectValue {
+                        name
+                        field { ... on ProjectV2FieldCommon { name } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        res = self._graphql(query, {"nodeId": issue_node_id})
+        if "errors" in res:
+            self._raise_graphql_error(res["errors"], "reading project item status")
+
+        issue = (res.get("data") or {}).get("node") or {}
+        items = ((issue.get("projectItems") or {}).get("nodes")) or []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            project = item.get("project") or {}
+            if project.get("id") != self.project_id:
+                continue
+            values = ((item.get("fieldValues") or {}).get("nodes")) or []
+            for value in values:
+                if not isinstance(value, dict):
+                    continue
+                field = value.get("field") or {}
+                if field.get("name") == self.status_field_name:
+                    name = value.get("name")
+                    return name if isinstance(name, str) else None
+        return None
+
+    def ensure_project_status(
+        self,
+        issue_node_id: str,
+        status_name: str,
+        *,
+        settle_seconds: float = 5.0,
+        attempts: int = 3,
+        _sleep: Callable[[float], None] = time.sleep,
+    ) -> bool:
+        """Re-assert a column move after competing project automations settle.
+
+        Closing an issue triggers GitHub's built-in "item closed -> Done"
+        workflow about a second after our own write lands, so whoever writes
+        last wins. This waits out that window, then verifies the column and
+        rewrites it when something flipped it — turning a lost race into a
+        seconds-long blip instead of up-to-30-minutes of wrong state.
+
+        Never raises: the scheduled backfill remains the convergence net for
+        any failure here, so close paths stay resilient. Non-convergence and
+        permission-degraded writes are logged as warnings so operators can
+        see a lost race without grepping debug output.
+
+        Args:
+            issue_node_id: The GraphQL node ID of the issue.
+            status_name: The Status option that should be showing.
+            settle_seconds: How long to wait for external automations before
+                each verification.
+            attempts: Maximum verify-and-rewrite rounds.
+            _sleep: Sleep function, injectable for tests.
+
+        Returns:
+            True when the column was verified holding ``status_name``; also
+            True immediately when no project is configured (nothing to do).
+        """
+        if not self.project_id:
+            return True
+
+        _sleep(settle_seconds)
+        for attempt in range(attempts):
+            try:
+                current = self.get_project_item_status(issue_node_id)
+            except GitHubClientError as e:
+                logger.warning(
+                    "Status re-assert read failed for node %s: %s", issue_node_id, e
+                )
+                current = None
+            if current == status_name:
+                return True
+            logger.info(
+                "Re-asserting project status '%s' (found '%s', attempt %d/%d).",
+                status_name,
+                current,
+                attempt + 1,
+                attempts,
+            )
+            try:
+                updated = self.update_project_status(issue_node_id, status_name)
+            except GitHubClientError as e:
+                logger.warning(
+                    "Status re-assert write failed for node %s: %s", issue_node_id, e
+                )
+                return False
+            if not updated:
+                # update_project_status already warned; retrying cannot help
+                # while the token lacks Projects V2 scopes.
+                logger.warning(
+                    "Status re-assert skipped for node %s: project writes "
+                    "unavailable (label-only tracking).",
+                    issue_node_id,
+                )
+                return False
+            if attempt < attempts - 1:
+                _sleep(settle_seconds)
+        logger.warning(
+            "Status re-assert did not converge to '%s' after %d attempts for "
+            "node %s; the scheduled backfill will reconcile the column.",
+            status_name,
+            attempts,
+            issue_node_id,
+        )
+        return False
 
     def _resolve_status_field(self) -> tuple[str, dict[str, str]]:
         """Resolve the status field ID and its option-name-to-ID map.
