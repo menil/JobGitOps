@@ -226,4 +226,8 @@ If you choose to enable the Projects V2 Kanban board manually on your fork:
    ```bash
    devenv shell -- python -m jobgitops.cli.project_sync field-options   # create missing options
    devenv shell -- python -m jobgitops.cli.project_sync backfill --reverse   # one-time reconciliation
+   devenv shell -- python -m jobgitops.cli.project_sync field-options --prune   # drop stale defaults (e.g. Done)
    ```
+
+   > [!TIP]
+   > Run the prune step once cards are off the default columns: removing the `Done` option permanently disarms GitHub's built-in "item closed → Done" automation, which otherwise races the pipeline's own column moves on every issue close (see `ensure_project_status` in `src/jobgitops/github_client.py`).

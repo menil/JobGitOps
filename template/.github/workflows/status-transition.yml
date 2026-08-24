@@ -9,6 +9,13 @@ permissions:
   issues: write
   packages: read
 
+# Serialize transitions per issue so overlapping events (labeled then quick
+# closed) cannot interleave their column writes; the newest intent's run
+# supersedes older ones instead of racing them.
+concurrency:
+  group: status-transition-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
   transition:
     # Any lifecycle label addition or issue closure owns a column move. The

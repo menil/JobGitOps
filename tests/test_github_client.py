@@ -1171,3 +1171,199 @@ def test_list_project_items_pagination(mock_urlopen: mock.MagicMock) -> None:
     req_page2 = mock_urlopen.call_args_list[1][0][0]
     body = json.loads(req_page2.data.decode("utf-8"))
     assert body["variables"]["after"] == "cursor-1"
+
+
+def test_get_project_item_status_returns_option() -> None:
+    """Test reading the current Status column of an issue on the board."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    payload = {
+        "data": {
+            "node": {
+                "projectItems": {
+                    "nodes": [
+                        {
+                            "project": {"id": "proj-id"},
+                            "fieldValues": {
+                                "nodes": [
+                                    {
+                                        "name": "Mismatched/Closed",
+                                        "field": {"name": "Status"},
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    with mock.patch.object(client, "_graphql", return_value=payload):
+        assert client.get_project_item_status("issue-node-id") == "Mismatched/Closed"
+
+
+def test_get_project_item_status_filters_project_and_field() -> None:
+    """Test that other projects and non-status fields are ignored."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    payload = {
+        "data": {
+            "node": {
+                "projectItems": {
+                    "nodes": [
+                        {
+                            "project": {"id": "other-project"},
+                            "fieldValues": {
+                                "nodes": [{"name": "Done", "field": {"name": "Status"}}]
+                            },
+                        },
+                        {
+                            "project": {"id": "proj-id"},
+                            "fieldValues": {
+                                "nodes": [
+                                    {"name": "Blocked", "field": {"name": "Priority"}},
+                                    {"name": "Rejected", "field": {"name": "Status"}},
+                                ]
+                            },
+                        },
+                    ]
+                }
+            }
+        }
+    }
+    with mock.patch.object(client, "_graphql", return_value=payload):
+        assert client.get_project_item_status("issue-node-id") == "Rejected"
+
+
+def test_get_project_item_status_absent_returns_none() -> None:
+    """Test that a missing board entry or unset status resolves to None."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    payload = {"data": {"node": {"projectItems": {"nodes": []}}}}
+    with mock.patch.object(client, "_graphql", return_value=payload):
+        assert client.get_project_item_status("issue-node-id") is None
+
+
+def test_get_project_item_status_no_project_id() -> None:
+    """Test get_project_item_status no-ops when no project is configured."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id=None)
+    with mock.patch.object(client, "_graphql") as mock_graphql:
+        assert client.get_project_item_status("issue-node-id") is None
+        mock_graphql.assert_not_called()
+
+
+def test_ensure_project_status_repairs_overwrite() -> None:
+    """Test that a column flipped by external automation gets rewritten."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    sleeps: list[float] = []
+    with (
+        mock.patch.object(
+            client,
+            "get_project_item_status",
+            side_effect=["Done", "Mismatched/Closed"],
+        ),
+        mock.patch.object(client, "update_project_status") as mock_update,
+    ):
+        result = client.ensure_project_status(
+            "issue-node-id", "Mismatched/Closed", _sleep=sleeps.append
+        )
+
+    assert result is True
+    mock_update.assert_called_once_with("issue-node-id", "Mismatched/Closed")
+    assert sleeps == [5.0, 5.0]
+
+
+def test_ensure_project_status_already_set() -> None:
+    """Test that an already-correct column is verified without rewrites."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    sleeps: list[float] = []
+    with (
+        mock.patch.object(
+            client, "get_project_item_status", side_effect=["Mismatched/Closed"]
+        ),
+        mock.patch.object(client, "update_project_status") as mock_update,
+    ):
+        result = client.ensure_project_status(
+            "issue-node-id", "Mismatched/Closed", _sleep=sleeps.append
+        )
+
+    assert result is True
+    mock_update.assert_not_called()
+    assert sleeps == [5.0]
+
+
+def test_ensure_project_status_persistent_wrong_returns_false() -> None:
+    """Test that attempts are capped when the column keeps reading wrong."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    sleeps: list[float] = []
+    with (
+        mock.patch.object(client, "get_project_item_status", side_effect=["Done"] * 3),
+        mock.patch.object(client, "update_project_status") as mock_update,
+    ):
+        result = client.ensure_project_status(
+            "issue-node-id", "Mismatched/Closed", attempts=3, _sleep=sleeps.append
+        )
+
+    assert result is False
+    assert mock_update.call_count == 3
+    assert sleeps == [5.0, 5.0, 5.0]
+
+
+def test_ensure_project_status_read_failure_still_rewrites() -> None:
+    """Test that read errors do not abort the re-assert loop."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    with (
+        mock.patch.object(
+            client,
+            "get_project_item_status",
+            side_effect=GitHubClientError("graphql down"),
+        ),
+        mock.patch.object(client, "update_project_status") as mock_update,
+    ):
+        result = client.ensure_project_status(
+            "issue-node-id", "Rejected", attempts=2, _sleep=lambda _: None
+        )
+
+    assert result is False
+    assert mock_update.call_count == 2
+
+
+def test_ensure_project_status_write_failure_aborts() -> None:
+    """Test that a failed write stops the loop instead of retrying."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    with (
+        mock.patch.object(client, "get_project_item_status", return_value="Done"),
+        mock.patch.object(
+            client,
+            "update_project_status",
+            side_effect=GitHubClientError("write failed"),
+        ) as mock_update,
+    ):
+        result = client.ensure_project_status(
+            "issue-node-id", "Mismatched/Closed", attempts=3, _sleep=lambda _: None
+        )
+
+    assert result is False
+    mock_update.assert_called_once()
+
+
+def test_ensure_project_status_permission_degraded_bails_out() -> None:
+    """Test that a permission-swallowed write ends the loop after one round."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id="proj-id")
+    sleeps: list[float] = []
+    with (
+        mock.patch.object(client, "get_project_item_status", return_value="Done"),
+        mock.patch.object(client, "update_project_status", return_value=False),
+    ):
+        result = client.ensure_project_status(
+            "issue-node-id", "Rejected", attempts=3, _sleep=sleeps.append
+        )
+
+    assert result is False
+    # One settle sleep, no retry rounds after the degraded write.
+    assert sleeps == [5.0]
+
+
+def test_ensure_project_status_no_project_id() -> None:
+    """Test ensure_project_status succeeds immediately without a project."""
+    client = GitHubClient(token="my-token", repo="owner/repo", project_id=None)
+    with mock.patch.object(client, "_graphql") as mock_graphql:
+        assert client.ensure_project_status("issue-node-id", "Applied") is True
+        mock_graphql.assert_not_called()

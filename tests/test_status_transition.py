@@ -166,6 +166,8 @@ def test_transition_removes_stale_sibling_lifecycle_labels(
     # The triggering label was already added by the webhook; never re-add it.
     mock_client.add_labels.assert_not_called()
     mock_client.update_project_status.assert_called_once_with("ND_123", "Applied")
+    # Plain label moves do not race the close automation; no settle pass.
+    mock_client.ensure_project_status.assert_not_called()
 
 
 @patch("jobgitops.cli.status_transition.GitHubClient")
@@ -274,6 +276,9 @@ def test_transition_from_closed_event_payload_triage_mismatched(
     # Should update status to Mismatched/Closed and sync
     # triage-mismatched lifecycle label.
     mock_client.update_project_status.assert_called_once_with(
+        "ND_EVENT_999", "Mismatched/Closed"
+    )
+    mock_client.ensure_project_status.assert_called_once_with(
         "ND_EVENT_999", "Mismatched/Closed"
     )
 

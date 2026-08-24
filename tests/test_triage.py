@@ -467,6 +467,9 @@ def test_run_triage_mismatch(
     mock_gh_client.update_project_status.assert_called_once_with(
         "node_abc", "Mismatched/Closed"
     )
+    mock_gh_client.ensure_project_status.assert_called_once_with(
+        "node_abc", "Mismatched/Closed"
+    )
 
 
 def test_run_triage_mismatch_no_reason_labels(

@@ -32,6 +32,10 @@ class TransitionContext:
     issue_node_id: str | None
     label: str
     status: str
+    # Only closures race GitHub's built-in "item closed -> Done" workflow, so
+    # the settle-and-verify pass is reserved for them; plain label moves would
+    # just pay its latency for nothing.
+    is_closure: bool = False
 
 
 def main() -> None:
@@ -197,6 +201,7 @@ def _resolve_context(
         issue_node_id=issue_node_id,
         label=label,
         status=LABEL_TO_STATUS[label],
+        is_closure=event.get("action") == "closed",
     )
 
 
@@ -231,8 +236,20 @@ def _transition(gh_client: GitHubClient, context: TransitionContext) -> None:
         # truth; drop stale sibling lifecycle labels so the issue carries a
         # single pipeline stage and the board matches the label state.
         sync_lifecycle_label(gh_client, context.issue_number, context.label)
-        gh_client.update_project_status(issue_node_id, context.status)
-        logger.info("Successfully updated status to %s.", context.status)
+        applied = gh_client.update_project_status(issue_node_id, context.status)
+        if not context.is_closure:
+            logger.info("Successfully updated status to %s.", context.status)
+            return
+        # Only re-assert when the initial write succeeded; a degraded token
+        # guarantees a wasted 5s settle plus duplicate warning on every close.
+        if applied and gh_client.ensure_project_status(issue_node_id, context.status):
+            logger.info("Verified status %s after close.", context.status)
+        else:
+            logger.warning(
+                "Status did not converge to %s; the scheduled backfill will "
+                "reconcile the column.",
+                context.status,
+            )
     except Exception as e:
         logger.error("Failed to update Projects V2 status: %s", e)
         sys.exit(1)

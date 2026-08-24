@@ -489,9 +489,17 @@ def _handle_mismatch(
             "Updating Project status to '%s'",
             LABEL_TO_STATUS["triage-mismatched"],
         )
-        gh_client.update_project_status(
+        applied = gh_client.update_project_status(
             issue_node_id, LABEL_TO_STATUS["triage-mismatched"]
         )
+        if not applied:
+            logger.warning("Projects V2 status update degraded — no re-assert.")
+        else:
+            # The close above races GitHub's built-in "item closed -> Done"
+            # workflow, which fires ~1s later; re-assert so Mismatched/Closed wins.
+            gh_client.ensure_project_status(
+                issue_node_id, LABEL_TO_STATUS["triage-mismatched"]
+            )
 
 
 def _create_tailored_application_branch(
