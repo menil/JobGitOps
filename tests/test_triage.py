@@ -13,7 +13,9 @@ from jobgitops.cli.triage import (
     BATCH_PAGE_SIZE,
     EXIT_QUOTA_EXCEEDED,
     FIT_CATEGORY_MISMATCH_LABELS,
+    INLINE_DIFF_MAX_CHARS,
     JobFetchError,
+    _build_inline_diff_section,
     build_canonical_body,
     extract_job_from_url,
     get_category_mismatch_labels,
@@ -24,6 +26,7 @@ from jobgitops.cli.triage import (
     run_all_pending,
     run_triage,
 )
+from jobgitops.git_ops import GitOpsError
 from jobgitops.github_client import GitHubClient
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
 from jobgitops.schema import Resume, Settings, ValidationError
@@ -59,6 +62,23 @@ def mock_resume() -> Resume:
 def mock_settings() -> Settings:
     """Mock Settings object for tests."""
     return Settings(fit_threshold=3.5)
+
+
+def make_run_git_stub(diff_output: str = ""):
+    """Build a run_git stub that mimics branch inspection and diff commands.
+
+    rev-parse calls report an original branch of 'main'; git diff calls return
+    diff_output; everything else returns an empty string.
+    """
+
+    def _stub(args: list[str], cwd: pathlib.Path) -> str:
+        if args[:2] == ["rev-parse", "--abbrev-ref"]:
+            return "main-branch"
+        if args[0] == "diff":
+            return diff_output
+        return ""
+
+    return _stub
 
 
 def test_parse_job_details_standard() -> None:
@@ -544,7 +564,14 @@ def test_run_triage_match_approved(
     mock_gh_client.repo = "my-owner/my-repo"
     mock_gh_client.project_id = "proj_123"
 
-    mock_run_git.return_value = "main-branch"
+    sample_diff = (
+        "--- a/resumes/resume.yaml\n"
+        "+++ b/resumes/resume.yaml\n"
+        "@@ -12,7 +12,7 @@\n"
+        "-  summary: Experienced engineer.\n"
+        "+  summary: Python-focused engineer.\n"
+    )
+    mock_run_git.side_effect = make_run_git_stub(sample_diff)
 
     body = (
         "**Company:** Google\n"
@@ -604,6 +631,17 @@ def test_run_triage_match_approved(
         '<a href="https://google.com/apply" '
         'target="_blank">Link to Posting</a>' in comment_arg
     )
+    # Inline collapsible diff section
+    assert "<details>" in comment_arg
+    assert "<summary>Resume YAML Diff</summary>" in comment_arg
+    assert f"````diff\n{sample_diff.strip()}\n````" in comment_arg
+    # The truncation note refers to a compare link that must precede it.
+    assert comment_arg.index(
+        "https://github.com/my-owner/my-repo/compare/main..."
+    ) < comment_arg.index("<details>")
+    mock_run_git.assert_any_call(
+        ["diff", mock.ANY, "--", "resumes/resume.yaml"], cwd=tmp_path
+    )
 
     mock_gh_client.remove_label.assert_called_once_with(15, "triage-pending")
     mock_gh_client.add_labels.assert_called_once_with(
@@ -612,6 +650,69 @@ def test_run_triage_match_approved(
     mock_gh_client.update_project_status.assert_called_once_with(
         "node_xyz", "Ready to Apply"
     )
+
+
+@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+def test_build_inline_diff_section_wraps_diff(mock_get_diff: mock.MagicMock) -> None:
+    """A non-empty diff is wrapped in a collapsible fenced diff block."""
+    mock_get_diff.return_value = "-old\n+new\n"
+
+    section = _build_inline_diff_section(pathlib.Path("/repo"), "applications/x")
+
+    assert section.startswith("<details>\n<summary>Resume YAML Diff</summary>\n")
+    assert "````diff\n-old\n+new\n````\n" in section
+    assert section.endswith("</details>\n")
+
+
+@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+def test_build_inline_diff_section_escapes_triple_backticks(
+    mock_get_diff: mock.MagicMock,
+) -> None:
+    """A diff containing triple-backtick fences cannot break out of the block."""
+    tricky_diff = "+```yaml\n+key: value\n+```"
+    mock_get_diff.return_value = tricky_diff
+
+    section = _build_inline_diff_section(pathlib.Path("/repo"), "applications/x")
+
+    # The outer fence uses four backticks, so embedded ``` stays inert.
+    assert f"````diff\n{tricky_diff}\n````\n" in section
+
+
+@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+def test_build_inline_diff_section_empty_diff(
+    mock_get_diff: mock.MagicMock, tmp_path: pathlib.Path
+) -> None:
+    """An empty diff produces no collapsible section."""
+    mock_get_diff.return_value = ""
+
+    assert _build_inline_diff_section(tmp_path, "applications/x") == ""
+
+
+@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+def test_build_inline_diff_section_git_error(
+    mock_get_diff: mock.MagicMock, tmp_path: pathlib.Path
+) -> None:
+    """Diff computation failures degrade gracefully to no section."""
+    mock_get_diff.side_effect = GitOpsError("git diff failed")
+
+    assert _build_inline_diff_section(tmp_path, "applications/x") == ""
+
+
+@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+def test_build_inline_diff_section_truncates_at_line_boundary(
+    mock_get_diff: mock.MagicMock, tmp_path: pathlib.Path
+) -> None:
+    """Long diffs are truncated on a line boundary, never mid-line."""
+    mock_get_diff.return_value = "-abcdef\n" * 5000  # 40k chars exceeds the cap
+
+    section = _build_inline_diff_section(tmp_path, "applications/x")
+
+    assert "_Diff truncated due to length. Use the compare link above._" in section
+    fenced = section.split("````diff\n", 1)[1].split("\n````\n", 1)[0]
+    assert len(fenced) < INLINE_DIFF_MAX_CHARS
+    assert fenced.endswith("-abcdef")
+    for line in fenced.split("\n"):
+        assert line.startswith("-abcdef")
 
 
 @mock.patch("jobgitops.cli.triage.compile_resume")
@@ -645,7 +746,7 @@ def test_run_triage_tailoring_failure(
     mock_gh_client = mock.MagicMock(spec=GitHubClient)
     mock_gh_client.repo = "my-owner/my-repo"
 
-    mock_run_git.return_value = "main-branch"
+    mock_run_git.side_effect = make_run_git_stub()
 
     body = (
         "**Company:** FailCorp\n"
@@ -732,7 +833,7 @@ def test_run_triage_bare_url_body_fetches_and_substitutes(
     mock_gh_client.repo = "my-owner/my-repo"
     mock_gh_client.project_id = "proj_123"
 
-    mock_run_git.return_value = "main-branch"
+    mock_run_git.side_effect = make_run_git_stub()
 
     with mock.patch("pathlib.Path.open", mock.mock_open()):
         run_triage(
@@ -996,7 +1097,7 @@ def test_run_triage_already_applied(
     mock_gh_client.repo = "my-owner/my-repo"
     mock_gh_client.project_id = "proj_123"
 
-    mock_run_git.return_value = "main-branch"
+    mock_run_git.side_effect = make_run_git_stub()
 
     body = (
         "**Company:** Google\n"
@@ -1073,7 +1174,7 @@ def test_run_triage_interviewing(
     mock_gh_client.repo = "my-owner/my-repo"
     mock_gh_client.project_id = "proj_123"
 
-    mock_run_git.return_value = "main-branch"
+    mock_run_git.side_effect = make_run_git_stub()
 
     body = (
         "**Company:** Google\n"

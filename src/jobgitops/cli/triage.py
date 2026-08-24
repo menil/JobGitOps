@@ -17,6 +17,7 @@ from typing import Any
 from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
 from jobgitops.fit_grades import FIT_GRADE_A_MIN, FIT_GRADE_A_PLUS_MIN, FIT_GRADE_B_MIN
 from jobgitops.git_ops import (
+    GitOpsError,
     commit_changes,
     create_or_checkout_branch,
     generate_branch_name,
@@ -51,6 +52,14 @@ DEFAULT_COMPANY = "Unknown Company"
 DEFAULT_ROLE = "Unknown Role"
 DEFAULT_LOCATION = "Remote"
 DEFAULT_SALARY = "Not specified"
+
+# Cap for the resume diff embedded inline in the approval comment; GitHub
+# comments are limited to 65,536 characters, leaving room for the rest
+# of the triage summary.
+INLINE_DIFF_MAX_CHARS = 20000
+
+# Path of the tailored resume whose changes are shown inline.
+RESUME_YAML_PATH = "resumes/resume.yaml"
 
 
 # Pre-compiled regex patterns for robust job detail parsing
@@ -553,6 +562,55 @@ def _create_tailored_application_branch(
                 )
 
 
+def _get_resume_yaml_diff(repo_path: pathlib.Path, branch_name: str) -> str:
+    """Return the unified diff of the resume YAML between main and branch.
+
+    Uses the three-dot form so the comparison matches GitHub's compare view
+    (merge-base of main and the branch, up to the branch tip).
+    """
+    return run_git(
+        ["diff", f"main...{branch_name}", "--", RESUME_YAML_PATH],
+        cwd=repo_path,
+    )
+
+
+def _build_inline_diff_section(repo_path: pathlib.Path, branch_name: str) -> str:
+    """Build a collapsible <details> section with the resume YAML diff.
+
+    Returns an empty string when the diff cannot be computed or shows no
+    changes, so this optional enhancement never breaks comment posting.
+    """
+    try:
+        raw_diff = _get_resume_yaml_diff(repo_path, branch_name)
+    except GitOpsError as e:
+        logger.warning("Could not generate inline resume diff: %s", e)
+        return ""
+    if not raw_diff.strip():
+        return ""
+
+    # Four backticks so any triple-backtick fences inside the diff text
+    # cannot prematurely close the code block.
+    clean_diff = raw_diff.strip()
+    truncated = len(clean_diff) > INLINE_DIFF_MAX_CHARS
+    shown_diff = clean_diff[:INLINE_DIFF_MAX_CHARS]
+    if truncated and "\n" in shown_diff:
+        # Back up to the last complete line so the fence never ends on a
+        # garbled partial hunk line.
+        shown_diff = shown_diff[: shown_diff.rfind("\n")]
+    truncation_note = (
+        "\n_Diff truncated due to length. Use the compare link above._"
+        if truncated
+        else ""
+    )
+    return (
+        "<details>\n"
+        "<summary>Resume YAML Diff</summary>\n\n"
+        f"````diff\n{shown_diff}\n````\n"
+        f"{truncation_note}\n"
+        "</details>\n"
+    )
+
+
 def get_fit_grade_label(fit_score: float) -> str:
     """Map a fit score to its tier label for approved matches.
 
@@ -623,8 +681,7 @@ def _handle_approved_match(
         pdf_blob_url = (
             f"https://github.com/{gh_client.repo}/blob/{branch_name}/resumes/resume.pdf"
         )
-        yaml_path = "resumes/resume.yaml"
-        yaml_hash = hashlib.sha256(yaml_path.encode("utf-8")).hexdigest()
+        yaml_hash = hashlib.sha256(RESUME_YAML_PATH.encode("utf-8")).hexdigest()
         if initial_status:
             status_text = status_to_header.get(initial_status, "Status Updated")
             header = (
@@ -659,6 +716,9 @@ def _handle_approved_match(
             f'- **Apply URL:** <a href="{job_details["apply_url"]}" '
             f'target="_blank">Link to Posting</a>\n'
         )
+        inline_diff_section = _build_inline_diff_section(repo_path, branch_name)
+        if inline_diff_section:
+            comment_body += f"\n{inline_diff_section}"
         gh_client.post_comment(issue_number, comment_body)
 
         # Update labels
