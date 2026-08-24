@@ -1,6 +1,7 @@
 """Unit tests for the Issue Assistant agent loop (spec 5.2)."""
 
 import json
+import logging
 
 import pytest
 
@@ -365,7 +366,7 @@ def test_run_agent_status_update_action() -> None:
     assert action.reply == "Marked interviewing."
 
 
-def test_run_agent_iteration_cap() -> None:
+def test_run_agent_iteration_cap(caplog) -> None:
     """Tool rounds are capped; a final answer is offered, then fallback."""
     llm = ScriptedLLM(
         tool_call_msg("web_search", {"query": "q1"}),
@@ -373,12 +374,17 @@ def test_run_agent_iteration_cap() -> None:
         tool_call_msg("web_search", {"query": "q3"}),
         ChatMessage(role="assistant", content="still researching"),
     )
-    action, _ = run(
-        llm, research=make_research(max_iterations=3), comments=["Research Acme"]
-    )
+    with caplog.at_level(logging.INFO):
+        action, _ = run(
+            llm, research=make_research(max_iterations=3), comments=["Research Acme"]
+        )
 
     assert action == assistant.fallback_action()
     assert len(llm.calls) == 4
+    # The wasted final chance is diagnosed with its raw content, not silently
+    # dropped before falling back.
+    assert "failed action parsing" in caplog.text
+    assert "still researching" in caplog.text
 
 
 def test_run_agent_final_answer_after_cap_tool_round() -> None:
@@ -397,17 +403,18 @@ def test_run_agent_final_answer_after_cap_tool_round() -> None:
     assert len(llm.calls) == 4
 
 
-def test_run_agent_final_chance_tool_call_is_not_executed() -> None:
-    """A tool call on the final chance is ignored; the run falls back."""
+def test_run_agent_final_chance_tool_call_is_not_executed(caplog) -> None:
+    """A tool call on the final chance is ignored, reported, and falls back."""
     llm = ScriptedLLM(
         tool_call_msg("web_search", {"query": "q1"}),
         tool_call_msg("web_search", {"query": "q2"}),
         tool_call_msg("web_search", {"query": "q3"}),
         tool_call_msg("web_search", {"query": "q4"}),
     )
-    action, client = run(
-        llm, research=make_research(max_iterations=3), comments=["Research Acme"]
-    )
+    with caplog.at_level(logging.INFO):
+        action, client = run(
+            llm, research=make_research(max_iterations=3), comments=["Research Acme"]
+        )
 
     assert action == assistant.fallback_action()
     assert len(llm.calls) == 4
@@ -416,6 +423,9 @@ def test_run_agent_final_chance_tool_call_is_not_executed() -> None:
         ("web_search", "q2"),
         ("web_search", "q3"),
     ]
+    assert "was another tool call (web_search)" in caplog.text
+    # Only the specific warning announces the fallback outcome.
+    assert "iteration cap" not in caplog.text
 
 
 def test_run_agent_malformed_json_recovery() -> None:
@@ -445,6 +455,128 @@ def test_run_agent_repeated_parse_failure_returns_fallback() -> None:
 
     assert action == assistant.fallback_action()
     assert len(llm.calls) == 2
+
+
+def test_run_agent_parse_failure_logs_reason_and_snippet(caplog) -> None:
+    """An unparseable reply is logged with the validation error and snippet."""
+    llm = ScriptedLLM(
+        ChatMessage(role="assistant", content="sure thing!"),
+        action_msg("reply", reply="Recovered."),
+    )
+    with caplog.at_level(logging.INFO):
+        run(llm, comments=["Is Acme public?"])
+
+    assert "Agent reply failed action parsing" in caplog.text
+    assert "not valid JSON" in caplog.text
+    assert "raw reply: sure thing!" in caplog.text
+
+
+def test_run_agent_parse_failure_snippet_is_truncated(caplog) -> None:
+    """Oversized unparseable replies are cut to the log-snippet budget."""
+    llm = ScriptedLLM(
+        ChatMessage(
+            role="assistant",
+            content="x" * (assistant.PARSE_FAILURE_SNIPPET_CHARS + 500),
+        ),
+        action_msg("skip"),
+    )
+    with caplog.at_level(logging.INFO):
+        run(llm, comments=["ok"])
+
+    assert assistant.PARSE_FAILURE_SNIPPET_MARKER in caplog.text
+    assert "x" * (assistant.PARSE_FAILURE_SNIPPET_CHARS + 500) not in caplog.text
+
+
+def test_run_agent_parse_failure_log_is_sanitized(caplog) -> None:
+    """Raw replies are flattened to one line and sensitive shapes redacted."""
+    sha = "e5fa44f2b31c1fb553b6021e7360d07d5d91ff9e"  # 40-hex, SHA-1 length
+    leaky = (
+        "Sure! contact me at owner@example.com, key "
+        f"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ12, sha {sha}\n"
+        "2026-08-24 ERROR forged log line"
+    )
+    llm = ScriptedLLM(
+        ChatMessage(role="assistant", content=leaky),
+        action_msg("skip"),
+    )
+    with caplog.at_level(logging.INFO):
+        run(llm, comments=["ok"])
+
+    record = next(
+        r for r in caplog.records if "failed action parsing" in r.getMessage()
+    )
+    message = record.getMessage()
+    assert "\n" not in message
+    assert "[redacted-email]" in message
+    assert "[redacted-token]" in message
+    assert "owner@example.com" not in message
+    assert "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ12" not in message
+    # SHA-1-length hex runs survive redaction: they are usually git SHAs.
+    assert sha in message
+    # Flattening keeps the diagnostic content greppable on a single line.
+    assert "ERROR forged log line" in message
+
+
+def test_run_agent_logs_tool_execution_and_error_payloads(caplog) -> None:
+    """Executed tools are logged with args; error payloads surface as warnings."""
+
+    class ErrorWebClient(StubWebClient):
+        def fetch_url(self, url: str) -> dict:
+            self.calls.append(("fetch_url", url))
+            return {"error": "fetch blocked by robots.txt"}
+
+    llm = ScriptedLLM(
+        tool_call_msg("fetch_url", {"url": "https://acme.com/job"}),
+        action_msg("reply", reply="Could not read the posting."),
+    )
+    with caplog.at_level(logging.INFO):
+        run(
+            llm,
+            client=ErrorWebClient(),
+            trigger="Check this one out: https://acme.com/job",
+        )
+
+    assert (
+        "Agent executing tool 'fetch_url' with args {\"url\": "
+        '"https://acme.com/job"}' in caplog.text
+    )
+    assert "Tool 'fetch_url' returned an error" in caplog.text
+    assert "fetch blocked by robots.txt" in caplog.text
+
+
+def test_run_agent_tool_args_log_is_sanitized_and_truncated(caplog) -> None:
+    """Injection-crafted or oversized tool args are redacted and truncated."""
+    llm = ScriptedLLM(
+        tool_call_msg(
+            "fetch_url",
+            {"url": "https://acme.com/job?token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ12"},
+        ),
+        tool_call_msg(
+            "web_search",
+            {"query": "y" * (assistant.PARSE_FAILURE_SNIPPET_CHARS + 500)},
+        ),
+        action_msg("skip"),
+    )
+    with caplog.at_level(logging.INFO):
+        run(llm, client=StubWebClient(), trigger="fetch it")
+
+    def executing_record(tool: str) -> logging.LogRecord:
+        return next(
+            r
+            for r in caplog.records
+            if f"Agent executing tool '{tool}'" in r.getMessage()
+        )
+
+    fetch_message = executing_record("fetch_url").getMessage()
+    assert "\n" not in fetch_message
+    # Credential-bearing query strings are redacted, not just bare tokens.
+    assert "[redacted-token]" in fetch_message
+    assert "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ12" not in fetch_message
+
+    # Oversized non-sensitive args are cut to the snippet budget.
+    search_message = executing_record("web_search").getMessage()
+    assert "\n" not in search_message
+    assert assistant.PARSE_FAILURE_SNIPPET_MARKER in search_message
 
 
 # --- Trigger text and context window ----------------------------------------

@@ -10,6 +10,7 @@ GitHub side effects and just executes the returned ``AgentAction``.
 
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -74,6 +75,30 @@ FALLBACK_REPLY = (
 # context window (§9.4). 12k chars ≈ 3k tokens, ample for a web page digest.
 MAX_TOOL_RESULT_CHARS = 12_000
 TOOL_RESULT_TRUNCATION_MARKER = f"\n...[truncated at {MAX_TOOL_RESULT_CHARS} chars]"
+
+# Raw-reply snippet budget attached to parse-failure logs: enough to see
+# whether the model emitted prose, markdown, or near-miss JSON without
+# flooding CI logs with an oversized context dump.
+PARSE_FAILURE_SNIPPET_CHARS = 2_000
+PARSE_FAILURE_SNIPPET_MARKER = f"...[truncated at {PARSE_FAILURE_SNIPPET_CHARS} chars]"
+
+# Model-derived text is untrusted: it can echo personal data from the
+# resume-bearing prompt or credential-shaped strings planted by fetched pages
+# (prompt injection), so obvious email addresses and API-key/token shapes are
+# scrubbed before any of it reaches CI log storage.
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_SECRET_RE = re.compile(
+    r"(?i:token|api[_-]?key|secret|password|access[_-]?token)[=:]\S{8,}"
+    r"|(?:sk|rk)-[A-Za-z0-9_-]{10,}"  # OpenAI-style keys
+    r"|gh[pousr]_[A-Za-z0-9]{20,}"  # GitHub tokens
+    r"|github_pat_[A-Za-z0-9_]{20,}"  # fine-grained PATs
+    r"|xox[baprs]-[A-Za-z0-9-]{10,}"  # Slack tokens
+    r"|AIza[A-Za-z0-9_-]{30,}"  # Google API keys (incl. query strings)
+    r"|[Bb]earer\s+[A-Za-z0-9._~+/=-]{20,}"  # auth headers
+    # Bare hex blobs only above SHA-1 length: 32/40-char runs are commonly
+    # MD5 digests and git SHAs whose verbatim value matters when debugging.
+    r"|\b[A-Fa-f0-9]{64,}\b"
+)
 
 
 @dataclass
@@ -315,6 +340,41 @@ def _corrective_message(error: str) -> str:
     )
 
 
+def _sanitize_for_log(text: str) -> str:
+    """Make untrusted text safe for a single-line log record.
+
+    Control characters are flattened (raw newlines would forge extra log
+    lines in CI output) and credential/email shapes are redacted before the
+    text reaches third-party log storage.
+    """
+    text = _EMAIL_RE.sub("[redacted-email]", text)
+    text = _SECRET_RE.sub("[redacted-token]", text)
+    flattened = "".join(ch if ch.isprintable() else " " for ch in text)
+    return " ".join(flattened.split())
+
+
+def _log_snippet(text: str) -> str:
+    """Sanitize ``text`` and truncate it to the log-snippet budget."""
+    snippet = _sanitize_for_log(text)
+    if len(snippet) <= PARSE_FAILURE_SNIPPET_CHARS:
+        return snippet
+    return snippet[:PARSE_FAILURE_SNIPPET_CHARS] + PARSE_FAILURE_SNIPPET_MARKER
+
+
+def _log_parse_failure(reply: ChatMessage, error: Exception) -> None:
+    """Log why a model reply failed action parsing plus a raw-content snippet.
+
+    The corrective nudge goes to the model, not the operator, so without this
+    a fallback-only run is undiagnosable from CI logs (nothing records what
+    the model actually emitted or why it was rejected).
+    """
+    logger.warning(
+        "Agent reply failed action parsing (%s); raw reply: %s",
+        _sanitize_for_log(str(error)),
+        _log_snippet(reply.content or ""),
+    )
+
+
 def _log_parsed(action: AgentAction, correlation: str) -> AgentAction:
     """Log a successfully parsed action and return it unchanged."""
     logger.info("Agent parsed action '%s' for '%s'.", action.action, correlation)
@@ -366,7 +426,20 @@ def run_agent(
         messages.append(reply)
         if reply.tool_calls:
             for call in reply.tool_calls:
+                logger.info(
+                    "Agent executing tool '%s' with args %s for '%s'.",
+                    call.name,
+                    _log_snippet(json.dumps(call.arguments or {}, default=str)),
+                    correlation,
+                )
                 result = _execute_tool_call(web_client, call)
+                if isinstance(result, dict) and "error" in result:
+                    logger.warning(
+                        "Tool '%s' returned an error for '%s': %s",
+                        call.name,
+                        correlation,
+                        _sanitize_for_log(str(result["error"])),
+                    )
                 messages.append(
                     ChatMessage(
                         role="tool",
@@ -378,6 +451,7 @@ def run_agent(
         try:
             return _log_parsed(parse_action(reply.content), correlation)
         except ValidationError as e:
+            _log_parse_failure(reply, e)
             if corrective_given:
                 logger.warning(
                     "Agent produced two unparseable replies for '%s'; "
@@ -395,11 +469,18 @@ def run_agent(
     # still bounds the expensive tool rounds at max_iterations.
     if messages[-1].role == "tool":
         reply = llm_client.chat(messages, tools=tools)
-        if not reply.tool_calls:
-            try:
-                return _log_parsed(parse_action(reply.content), correlation)
-            except ValidationError:
-                pass
+        if reply.tool_calls:
+            logger.warning(
+                "Final answer for '%s' was another tool call (%s); using "
+                "fallback reply.",
+                correlation,
+                _sanitize_for_log(", ".join(call.name for call in reply.tool_calls)),
+            )
+            return fallback_action()
+        try:
+            return _log_parsed(parse_action(reply.content), correlation)
+        except ValidationError as e:
+            _log_parse_failure(reply, e)
     logger.warning(
         "Agent produced no parseable action within the %s-iteration cap for "
         "'%s'; using fallback reply.",
