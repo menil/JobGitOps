@@ -222,6 +222,133 @@ describe("createProjectV2", () => {
       url: "https://github.com/users/testuser/projects/1",
     });
   });
+  it("sends updateProjectV2 with public true when visibility is public", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: { updateProjectV2: { projectV2: { id: "PVT_1234" } } },
+          }),
+      } as any);
+    global.fetch = fetchMock as any;
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+      undefined,
+      "public",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+
+    const updateBody = String(fetchMock.mock.calls[2]?.[1]?.body ?? "");
+    expect(updateBody).toContain("updateProjectV2");
+    expect(JSON.parse(updateBody).variables).toEqual({
+      projectId: "PVT_1234",
+      public: true,
+    });
+  });
+
+  it("still returns the project when publishing returns a GraphQL errors array", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ errors: [{ message: "Forbidden" }] }),
+      } as any);
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+      undefined,
+      "public",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+  });
+
+  it("still returns the project when publishing fails for a public repository", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+      } as any);
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+      undefined,
+      "public",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+  });
 
   it("returns null if owner fetch fails", async () => {
     global.fetch = vi.fn().mockResolvedValueOnce({

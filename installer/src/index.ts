@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import pc from "picocolors";
 import { execa } from "execa";
 import { fetchGithubUser, validateApiKey } from "./api.js";
@@ -34,10 +34,13 @@ program
   .option("--brave-key <key>", "Brave API key")
   .option("--jina-key <key>", "Jina API key")
   .option("--projects", "Integrate with GitHub Projects V2", false)
-  .option(
-    "--visibility <visibility>",
-    "Repository visibility ('private' or 'public')",
-    "private",
+  .addOption(
+    new Option(
+      "--visibility <visibility>",
+      "Repository visibility ('private' or 'public'); the Projects V2 board follows this setting",
+    )
+      .choices(["private", "public"])
+      .default("private"),
   )
   .option(
     "--tag <ref>",
