@@ -149,6 +149,25 @@ export async function fetchRepositoryNodeId(
   }
 }
 
+const GITHUB_GRAPHQL_ENDPOINT = "https://api.github.com/graphql";
+
+/**
+ * Posts a GraphQL operation to the GitHub API. Centralizes the endpoint, auth
+ * header propagation, and JSON envelope so callers only supply the operation
+ * text and variables.
+ */
+async function postGraphql(
+  authHeaders: Record<string, string>,
+  query: string,
+  variables: unknown,
+): Promise<Response> {
+  return fetch(GITHUB_GRAPHQL_ENDPOINT, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+  });
+}
+
 /**
  * Creates a GitHub Projects V2 board owned by the given user via the GraphQL API,
  * optionally linking it to the repository.
@@ -197,13 +216,10 @@ export async function createProjectV2(
         }
       }
     `;
-    const graphqlResp = await fetch("https://api.github.com/graphql", {
-      method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query,
-        variables: { ownerId, title, repositoryId },
-      }),
+    const graphqlResp = await postGraphql(authHeaders, query, {
+      ownerId,
+      title,
+      repositoryId,
     });
     if (!graphqlResp.ok) {
       throw new Error(`GraphQL request failed (HTTP ${graphqlResp.status}).`);
@@ -227,6 +243,7 @@ export async function createProjectV2(
     if (visibility === "public") {
       await setProjectV2Public(projectV2.id, authHeaders);
     }
+    await configureProjectV2KanbanView(projectV2.id, authHeaders);
     return { id: projectV2.id, url: projectV2.url };
   } catch (error: any) {
     console.error(`Failed to create Projects V2: ${error.message || error}`);
@@ -250,13 +267,9 @@ async function setProjectV2Public(
     }
   `;
   try {
-    const resp = await fetch("https://api.github.com/graphql", {
-      method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query,
-        variables: { projectId, public: true },
-      }),
+    const resp = await postGraphql(authHeaders, query, {
+      projectId,
+      public: true,
     });
     if (!resp.ok) {
       console.error(
@@ -276,6 +289,149 @@ async function setProjectV2Public(
     console.error(
       `Could not set project visibility to public: ${error.message || error}`,
     );
+  }
+}
+
+const KANBAN_VIEW_ERROR = "Could not switch the project board to a Kanban view";
+const KANBAN_VIEW_WARNING = `${KANBAN_VIEW_ERROR}; keeping the default Table view`;
+
+interface GraphqlResult {
+  data?: unknown;
+  errors?: Array<{ message: string }>;
+}
+
+/**
+ * Parses a best-effort GraphQL response, warning and returning null when the
+ * HTTP status or the GraphQL errors array indicates the operation failed.
+ * `contextMessage` names the operation for log output.
+ */
+async function readGraphqlResult(
+  resp: Response,
+  contextMessage: string,
+): Promise<GraphqlResult | null> {
+  if (!resp.ok) {
+    console.error(`${contextMessage} (HTTP ${resp.status})`);
+    return null;
+  }
+  const result = (await resp.json()) as GraphqlResult;
+  if (result.errors?.length) {
+    console.error(`${contextMessage}: ${result.errors[0].message}`);
+    return null;
+  }
+  return result;
+}
+
+/**
+ * Best-effort switch of a freshly created Projects V2 board's default view
+ * from the initial Table layout to a Kanban Board. Views are matched by
+ * layout rather than name so renamed Table views are still found. GitHub
+ * requires at least one live view per project, so the order is discover ->
+ * create -> delete. Every failure path warns; a degraded board never breaks
+ * the install.
+ */
+async function configureProjectV2KanbanView(
+  projectId: string,
+  authHeaders: Record<string, string>,
+): Promise<void> {
+  try {
+    // 1. Discover the initial Table view
+    const viewsResp = await postGraphql(
+      authHeaders,
+      `
+        query($projectId: ID!) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              // first: 10 is ample for a freshly created board (one view);
+              // revisit with pagination if this ever runs on existing boards
+              views(first: 10) {
+                nodes { id layout }
+              }
+            }
+          }
+        }
+      `,
+      { projectId },
+    );
+    const viewsResult = await readGraphqlResult(viewsResp, KANBAN_VIEW_WARNING);
+    if (!viewsResult) {
+      return;
+    }
+    const viewsData = viewsResult.data as
+      | {
+          node?: {
+            views?: { nodes?: Array<{ id?: string; layout?: string }> };
+          };
+        }
+      | undefined;
+    const tableView = viewsData?.node?.views?.nodes?.find(
+      (view) => view.layout === "TABLE_LAYOUT",
+    );
+    if (!tableView?.id) {
+      console.error(
+        `${KANBAN_VIEW_ERROR}: no Table layout view found to replace. The board keeps its current default view.`,
+      );
+      return;
+    }
+
+    // 2. Create the Kanban Board replacement — but only when the board has no
+    // board view yet, otherwise we would leave two board layouts behind.
+    // GitHub requires at least one live view per project, so a replacement
+    // must exist before the Table view is deleted; an existing board view
+    // already satisfies that invariant.
+    const hasBoardView = viewsData?.node?.views?.nodes?.some(
+      (view) => view.layout === "BOARD_LAYOUT",
+    );
+    if (!hasBoardView) {
+      const createResp = await postGraphql(
+        authHeaders,
+        `
+          mutation($projectId: ID!, $name: String!, $layout: ProjectV2ViewLayout!) {
+            createProjectV2View(
+              input: { projectId: $projectId, name: $name, layout: $layout }
+            ) {
+              projectV2View { id name }
+            }
+          }
+        `,
+        { projectId, name: "Kanban Board", layout: "BOARD_LAYOUT" },
+      );
+      const createResult = await readGraphqlResult(
+        createResp,
+        KANBAN_VIEW_WARNING,
+      );
+      if (!createResult) {
+        return;
+      }
+      // A malformed creation payload must never trigger deleting the only
+      // other live view on the board.
+      const createdView = (
+        createResult.data as
+          | { createProjectV2View?: { projectV2View?: { id?: string } } }
+          | undefined
+      )?.createProjectV2View?.projectV2View;
+      if (!createdView?.id) {
+        console.error(
+          `${KANBAN_VIEW_ERROR}: Board view creation returned no view ID. The default Table view is kept.`,
+        );
+        return;
+      }
+    }
+
+    // 3. Delete the now-redundant Table view
+    const deleteResp = await postGraphql(
+      authHeaders,
+      `
+        mutation($viewId: ID!) {
+          deleteProjectV2View(input: { viewId: $viewId }) {
+            projectV2View { id name }
+          }
+        }
+      `,
+      { viewId: tableView.id },
+    );
+    await readGraphqlResult(deleteResp, KANBAN_VIEW_WARNING);
+  } catch (error: any) {
+    console.error(`${KANBAN_VIEW_ERROR}: ${error.message || error}`);
   }
 }
 
