@@ -210,6 +210,11 @@ describe("createProjectV2", () => {
               },
             },
           }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ data: { node: { views: { nodes: [] } } } }),
       } as any);
 
     const result = await createProjectV2(
@@ -249,6 +254,11 @@ describe("createProjectV2", () => {
           Promise.resolve({
             data: { updateProjectV2: { projectV2: { id: "PVT_1234" } } },
           }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ data: { node: { views: { nodes: [] } } } }),
       } as any);
     global.fetch = fetchMock as any;
 
@@ -296,6 +306,11 @@ describe("createProjectV2", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ errors: [{ message: "Forbidden" }] }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ data: { node: { views: { nodes: [] } } } }),
       } as any);
 
     const result = await createProjectV2(
@@ -335,6 +350,11 @@ describe("createProjectV2", () => {
       .mockResolvedValueOnce({
         ok: false,
         status: 403,
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ data: { node: { views: { nodes: [] } } } }),
       } as any);
 
     const result = await createProjectV2(
@@ -402,6 +422,420 @@ describe("createProjectV2", () => {
     await expect(createProjectV2("user", "")).rejects.toThrow(
       "ownerLogin and title are required.",
     );
+  });
+
+  it("replaces the Table view with a Kanban Board view after creation", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              node: {
+                views: {
+                  nodes: [
+                    { id: "PVTV_table", name: "Table", layout: "TABLE_LAYOUT" },
+                  ],
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2View: {
+                projectV2View: { id: "PVTV_kanban", name: "Kanban Board" },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              deleteProjectV2View: {
+                projectV2View: { id: "PVTV_table", name: "Table" },
+              },
+            },
+          }),
+      } as any);
+    global.fetch = fetchMock as any;
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+
+    // The initial view query must discover views by layout, not by name
+    const viewsCallIndex = fetchMock.mock.calls.findIndex((call) =>
+      String(call[1]?.body ?? "").includes("views("),
+    );
+    expect(viewsCallIndex).toBe(2);
+
+    // The board view must be created before the Table view is deleted
+    // (GitHub requires at least one live view at all times)
+    const createCallIndex = fetchMock.mock.calls.findIndex((call) =>
+      String(call[1]?.body ?? "").includes("createProjectV2View"),
+    );
+    const deleteCallIndex = fetchMock.mock.calls.findIndex((call) =>
+      String(call[1]?.body ?? "").includes("deleteProjectV2View"),
+    );
+    expect(createCallIndex).toBeGreaterThan(viewsCallIndex);
+    expect(deleteCallIndex).toBeGreaterThan(createCallIndex);
+
+    const createBody = JSON.parse(
+      String(fetchMock.mock.calls[createCallIndex]?.[1]?.body ?? ""),
+    );
+    expect(createBody.variables).toEqual({
+      projectId: "PVT_1234",
+      name: "Kanban Board",
+      layout: "BOARD_LAYOUT",
+    });
+
+    const deleteBody = JSON.parse(
+      String(fetchMock.mock.calls[deleteCallIndex]?.[1]?.body ?? ""),
+    );
+    expect(deleteBody.variables).toEqual({ viewId: "PVTV_table" });
+  });
+
+  it("deletes only the Table view when a board view already exists", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              node: {
+                views: {
+                  nodes: [
+                    { id: "PVTV_table", name: "Table", layout: "TABLE_LAYOUT" },
+                    { id: "PVTV_board", name: "Board", layout: "BOARD_LAYOUT" },
+                  ],
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              deleteProjectV2View: {
+                projectV2View: { id: "PVTV_table", name: "Table" },
+              },
+            },
+          }),
+      } as any);
+    global.fetch = fetchMock as any;
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+
+    // No createProjectV2View mutation may fire — the board already has a
+    // board layout, so creating another would leave two behind
+    expect(fetchMock.mock.calls.length).toBe(4);
+    const createdDuplicate = fetchMock.mock.calls.some((call) =>
+      String(call[1]?.body ?? "").includes("createProjectV2View"),
+    );
+    expect(createdDuplicate).toBe(false);
+  });
+
+  it("leaves existing views untouched when no Table layout view exists", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              node: {
+                views: {
+                  nodes: [
+                    { id: "PVTV_board", name: "Board", layout: "BOARD_LAYOUT" },
+                  ],
+                },
+              },
+            },
+          }),
+      } as any);
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("still returns the project when the Kanban view switch hits GraphQL errors", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ errors: [{ message: "Forbidden" }] }),
+      } as any);
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("still returns the project when the Kanban view switch request fails", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+      } as any);
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps the Table view when Kanban view creation returns GraphQL errors", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              node: {
+                views: {
+                  nodes: [
+                    { id: "PVTV_table", name: "Table", layout: "TABLE_LAYOUT" },
+                  ],
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ errors: [{ message: "Forbidden" }] }),
+      } as any);
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+    // The Table view must never be deleted when its replacement failed
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("warns but keeps the project when deleting the Table view fails", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ node_id: "U_xxxx" }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "PVT_1234",
+                  url: "https://github.com/users/testuser/projects/1",
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              node: {
+                views: {
+                  nodes: [
+                    { id: "PVTV_table", name: "Table", layout: "TABLE_LAYOUT" },
+                  ],
+                },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              createProjectV2View: {
+                projectV2View: { id: "PVTV_kanban", name: "Kanban Board" },
+              },
+            },
+          }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+      } as any);
+
+    const result = await createProjectV2(
+      "testuser",
+      "my-job-search",
+      "R_repo_123",
+    );
+    expect(result).toEqual({
+      id: "PVT_1234",
+      url: "https://github.com/users/testuser/projects/1",
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(5);
   });
 });
 
