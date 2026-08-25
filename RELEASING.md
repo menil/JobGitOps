@@ -58,6 +58,18 @@ One-time setup:
    cd installer && npm run build && npm login && npm publish --access public
    ```
 
+   **Publish the version the release line actually computes, never the
+   `package.json` placeholder** — npm versions are immutable. A higher
+   bootstrap version (e.g. `1.0.0` when tags are at `v0.21.x`) squats that
+   slot forever, feeds the bogus build to `^1` resolvers, and — because npm
+   refuses implicit `latest` downgrades — permanently blocks every lower
+   auto-computed version from taking over `latest` until something higher
+   publishes. Recovery is *not* unpublishing: removing a package's last
+   version locks the name for 24h (this repo once needed a manual bridge
+   tag to escape exactly that trap). The placeholder stays `0.0.0` so an
+   accidental unstamped publish can never outrank real releases, and
+   `prepublishOnly` rejects it outright before anything ships.
+
 3. On npmjs.com → package → **Settings → Trusted Publisher**, add:
    GitHub Actions · `menil/JobGitOps` (match GitHub's canonical casing —
    npm compares it strictly against the OIDC token claim) · workflow
