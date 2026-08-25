@@ -16,6 +16,9 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      installer_changed: ${{ steps.changes.outputs.installer_changed }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -32,6 +35,24 @@ jobs:
           NEXT_VERSION="$(sh scripts/bump-version.sh)"
           if [ -n "$NEXT_VERSION" ]; then
             echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+      # npm publishing is gated on installer/ diffs since the previous release
+      # tag, not on every release: template/shell-plane-only releases ship via
+      # the Docker image and must not touch the registry. Must run BEFORE the
+      # new tag is created, or it would diff against itself.
+      - name: Detect installer Changes
+        id: changes
+        run: |
+          PREV_TAG="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n 1)"
+          if [ -z "$PREV_TAG" ]; then
+            # No baseline yet (first release) — publish so `npx
+            # jobgitops-installer` works from day one.
+            echo "installer_changed=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$(git diff --name-only "$PREV_TAG" "$GITHUB_SHA" -- installer/)" ]; then
+            echo "installer_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "installer_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create Tag and Release
@@ -63,3 +84,48 @@ jobs:
           done
           # Tag push fires build-runner.yml, which builds :vX.Y.Z + :latest.
           gh release create "$VERSION" --target main --generate-notes
+
+  publish-npm:
+    needs: release
+    if: >-
+      needs.release.outputs.version != '' &&
+      needs.release.outputs.installer_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # npm provenance attests the package to this repo via OIDC.
+      id-token: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.version }}
+          persist-credentials: false
+
+      # Node 24 ships npm 11, which implements the OIDC token exchange trusted
+      # publishing needs (npm >= 11.5.1). No registry-url: setup-node would
+      # write an _authToken line into ~/.npmrc, and a present-but-empty
+      # credential makes npm skip the OIDC path with a misleading ENEEDAUTH.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Publishes via npm trusted publishing (OIDC): no NPM_TOKEN secret.
+      # The registry must list this repo + workflow filename as a trusted
+      # publisher (see RELEASING.md). Provenance is automatic; the flag is
+      # kept for explicitness.
+      - name: Publish to npm
+        working-directory: installer
+        # Env passthrough instead of run-block interpolation keeps the
+        # version out of shell-parsing context entirely.
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          npm ci
+          # No explicit build: prepublishOnly is the single build trigger,
+          # so dist/ can never silently go stale between build and publish.
+          # package.json pins a placeholder version; stamp the computed
+          # release version so registry and GitHub tag always match.
+          npm version "${VERSION#v}" --no-git-tag-version
+          npm publish --provenance --access public

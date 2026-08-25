@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command, Option } from "commander";
 import pc from "picocolors";
 import { execa } from "execa";

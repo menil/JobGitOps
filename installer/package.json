@@ -6,9 +6,18 @@
   "bin": {
     "jobgitops-installer": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/menil/JobGitOps.git",
+    "directory": "installer"
+  },
   "type": "module",
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "npm run build",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
