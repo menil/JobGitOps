@@ -2,6 +2,19 @@
 
 A serverless, GitOps-driven job application and tracking system. JobGitOps treats the job search like software deployment: GitHub Issues are your pipeline, GitHub Projects is your Kanban board, and GitHub Actions is the automation plane that scrapes roles, AI-triages fit, and tailors your resume — all running free on GitHub's infrastructure.
 
+---
+
+<p align="center">
+  <img width="800" height="582" alt="Example of the JobGitOps issue view and kanban board" src="https://github.com/user-attachments/assets/86576825-9e25-4acd-b58a-3def59f34e5d" />
+</p>
+
+## Example job search repository: `jobgitops-example`
+
+#### 🔍 [Issue View](https://github.com/menil/jobgitops-example/issues)
+#### 🗂️ [Kanban Board View](https://github.com/users/menil/projects/13)
+
+---
+
 ## Features
 
 - 🤖 **Automated Role Discovery**: A scheduled Actions cron (`python -m jobgitops.cli.scrape`) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
