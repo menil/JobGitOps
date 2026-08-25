@@ -107,7 +107,7 @@ jobs:
       # write an _authToken line into ~/.npmrc, and a present-but-empty
       # credential makes npm skip the OIDC path with a misleading ENEEDAUTH.
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
