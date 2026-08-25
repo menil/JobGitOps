@@ -911,6 +911,8 @@ def run_all_pending(
                 labels="triage-pending",
                 per_page=BATCH_PAGE_SIZE,
                 page=page,
+                sort="created",
+                direction="asc",
             )
         except Exception as e:
             logger.error("Failed to list triage-pending issues: %s", e)
