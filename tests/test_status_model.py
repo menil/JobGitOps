@@ -1,6 +1,7 @@
 """Unit tests for the canonical status/label model."""
 
 from jobgitops.status_model import (
+    CLOSURE_LABELS,
     LABEL_TO_STATUS,
     LIFECYCLE_LABELS,
     REVERSE_SYNC_STATUSES,
@@ -119,6 +120,22 @@ def test_resolve_closed_lifecycle_label_with_mismatch_reasons() -> None:
     )
     assert resolve_closed_lifecycle_label({"applied"}) == "rejected"
     assert resolve_closed_lifecycle_label(set()) == "rejected"
+
+
+def test_closure_labels_match_closed_resolution_domain() -> None:
+    """CLOSURE_LABELS is exactly the value domain of resolve_closed_lifecycle_label.
+
+    Locks the coupling between the terminal-label set and the closed-issue
+    resolver so a change to one without the other fails here instead of
+    drifting silently across pipeline modules.
+    """
+    outcomes = {
+        resolve_closed_lifecycle_label({"triage-mismatched"}),
+        resolve_closed_lifecycle_label({"location-mismatch"}),
+        resolve_closed_lifecycle_label({"applied"}),
+        resolve_closed_lifecycle_label(set()),
+    }
+    assert outcomes == CLOSURE_LABELS
 
 
 def test_sync_lifecycle_label_skips_generic_mismatch() -> None:

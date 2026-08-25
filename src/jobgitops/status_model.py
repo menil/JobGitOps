@@ -124,6 +124,12 @@ def sync_lifecycle_label(
         gh_client.add_labels(issue_number, [target_label])
 
 
+# Terminal lifecycle labels: adding one also closes its issue. Exactly the
+# value domain of resolve_closed_lifecycle_label below — kept beside it so
+# the two cannot drift apart.
+CLOSURE_LABELS: frozenset[str] = frozenset({"rejected", "triage-mismatched"})
+
+
 def resolve_closed_lifecycle_label(labels: set[str]) -> str:
     """Resolve the lifecycle label for a closed issue.
 
