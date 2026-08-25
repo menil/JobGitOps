@@ -1531,6 +1531,8 @@ def test_run_all_pending_triages_each_labeled_issue(
         labels="triage-pending",
         per_page=BATCH_PAGE_SIZE,
         page=1,
+        sort="created",
+        direction="asc",
     )
     assert mock_run_triage.call_count == 2
     mock_run_triage.assert_any_call(
@@ -1606,12 +1608,16 @@ def test_run_all_pending_paginates_through_all_pending_issues(
             labels="triage-pending",
             per_page=BATCH_PAGE_SIZE,
             page=1,
+            sort="created",
+            direction="asc",
         ),
         mock.call(
             state="open",
             labels="triage-pending",
             per_page=BATCH_PAGE_SIZE,
             page=2,
+            sort="created",
+            direction="asc",
         ),
     ]
 

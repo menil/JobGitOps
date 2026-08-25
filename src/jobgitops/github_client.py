@@ -442,6 +442,8 @@ class GitHubClient:
         per_page: int = 100,
         page: int | None = None,
         labels: str | None = None,
+        sort: str | None = None,
+        direction: str | None = None,
     ) -> list[dict[str, Any]]:
         """List issues for the repository.
 
@@ -450,11 +452,17 @@ class GitHubClient:
             per_page: Number of issues to retrieve per page (max 100).
             page: Optional page number for pagination.
             labels: Optional comma-separated label names to filter by.
+            sort: Property to sort returned items by (e.g., 'created').
+            direction: Direction to sort returned items ('asc' or 'desc').
 
         Returns:
             List of issues.
         """
         url = f"https://api.github.com/repos/{self.repo}/issues?state={state}&per_page={per_page}"
+        if sort:
+            url += f"&sort={urllib.parse.quote(sort)}"
+        if direction:
+            url += f"&direction={urllib.parse.quote(direction)}"
         if labels:
             url += f"&labels={urllib.parse.quote(labels)}"
         if page is not None:
