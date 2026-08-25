@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from jobgitops.cli.status_transition import LABEL_TO_STATUS, main
+from jobgitops.github_client import GitHubClientError
 from jobgitops.schema import Settings
+from jobgitops.status_model import CLOSURE_LABELS
 
 # Standard environment and CLI args used by most tests. centralizing these keeps
 # the per-test setup focused on the single failure condition under test.
@@ -143,6 +145,139 @@ def test_transition_from_cli_args(
     # update_project_status called with correct node ID and status
     mock_client.update_project_status.assert_called_once_with("ND_123", expected_status)
 
+    # Terminal labels close their open issue and hold the column against the
+    # "item closed -> Done" automation; plain label moves do neither.
+    if label in CLOSURE_LABELS:
+        mock_client.close_issue.assert_called_once_with(42)
+        mock_client.ensure_project_status.assert_called_once_with(
+            "ND_123", expected_status
+        )
+    else:
+        mock_client.close_issue.assert_not_called()
+        mock_client.ensure_project_status.assert_not_called()
+
+
+@patch("jobgitops.cli.status_transition.GitHubClient")
+@pytest.mark.parametrize(
+    ("label", "expected_status"),
+    [
+        ("rejected", "Rejected"),
+        ("triage-mismatched", "Mismatched/Closed"),
+    ],
+)
+def test_terminal_label_closes_open_issue(
+    mock_github_client_class,
+    label,
+    expected_status,
+) -> None:
+    """A terminal label added to an open issue closes it and keeps its column."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+
+    event_data = {
+        "action": "labeled",
+        "label": {"name": label},
+        "issue": {"number": 101, "node_id": "ND_EVENT_999"},
+        "repository": {"full_name": "event_owner/event_repo"},
+    }
+
+    with (
+        in_memory_event(event_data),
+        patch.dict(os.environ, {"GITHUB_TOKEN": "test_token"}, clear=True),
+        patch("sys.argv", ["status_transition.py", "--event-path", "event.json"]),
+    ):
+        main()
+
+    mock_client.close_issue.assert_called_once_with(101)
+    # The close must precede the column write so the settle-and-verify pass
+    # can win the race against GitHub's "item closed -> Done" automation.
+    call_order = [name for name, _, _ in mock_client.mock_calls]
+    assert call_order.index("close_issue") < call_order.index("update_project_status")
+    mock_client.update_project_status.assert_called_once_with(
+        "ND_EVENT_999", expected_status
+    )
+    mock_client.ensure_project_status.assert_called_once_with(
+        "ND_EVENT_999", expected_status
+    )
+
+
+@patch("jobgitops.cli.status_transition.GitHubClient")
+@pytest.mark.parametrize(
+    ("update_ok", "ensure_ok", "ensure_called"),
+    [
+        (False, None, False),
+        (True, False, True),
+    ],
+)
+def test_closure_degraded_paths_warn_and_skip_or_settle(
+    mock_github_client_class,
+    caplog,
+    update_ok,
+    ensure_ok,
+    ensure_called,
+) -> None:
+    """Degraded Projects V2 writes warn and lean on the scheduled backfill.
+
+    A failed column write skips the settle pass entirely (a degraded token
+    guarantees a wasted 5s sleep plus duplicate warning); a non-converging
+    settle still runs but ends in the reconcile warning. Neither exits
+    non-zero — the backfill reconciles columns on its own schedule.
+    """
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.get_issue.return_value = {"node_id": "ND_123"}
+    mock_client.get_labels.return_value = []
+    mock_client.update_project_status.return_value = update_ok
+    if ensure_ok is not None:
+        mock_client.ensure_project_status.return_value = ensure_ok
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch(
+            "sys.argv",
+            ["status_transition.py", "--issue", "42", "--label", "rejected"],
+        ),
+    ):
+        main()
+
+    assert (
+        "Status did not converge to Rejected; the scheduled backfill will "
+        "reconcile the column." in caplog.text
+    )
+    assert mock_client.ensure_project_status.called is ensure_called
+
+
+@patch("jobgitops.cli.status_transition.GitHubClient")
+def test_close_failure_still_moves_column_and_skips_settle(
+    mock_github_client_class,
+    caplog,
+) -> None:
+    """A failed close logs its own error but the column write still happens.
+
+    The label is the source of truth and the column move is independent of
+    issue state; aborting would compound one failed REST call into a stale
+    board. The settle pass is skipped because no state flip occurred, so the
+    "item closed -> Done" automation never starts racing.
+    """
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.get_issue.return_value = {"node_id": "ND_123"}
+    mock_client.get_labels.return_value = []
+    mock_client.close_issue.side_effect = GitHubClientError("403: issues write denied")
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch(
+            "sys.argv",
+            ["status_transition.py", "--issue", "42", "--label", "rejected"],
+        ),
+    ):
+        main()
+
+    assert "Failed to close issue #42: 403: issues write denied" in caplog.text
+    mock_client.update_project_status.assert_called_once_with("ND_123", "Rejected")
+    mock_client.ensure_project_status.assert_not_called()
+
 
 @patch("jobgitops.cli.status_transition.GitHubClient")
 def test_transition_removes_stale_sibling_lifecycle_labels(
@@ -245,6 +380,8 @@ def test_transition_from_closed_event_payload_default_rejected(
     mock_client.update_project_status.assert_called_once_with(
         "ND_EVENT_999", "Rejected"
     )
+    # GitHub already flipped the state on a closed event; never re-close.
+    mock_client.close_issue.assert_not_called()
 
 
 @patch("jobgitops.cli.status_transition.GitHubClient")
@@ -347,6 +484,49 @@ def test_transition_cli_label_overrides_event_payload(
         main()
 
     mock_client.update_project_status.assert_called_once_with("ND_EVENT_999", "In Loop")
+    # Overriding away from a terminal label must cancel closure entirely.
+    mock_client.close_issue.assert_not_called()
+    mock_client.ensure_project_status.assert_not_called()
+
+
+@patch("jobgitops.cli.status_transition.GitHubClient")
+def test_cli_override_to_terminal_label_closes(
+    mock_github_client_class,
+) -> None:
+    """--label rejected wins over a non-terminal payload label and closes."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.get_labels.return_value = []
+
+    event_data = {
+        "action": "labeled",
+        "label": {"name": "applied"},
+        "issue": {"number": 101, "node_id": "ND_EVENT_999"},
+    }
+
+    with (
+        in_memory_event(event_data),
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch(
+            "sys.argv",
+            [
+                "status_transition.py",
+                "--event-path",
+                "event.json",
+                "--label",
+                "rejected",
+            ],
+        ),
+    ):
+        main()
+
+    mock_client.close_issue.assert_called_once_with(101)
+    mock_client.update_project_status.assert_called_once_with(
+        "ND_EVENT_999", "Rejected"
+    )
+    mock_client.ensure_project_status.assert_called_once_with(
+        "ND_EVENT_999", "Rejected"
+    )
 
 
 @patch("jobgitops.cli.status_transition.GitHubClient")

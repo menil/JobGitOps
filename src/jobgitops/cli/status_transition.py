@@ -10,10 +10,11 @@ import sys
 from typing import Any
 
 from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
-from jobgitops.github_client import GitHubClient
+from jobgitops.github_client import GitHubClient, GitHubClientError
 from jobgitops.loader import load_settings
 from jobgitops.schema import ProjectsV2Config
 from jobgitops.status_model import (
+    CLOSURE_LABELS,
     LABEL_TO_STATUS,
     resolve_closed_lifecycle_label,
     sync_lifecycle_label,
@@ -36,6 +37,10 @@ class TransitionContext:
     # the settle-and-verify pass is reserved for them; plain label moves would
     # just pay its latency for nothing.
     is_closure: bool = False
+    # True when this run must close the issue itself (a terminal label added
+    # while the issue is still open); False for 'closed' events, where GitHub
+    # has already flipped the state and re-closing would be a wasted write.
+    closes_issue: bool = False
 
 
 def main() -> None:
@@ -194,6 +199,10 @@ def _resolve_context(
         logger.error("No issue number or event payload specified.")
         sys.exit(1)
 
+    # A terminal label closes its issue when it triggers the run itself; on a
+    # 'closed' event the state flip already happened and re-closing would be
+    # a wasted write.
+    is_closed_event = event.get("action") == "closed"
     return TransitionContext(
         token=token,
         repo=repo,
@@ -201,7 +210,8 @@ def _resolve_context(
         issue_node_id=issue_node_id,
         label=label,
         status=LABEL_TO_STATUS[label],
-        is_closure=event.get("action") == "closed",
+        is_closure=is_closed_event or label in CLOSURE_LABELS,
+        closes_issue=label in CLOSURE_LABELS and not is_closed_event,
     )
 
 
@@ -223,7 +233,12 @@ def _init_client(
 
 
 def _transition(gh_client: GitHubClient, context: TransitionContext) -> None:
-    """Move the issue's Projects V2 column to its resolved status."""
+    """Move the issue's Projects V2 column to its resolved status.
+
+    Terminal lifecycle labels (``CLOSURE_LABELS``) additionally close their
+    issue; the column write is re-asserted afterwards so it survives GitHub's
+    built-in "item closed -> Done" automation.
+    """
     issue_node_id = _resolve_node_id(gh_client, context)
     logger.info(
         "Transitioning issue #%d (Node ID: %s) status to %s...",
@@ -236,8 +251,29 @@ def _transition(gh_client: GitHubClient, context: TransitionContext) -> None:
         # truth; drop stale sibling lifecycle labels so the issue carries a
         # single pipeline stage and the board matches the label state.
         sync_lifecycle_label(gh_client, context.issue_number, context.label)
+        # Close before the column write so the settle-and-verify pass below
+        # can win the race against the "item closed -> Done" automation it
+        # just kicked off (same ordering as triage's mismatch path). A failed
+        # close must not abort the run: the label is the source of truth and
+        # the column write is independent of issue state, so aborting would
+        # compound one failed REST call into a stale board too. The remaining
+        # open-issue divergence surfaces through this error log and the red
+        # Actions run.
+        close_failed = False
+        if context.closes_issue:
+            try:
+                gh_client.close_issue(context.issue_number)
+            except GitHubClientError as e:
+                # _request wraps all transport/API failures in this type;
+                # anything else is a programming error and should crash
+                # loudly instead of being logged as a close failure.
+                close_failed = True
+                logger.error("Failed to close issue #%d: %s", context.issue_number, e)
         applied = gh_client.update_project_status(issue_node_id, context.status)
-        if not context.is_closure:
+        # The settle pass only has a race to win when a real state flip
+        # happened (a 'closed' event or our own successful close); after a
+        # failed close the "Done" automation stays idle.
+        if not context.is_closure or close_failed:
             logger.info("Successfully updated status to %s.", context.status)
             return
         # Only re-assert when the initial write succeeded; a degraded token
