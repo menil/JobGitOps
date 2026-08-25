@@ -1,6 +1,6 @@
 {
   "name": "jobgitops-installer",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "description": "Interactive bootstrap installer for JobGitOps repositories",
   "main": "dist/index.js",
   "bin": {
@@ -17,7 +17,7 @@
   "type": "module",
   "scripts": {
     "build": "tsup",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "node -e \"if (require('./package.json').version === '0.0.0') { console.error('Refusing to publish the 0.0.0 placeholder. Stamp a release version first: npm version X.Y.Z --no-git-tag-version'); process.exit(1); }\" && npm run build",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
