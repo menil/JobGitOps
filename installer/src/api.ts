@@ -334,15 +334,15 @@ async function configureProjectV2KanbanView(
   authHeaders: Record<string, string>,
 ): Promise<void> {
   try {
-    // 1. Discover the initial Table view
+    // 1. Discover the initial Table view. first: 10 is ample for a freshly
+    // created board (one view); revisit with pagination if this ever runs on
+    // existing boards.
     const viewsResp = await postGraphql(
       authHeaders,
       `
         query($projectId: ID!) {
           node(id: $projectId) {
             ... on ProjectV2 {
-              // first: 10 is ample for a freshly created board (one view);
-              // revisit with pagination if this ever runs on existing boards
               views(first: 10) {
                 nodes { id layout }
               }

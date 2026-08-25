@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   fetchGithubUser,
   verifyAndRefreshScopes,
@@ -8,8 +8,11 @@ import {
   createGist,
 } from "../src/api.js";
 import { execa } from "execa";
+import { validateGraphqlRequests } from "./graphql-guard.js";
 
 vi.mock("execa");
+
+afterEach(validateGraphqlRequests);
 
 describe("fetchGithubUser", () => {
   beforeEach(() => {

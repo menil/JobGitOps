@@ -1,11 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { runInstallation } from "../src/installer.js";
 import { execa } from "execa";
 import fs from "fs-extra";
 import path from "path";
 import os from "os";
+import { validateGraphqlRequests } from "./graphql-guard.js";
 
 vi.mock("execa");
+
+afterEach(validateGraphqlRequests);
 vi.mock("tar", () => ({
   default: {
     x: vi.fn().mockResolvedValue(undefined),
