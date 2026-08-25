@@ -4,6 +4,8 @@ import json
 import os
 import urllib.error
 import urllib.request
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import google.api_core.exceptions
@@ -64,6 +66,20 @@ def _gemini_response_with_text(text: str) -> MagicMock:
     response = MagicMock()
     response.candidates = [candidate]
     return response
+
+
+def _gemini_text_payload(text: str) -> MagicMock:
+    """Build a fake generate_content response exposing a top-level text."""
+    response = MagicMock()
+    response.text = text
+    return response
+
+
+def _patch_gemini_sdk(test_fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Compose the standard SDK patches shared by GeminiClient tests."""
+    return patch("google.generativeai.GenerativeModel")(
+        patch("google.generativeai.configure")(test_fn)
+    )
 
 
 def _gemini_response_with_function_call(name: str, args: dict) -> MagicMock:
@@ -443,6 +459,80 @@ def test_gemini_client_tailor(
     assert tailored_resume.basics.name == "Martin Livne"
 
 
+@_patch_gemini_sdk
+def test_gemini_client_tailor_retries_once_on_malformed_json(
+    mock_configure: MagicMock, mock_model_cls: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify a malformed tailoring response is retried once and then succeeds."""
+    mock_model = mock_model_cls.return_value
+    tailored_data = sample_resume.to_dict()
+    tailored_data["basics"]["summary"] = "Tailored after retry."
+    mock_model.generate_content.side_effect = [
+        _gemini_text_payload("not json at all"),
+        _gemini_text_payload(json.dumps(tailored_data)),
+    ]
+
+    client = GeminiClient(api_key="key")
+    tailored_resume = client.tailor_resume("Python role", sample_resume)
+
+    assert tailored_resume.basics.summary == "Tailored after retry."
+    assert mock_model.generate_content.call_count == 2
+
+
+@_patch_gemini_sdk
+def test_gemini_client_tailor_fails_after_single_retry(
+    mock_configure: MagicMock, mock_model_cls: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify persistent malformed output raises ValidationError after one retry."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.return_value = _gemini_text_payload("{broken")
+
+    client = GeminiClient(api_key="key")
+
+    with pytest.raises(ValidationError, match="Gemini resume tailoring failed"):
+        client.tailor_resume("Python role", sample_resume)
+
+    assert mock_model.generate_content.call_count == 2
+
+
+@_patch_gemini_sdk
+def test_gemini_client_tailor_retries_on_schema_invalid_json(
+    mock_configure: MagicMock, mock_model_cls: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify schema-invalid (but parseable) output is retried once."""
+    mock_model = mock_model_cls.return_value
+    tailored_data = sample_resume.to_dict()
+    tailored_data["basics"]["summary"] = "Tailored after schema retry."
+    mock_model.generate_content.side_effect = [
+        _gemini_text_payload('{"status": "ok"}'),
+        _gemini_text_payload(json.dumps(tailored_data)),
+    ]
+
+    client = GeminiClient(api_key="key")
+    tailored_resume = client.tailor_resume("Python role", sample_resume)
+
+    assert tailored_resume.basics.summary == "Tailored after schema retry."
+    assert mock_model.generate_content.call_count == 2
+
+
+@_patch_gemini_sdk
+def test_gemini_client_quota_error_does_not_retry(
+    mock_configure: MagicMock, mock_model_cls: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify quota errors abort immediately without a second API call."""
+    mock_model = mock_model_cls.return_value
+    mock_model.generate_content.side_effect = (
+        google.api_core.exceptions.ResourceExhausted("Quota exceeded")
+    )
+
+    client = GeminiClient(api_key="key")
+
+    with pytest.raises(QuotaExceededError, match="Gemini API quota exceeded"):
+        client.tailor_resume("Python role", sample_resume)
+
+    assert mock_model.generate_content.call_count == 1
+
+
 @patch("google.generativeai.GenerativeModel")
 @patch("google.generativeai.configure")
 def test_gemini_client_failure_handling(
@@ -461,6 +551,13 @@ def test_gemini_client_failure_handling(
 
     with pytest.raises(ValidationError, match="Gemini resume tailoring failed"):
         client.tailor_resume("Python role", sample_resume)
+
+
+def _urlopen_context_response(payload: bytes) -> MagicMock:
+    """Build a fake urlopen return value usable as a read-only context manager."""
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = payload
+    return response
 
 
 @patch("urllib.request.urlopen")
@@ -577,6 +674,47 @@ def test_openrouter_client_malformed_json_response(
 
     with pytest.raises(ValidationError, match="OpenRouter resume tailoring failed"):
         client.tailor_resume("Python role", sample_resume)
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_client_tailor_retries_once_on_malformed_json(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify OpenRouter tailoring retries once on malformed output."""
+    tailored_data = sample_resume.to_dict()
+    tailored_data["basics"]["summary"] = "OpenRouter tailored after retry."
+    mock_urlopen.side_effect = [
+        _urlopen_context_response(b"not json at all"),
+        _urlopen_context_response(
+            json.dumps(
+                {"choices": [{"message": {"content": json.dumps(tailored_data)}}]}
+            ).encode("utf-8")
+        ),
+    ]
+
+    client = OpenRouterClient(api_key="key")
+    tailored_resume = client.tailor_resume("Python role", sample_resume)
+
+    assert tailored_resume.basics.summary == "OpenRouter tailored after retry."
+    assert mock_urlopen.call_count == 2
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_client_tailor_fails_after_single_retry(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify persistent malformed OpenRouter output fails after one retry."""
+    mock_urlopen.side_effect = [
+        _urlopen_context_response(b"{broken"),
+        _urlopen_context_response(b"{broken"),
+    ]
+
+    client = OpenRouterClient(api_key="key")
+
+    with pytest.raises(ValidationError, match="OpenRouter resume tailoring failed"):
+        client.tailor_resume("Python role", sample_resume)
+
+    assert mock_urlopen.call_count == 2
 
 
 @patch("google.generativeai.GenerativeModel")

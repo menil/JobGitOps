@@ -1,16 +1,20 @@
 """Pluggable LLM client wrapper supporting Gemini and OpenRouter providers."""
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import yaml
 
 from jobgitops.schema import Resume, ValidationError
+
+logger = logging.getLogger("jobgitops.llm")
 
 
 class QuotaExceededError(Exception):
@@ -128,6 +132,63 @@ def clean_json_string(s: str) -> str:
     if first != -1 and last != -1 and last > first:
         return s[first : last + 1]
     return s
+
+
+_MAX_TAILOR_ATTEMPTS = 2
+
+# Appended to retry attempts only: resending the identical prompt tends to
+# reproduce the identical failure, so nudge the model toward parseable JSON.
+_RETRY_OUTPUT_HINT = (
+    "\n\nIMPORTANT: Your previous response could not be parsed. Respond "
+    "only with valid JSON matching the resume schema."
+)
+
+# Parse failures can echo model/resume-derived content; keep it out of
+# persisted CI logs while leaving full detail on the raised exception.
+_MAX_LOG_DETAIL_CHARS = 200
+
+
+def _parse_tailored_resume(
+    fetch_text: Callable[[str], str], provider_label: str
+) -> Resume:
+    """Fetch and parse a tailored resume, retrying once on malformed output.
+
+    Both syntax errors and schema rejections count as transient model output
+    (not a caller error), and a failed tailoring aborts the issue's whole
+    triage, so each provider retries once before giving up. Retry attempts
+    receive ``_RETRY_OUTPUT_HINT`` appended to their prompt.
+
+    Args:
+        fetch_text: Callable performing one LLM call. Receives the corrective
+            prompt suffix for this attempt and returns the raw response text.
+        provider_label: Provider name used in log and error messages.
+
+    Returns:
+        The parsed tailored Resume.
+
+    Raises:
+        ValidationError: When every attempt produced unparseable or
+            schema-invalid output.
+    """
+    last_error: json.JSONDecodeError | ValidationError | None = None
+    for attempt in range(_MAX_TAILOR_ATTEMPTS):
+        hint = "" if attempt == 0 else _RETRY_OUTPUT_HINT
+        try:
+            clean_text = clean_json_string(fetch_text(hint))
+            data = json.loads(clean_text)
+            return Resume.from_dict(data)
+        except (json.JSONDecodeError, ValidationError) as e:
+            last_error = e
+            logger.warning(
+                "%s tailor response was malformed (attempt %d/%d): %s",
+                provider_label,
+                attempt + 1,
+                _MAX_TAILOR_ATTEMPTS,
+                str(e)[:_MAX_LOG_DETAIL_CHARS],
+            )
+    raise ValidationError(
+        f"{provider_label} resume tailoring failed: {last_error}"
+    ) from last_error
 
 
 def _normalize_job_details(data: Any) -> dict[str, str]:
@@ -572,21 +633,19 @@ class GeminiClient(LLMClient):
         prompt = TAILOR_PROMPT.format(
             resume_yaml=resume_yaml, job_description=job_description
         )
-        try:
+
+        def generate_text(hint: str) -> str:
             response = self.model.generate_content(
-                prompt,
+                prompt + hint,
                 generation_config={"response_mime_type": "application/json"},
             )
-            clean_text = clean_json_string(response.text)
-            data = json.loads(clean_text)
-            return Resume.from_dict(data)
+            return response.text
+
+        try:
+            return _parse_tailored_resume(generate_text, "Gemini")
         except google.api_core.exceptions.ResourceExhausted as e:
             raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
-        except (
-            json.JSONDecodeError,
-            ValidationError,
-            google.api_core.exceptions.GoogleAPICallError,
-        ) as e:
+        except google.api_core.exceptions.GoogleAPICallError as e:
             raise ValidationError(f"Gemini resume tailoring failed: {e}") from e
 
     def extract_job_details(
@@ -743,13 +802,9 @@ class OpenRouterClient(LLMClient):
         prompt = TAILOR_PROMPT.format(
             resume_yaml=resume_yaml, job_description=job_description
         )
-        try:
-            response_text = self._call_openrouter(prompt)
-            clean_text = clean_json_string(response_text)
-            data = json.loads(clean_text)
-            return Resume.from_dict(data)
-        except (json.JSONDecodeError, ValidationError) as e:
-            raise ValidationError(f"OpenRouter resume tailoring failed: {e}") from e
+        return _parse_tailored_resume(
+            lambda hint: self._call_openrouter(prompt + hint), "OpenRouter"
+        )
 
     def extract_job_details(
         self, fetched_text: str, page_title: str, url: str
