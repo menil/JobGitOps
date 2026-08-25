@@ -1,0 +1,30 @@
+# Automated dependency maintenance. Security updates arrive as separate
+# priority PRs regardless of schedule; version updates are grouped to keep
+# noise down (majors stay individual so breaking bumps get reviewed alone).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /installer
+    schedule:
+      interval: weekly
+    labels:
+      - "dependencies"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - "dependencies"
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5

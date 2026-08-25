@@ -31,6 +31,18 @@ jobs:
       - name: Install Installer Dependencies
         run: npm ci --prefix installer
 
+      # Gate on the dependencies that ship to npm users. Dev-toolchain
+      # findings (vitest/vite/esbuild) are tracked separately and must not
+      # block unrelated work.
+      #
+      # Deliberate blocking behavior: npm audit reads the live advisory DB,
+      # so a freshly published high/critical advisory fails in-flight PRs
+      # until a fix lands. That urgency is intended for a public npm
+      # package. Unblock path: merge the pending Dependabot security PR
+      # (it arrives within hours); do not soften this step instead.
+      - name: Audit Production Dependencies
+        run: npm audit --omit=dev --audit-level=high --prefix installer
+
       - name: Ensure Shellcheck
         run: command -v shellcheck || { apt-get update && apt-get install -y --no-install-recommends shellcheck; }
 

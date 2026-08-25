@@ -39,12 +39,15 @@
     "@types/tar": "^6.1.13",
     "@typescript-eslint/eslint-plugin": "^7.14.1",
     "@typescript-eslint/parser": "^7.14.1",
-    "@vitest/coverage-v8": "^1.6.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^8.57.0",
     "graphql": "^17.0.2",
     "prettier": "^3.3.2",
     "tsup": "^8.1.0",
     "typescript": "^5.5.2",
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }
