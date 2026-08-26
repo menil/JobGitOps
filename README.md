@@ -17,10 +17,10 @@ A serverless, GitOps-driven job application and tracking system. JobGitOps treat
 
 ## Features
 
-- 🤖 **Automated Role Discovery**: A scheduled Actions cron (`python -m jobgitops.cli.scrape`) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
-- 🧠 **AI Triage & Tailoring**: A two-pass LLM engine (`python -m jobgitops.cli.triage`) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
+- 🤖 **Automated Role Discovery**: A scheduled Actions cron ([Daily Job Scraper](https://github.com/menil/jobgitops-example/actions/workflows/scrape-jobs.yml)) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
+- 🧠 **AI Triage & Tailoring**: A two-pass LLM engine ([Triage and Tailor Issue](https://github.com/menil/jobgitops-example/actions/workflows/triage-issue.yml)) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
 - 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to HTML and print-ready PDFs with Jinja2 + WeasyPrint on dedicated application branches — every version you send is a clean, reviewable Git diff.
-- 💬 **Issue Assistant**: A tool-using agent (`python -m jobgitops.cli.respond`) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
+- 💬 **Issue Assistant**: A tool-using agent ([Respond to Issue](https://github.com/menil/jobgitops-example/actions/workflows/respond-issue.yml)) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
 - 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → In Loop → Rejected`) with label-based automation and a label-only fallback.
 
 ---
