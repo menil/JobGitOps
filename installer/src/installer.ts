@@ -629,6 +629,14 @@ async function resolveLatestTag(token?: string): Promise<string> {
   }
 }
 
+/**
+ * Downloads the repository tarball for a given tag.
+ * Attempts an anonymous download first, falling back to GitHub CLI api call if needed.
+ *
+ * @param tag Release version tag to download
+ * @param destPath Destination file path for the downloaded tarball
+ * @param token Optional GitHub OAuth token
+ */
 async function downloadTarball(
   tag: string,
   destPath: string,
@@ -650,6 +658,12 @@ async function downloadTarball(
         await fs.remove(destPath).catch(() => {});
         throw err;
       }
+    } else if (response.body) {
+      try {
+        await response.body.cancel();
+      } catch {
+        // ignore
+      }
     }
   } catch {
     // Fall back to authenticated API endpoint
@@ -666,6 +680,7 @@ async function downloadTarball(
   } catch (error: any) {
     throw new Error(
       `Failed to download JobGitOps tarball for '${tag}': ${error.message || error}`,
+      { cause: error },
     );
   }
 }
