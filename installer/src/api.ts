@@ -67,7 +67,9 @@ export async function fetchGithubUser(token?: string): Promise<GithubUser> {
 
     return { login, scopes };
   } catch (error: any) {
-    throw new Error(`GitHub authentication failed: ${error.message || error}`);
+    throw new Error(`GitHub authentication failed: ${error.message || error}`, {
+      cause: error,
+    });
   }
 }
 
@@ -499,25 +501,36 @@ export async function validateApiKey(
 
   try {
     const response = await fetch(url, { headers });
-    if (!response.ok) {
-      if (
-        response.status === 401 ||
-        response.status === 403 ||
-        response.status === 400
-      ) {
-        throw new Error(
-          `${provider === "gemini" ? "Gemini" : "OpenRouter"} key rejected by the API (HTTP ${response.status})`,
-        );
+    try {
+      if (!response.ok) {
+        if (
+          response.status === 401 ||
+          response.status === 403 ||
+          response.status === 400
+        ) {
+          throw new Error(
+            `${provider === "gemini" ? "Gemini" : "OpenRouter"} key rejected by the API (HTTP ${response.status})`,
+          );
+        }
+        throw new Error(`API returned HTTP ${response.status}`);
       }
-      throw new Error(`API returned HTTP ${response.status}`);
+    } finally {
+      if (response.body) {
+        try {
+          await response.body.cancel();
+        } catch {
+          // ignore
+        }
+      }
     }
   } catch (error: any) {
-    if (error.message && error.message.includes("rejected")) {
+    if (error?.message && error.message.includes("rejected")) {
       throw error;
     }
     // Network or transport failure
     throw new Error(
       `Could not reach the ${provider === "gemini" ? "Gemini" : "OpenRouter"} API: ${error.message || error}`,
+      { cause: error },
     );
   }
 }

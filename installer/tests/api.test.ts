@@ -67,6 +67,21 @@ describe("fetchGithubUser", () => {
     expect(result.login).toBe("fallbackuser");
     expect(result.scopes).toEqual(["repo"]);
   });
+
+  it("throws an error with the original cause when execa fails", async () => {
+    const mockError = new Error("Command failed");
+    vi.mocked(execa).mockRejectedValue(mockError);
+
+    await expect(fetchGithubUser()).rejects.toThrow(
+      "GitHub authentication failed: Command failed",
+    );
+
+    try {
+      await fetchGithubUser();
+    } catch (err: any) {
+      expect(err.cause).toBe(mockError);
+    }
+  });
 });
 
 describe("verifyAndRefreshScopes", () => {
@@ -170,13 +185,18 @@ describe("validateApiKey", () => {
   });
 
   it("throws network/transport error if fetch fails", async () => {
-    global.fetch = vi
-      .fn()
-      .mockRejectedValue(new Error("DNS Resolution Failure"));
+    const mockError = new Error("DNS Resolution Failure");
+    global.fetch = vi.fn().mockRejectedValue(mockError);
 
     await expect(validateApiKey("gemini", "key")).rejects.toThrow(
       "Could not reach the Gemini API: DNS Resolution Failure",
     );
+
+    try {
+      await validateApiKey("gemini", "key");
+    } catch (err: any) {
+      expect(err.cause).toBe(mockError);
+    }
   });
 });
 

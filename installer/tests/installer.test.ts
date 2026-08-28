@@ -344,4 +344,60 @@ describe("runInstallation", () => {
     expect(settingsWrite).toBeDefined();
     expect(String(settingsWrite?.[1])).toContain("PVT_123");
   });
+
+  it("fails installation and propagates error when download fails", async () => {
+    const mockError = new Error("GH CLI error");
+    // Mock public download to throw/reject
+    global.fetch = vi.fn().mockRejectedValue(new Error("Network failure"));
+
+    // Mock execa to reject when fetching the tarball
+    vi.mocked(execa).mockImplementation(async (bin, args) => {
+      if (
+        bin === "gh" &&
+        args &&
+        args[0] === "api" &&
+        args[1].includes("tarball")
+      ) {
+        throw mockError;
+      }
+      return { stdout: "mock-result" } as any;
+    });
+
+    await expect(
+      runInstallation(
+        {
+          repoName: "job-search-test",
+          visibility: "private",
+          provider: "gemini",
+          primaryKey: "mock-gemini-key",
+          optionalKeys: {},
+          wantProjects: false,
+          tag: "latest",
+          dryRun: false,
+        },
+        "testowner",
+      ),
+    ).rejects.toThrow(
+      "Failed to download JobGitOps tarball for 'latest': GH CLI error",
+    );
+
+    // Also assert cause is correct
+    try {
+      await runInstallation(
+        {
+          repoName: "job-search-test",
+          visibility: "private",
+          provider: "gemini",
+          primaryKey: "mock-gemini-key",
+          optionalKeys: {},
+          wantProjects: false,
+          tag: "latest",
+          dryRun: false,
+        },
+        "testowner",
+      );
+    } catch (err: any) {
+      expect(err.cause).toBe(mockError);
+    }
+  });
 });
