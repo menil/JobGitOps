@@ -26,7 +26,7 @@ flowchart TD
     subgraph AI Engine [Triage & Tailoring Plane]
         D -->|Reads| G[(resumes/resume.yaml)]
         D -->|Calls LLM| H(llm.py)
-        H -->|OpenRouter / Gemini| I{Evaluate Fit}
+        H -->|OpenRouter / Gemini / Claude| I{Evaluate Fit}
         
         I -->|< 4.0| J[Close Issue with Reason]
         I -->|>= 4.0| K[Create Branch applications/company-role]
@@ -44,7 +44,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 
 ### Setup Workflow for End Users:
 1. **Fork the Repository:** The user forks the JobGitOps repository to their personal GitHub account.
-2. **Configure Secrets:** The user adds their `GEMINI_API_KEY` or `OPENROUTER_API_KEY` to their repository secrets (**Settings > Secrets and variables > Actions**).
+2. **Configure Secrets:** The user adds their `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` to their repository secrets (**Settings > Secrets and variables > Actions**).
 3. **Customize Resume & Preferences:**
     *   The user overwrites `resumes/resume.yaml` with their personal work history, education, and skills.
     *   The user configures search preferences (e.g. Remote vs. Onsite, location, platforms) in `config/settings.yaml`.
@@ -80,7 +80,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 ### 2.2. AI Triage & Tailoring Engine
 *   **Location:** Modular structure in `src/jobgitops/` to separate concerns:
     *   `src/jobgitops/cli/triage.py`: Main event handler (parses issues, coordinates triage/tailor workflow).
-    *   `src/jobgitops/llm.py`: Pluggable LLM wrapper (Gemini / OpenRouter) enforcing structured JSON schema parsing.
+    *   `src/jobgitops/llm.py`: Pluggable LLM wrapper (Gemini / OpenRouter / Claude) enforcing structured JSON schema parsing.
     *   `src/jobgitops/renderer.py`: Compiles the resume YAML using Jinja2 HTML templates and triggers WeasyPrint for PDF generation.
     *   `src/jobgitops/git_ops.py`: Encapsulates Git branch creation, checkout, staging, committing, and pushing.
     *   `src/jobgitops/github_client.py`: Interacts with the GitHub API (posting comments, labels, and Projects V2 board state updates).
@@ -176,7 +176,7 @@ Both workflows run inside our reproducible Nix/devenv environment, avoiding runn
 *   **Trigger:** `issues` opened with `triage-pending` label.
 *   **Jobs:**
     1.  Sets up Nix and devenv using `cachix/install-nix-action` and `cachix/devenv-action` with caching enabled.
-    2.  Runs triage: `devenv shell python -m jobgitops.cli.triage` with `GEMINI_API_KEY` or `OPENROUTER_API_KEY`, and `GITHUB_TOKEN`.
+    2.  Runs triage: `devenv shell python -m jobgitops.cli.triage` with `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`, and `GITHUB_TOKEN`.
 
 ---
 

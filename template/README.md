@@ -44,8 +44,9 @@ Configure these under **Settings > Secrets and variables > Actions**:
 
 | Secret | Purpose |
 | --- | --- |
-| `GEMINI_API_KEY` | Gemini LLM key for triage and tailoring ([Google AI Studio](https://aistudio.google.com/)) — one of this or `OPENROUTER_API_KEY` is required |
+| `GEMINI_API_KEY` | Gemini LLM key for triage and tailoring ([Google AI Studio](https://aistudio.google.com/)) — one of Gemini, OpenRouter, or Claude is required |
 | `OPENROUTER_API_KEY` | OpenRouter LLM key — also powers automated PR reviews |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude provider credentials: Claude Code subscription token (`claude setup-token`) or standard Anthropic API key |
 | `GH_PAT` | Optional. GitHub Personal Access Token. Enables status badges via Gist, and optionally Projects V2 Kanban board automation; falls back to GITHUB_TOKEN without it |
 | `TAVILY_API_KEY` | Optional. Enables the Tavily search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional. Enables the Brave search provider for the Issue Assistant's web research |
@@ -57,9 +58,10 @@ Configure these under the **Variables** tab:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `LLM_PROVIDER` | *auto-detected* | `gemini` or `openrouter` (auto-detected from keys when unset) |
+| `LLM_PROVIDER` | *auto-detected* | `gemini`, `openrouter`, or `claude` (auto-detected from keys when unset) |
 | `OPENROUTER_MODEL` | `openrouter/free` | OpenRouter model (requires provider prefix, e.g., `openrouter/free` or `google/gemini-2.5-flash`). |
 | `GEMINI_MODEL` | `models/gemini-2.5-flash` | Gemini model (e.g., `models/gemini-2.5-flash` or `gemini-2.5-flash`) |
+| `CLAUDE_MODEL` | `claude-3-7-sonnet-20250219` | Claude model (e.g., `claude-3-7-sonnet-20250219` or `claude-3-5-sonnet-20241022`) |
 
 ### [Actions](https://github.com/__OWNER__/__REPO__/actions)
 

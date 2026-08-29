@@ -31,7 +31,7 @@ status by hand-applying labels. The assistant makes the loop conversational:
 
 The assistant is a **tool-using agent**: a small native function-calling loop
 over `web_search` and `fetch_url` tools, built on the existing pluggable
-`LLMClient` (Gemini / OpenRouter).
+`LLMClient` (Gemini / OpenRouter / Claude).
 
 ---
 
@@ -289,7 +289,10 @@ class LLMClient(ABC):
   `message.tool_calls` to `ToolCall`s, appends the assistant message, and
   returns `role: "tool"` messages with the matching `tool_call_id`.
   Quota/429 handling unchanged.
-- Both propagate `QuotaExceededError` and `ValidationError` as today.
+- **ClaudeClient**: Anthropic-style `tools` (`input_schema`) and `tool_use` /
+  `tool_result` content blocks; supports Claude Code OAuth tokens
+  (`sk-ant-oat01-...`) and standard API keys.
+- All propagate `QuotaExceededError` and `ValidationError` as today.
 
 ### 5.4. `src/jobgitops/web.py` — web tools
 
@@ -519,10 +522,11 @@ research:
 fields with the defaults above, so existing configs parse unchanged.
 
 **Model default resolution:** the stock defaults —
-`models/gemini-2.5-flash` (Gemini) and `openrouter/free` (OpenRouter)
+`models/gemini-2.5-flash` (Gemini), `openrouter/free` (OpenRouter), and
+`claude-3-7-sonnet-20250219` (Claude)
 — are used as the responder's defaults. While `models/gemini-2.5-flash` natively supports function calling, `openrouter/free` acts as a dynamic router. Although the OpenRouter auto-router filters dynamically for requested capabilities (like tool use), free models cannot guarantee consistent capability support or high rate limits compared to pinned paid models.
 `research.model`, when set, overrides the provider default for the responder
-only (triage/tailor keep `GEMINI_MODEL` / `OPENROUTER_MODEL`).
+only (triage/tailor keep `GEMINI_MODEL` / `OPENROUTER_MODEL` / `CLAUDE_MODEL`).
 
 ### 8.2. Environment variables (new, optional)
 
