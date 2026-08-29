@@ -12,8 +12,10 @@ import google.api_core.exceptions
 import pytest
 
 from jobgitops.llm import (
+    _DEFAULT_CLAUDE_MODEL,
     _DEFAULT_OPENROUTER_MODEL,
     ChatMessage,
+    ClaudeClient,
     GeminiClient,
     OpenRouterClient,
     QuotaExceededError,
@@ -396,6 +398,91 @@ def test_get_llm_client_explicit_openrouter_missing_key() -> None:
     """Verify missing key raises ValidationError when provider is explicitly set."""
     msg = "OPENROUTER_API_KEY environment variable is missing"
     with pytest.raises(ValidationError, match=msg):
+        get_llm_client()
+
+
+@patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}, clear=True)
+def test_get_llm_client_default_claude_token() -> None:
+    """Verify Claude is selected by default when CLAUDE_CODE_OAUTH_TOKEN is present."""
+    client = get_llm_client()
+    assert isinstance(client, ClaudeClient)
+    assert client.api_key == "sk-ant-oat01-test"
+    assert client.model_name == _DEFAULT_CLAUDE_MODEL
+
+
+@patch.dict(os.environ, {"CLAUDE_API_KEY": "sk-ant-api03-test"}, clear=True)
+def test_get_llm_client_claude_api_key() -> None:
+    """Verify Claude is selected when CLAUDE_API_KEY is present."""
+    client = get_llm_client()
+    assert isinstance(client, ClaudeClient)
+    assert client.api_key == "sk-ant-api03-test"
+    assert client.model_name == _DEFAULT_CLAUDE_MODEL
+
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-api03-test2"}, clear=True)
+def test_get_llm_client_anthropic_api_key() -> None:
+    """Verify Claude is selected when ANTHROPIC_API_KEY is present."""
+    client = get_llm_client()
+    assert isinstance(client, ClaudeClient)
+    assert client.api_key == "sk-ant-api03-test2"
+    assert client.model_name == _DEFAULT_CLAUDE_MODEL
+
+
+@patch.dict(
+    os.environ,
+    {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test",
+        "LLM_PROVIDER": "Claude",
+        "CLAUDE_MODEL": "claude-3-5-sonnet-20241022",
+    },
+    clear=True,
+)
+def test_get_llm_client_custom_claude_model() -> None:
+    """Verify custom Claude model can be configured through environment variables."""
+    client = get_llm_client()
+    assert isinstance(client, ClaudeClient)
+    assert client.model_name == "claude-3-5-sonnet-20241022"
+
+
+@patch.dict(
+    os.environ,
+    {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"},
+    clear=True,
+)
+def test_get_llm_client_claude_model_override() -> None:
+    """Verify the research.model override wins over CLAUDE_MODEL."""
+    client = get_llm_client(model="claude-3-5-haiku-20241022")
+    assert isinstance(client, ClaudeClient)
+    assert client.model_name == "claude-3-5-haiku-20241022"
+
+
+@patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}, clear=True)
+def test_get_llm_client_invalid_claude_override_raises() -> None:
+    """Verify an invalid model override fails Claude validation with the name."""
+    with pytest.raises(ValidationError, match="Invalid model name: 'gpt-4o'"):
+        get_llm_client(model="gpt-4o")
+
+
+@patch.dict(
+    os.environ,
+    {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-primary",
+        "CLAUDE_API_KEY": "sk-ant-api03-secondary",
+        "ANTHROPIC_API_KEY": "sk-ant-api03-tertiary",
+    },
+    clear=True,
+)
+def test_get_llm_client_claude_key_priority() -> None:
+    """Verify CLAUDE_CODE_OAUTH_TOKEN takes priority over other Claude keys."""
+    client = get_llm_client()
+    assert isinstance(client, ClaudeClient)
+    assert client.api_key == "sk-ant-oat01-primary"
+
+
+@patch.dict(os.environ, {"LLM_PROVIDER": "claude"}, clear=True)
+def test_get_llm_client_explicit_claude_missing_key() -> None:
+    """Verify missing key raises ValidationError when provider is explicitly set."""
+    with pytest.raises(ValidationError, match=r"(?i)claude.*missing"):
         get_llm_client()
 
 
@@ -1419,3 +1506,443 @@ def test_format_triage_prompt() -> None:
     resume_none = Resume.from_dict({"basics": {"name": "John Doe"}})
     prompt_none = format_triage_prompt("Desc", resume_none, "remote")
     assert "Candidate Location: Unknown" in prompt_none
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_triage_oauth_token(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify ClaudeClient performs triage with OAuth Bearer token & beta header."""
+    mock_response = MagicMock()
+    triage_payload = {
+        "fit_score": 4.8,
+        "tech_stack_fit": 5.0,
+        "experience_fit": 4.5,
+        "location_fit": 5.0,
+        "salary_fit": 4.5,
+        "industry_fit": 5.0,
+        "reasoning": "Excellent match.",
+    }
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": json.dumps(triage_payload)}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="sk-ant-oat01-token")
+    res = client.triage_job("Python engineer", sample_resume)
+
+    assert res.fit_score == 4.8
+    assert res.reasoning == "Excellent match."
+    mock_urlopen.assert_called_once()
+
+    called_req = mock_urlopen.call_args[0][0]
+    assert isinstance(called_req, urllib.request.Request)
+    assert called_req.get_header("Authorization") == "Bearer sk-ant-oat01-token"
+    beta_header = called_req.get_header("Anthropic-beta")
+    assert beta_header is not None
+    assert "claude-code" in beta_header
+    assert "oauth" in beta_header
+    assert called_req.get_header("Anthropic-version") == "2023-06-01"
+    assert called_req.get_header("Content-type") == "application/json"
+    assert called_req.full_url == "https://api.anthropic.com/v1/messages"
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_triage_api_key(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify ClaudeClient uses x-api-key for standard Anthropic keys."""
+    mock_response = MagicMock()
+    triage_payload = {
+        "fit_score": 4.0,
+        "tech_stack_fit": 4.0,
+        "experience_fit": 4.0,
+        "location_fit": 4.0,
+        "salary_fit": 4.0,
+        "industry_fit": 4.0,
+        "reasoning": "Good fit.",
+    }
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": json.dumps(triage_payload)}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="sk-ant-api03-secret")
+    res = client.triage_job("Backend role", sample_resume)
+
+    assert res.fit_score == 4.0
+    called_req = mock_urlopen.call_args[0][0]
+    assert called_req.get_header("X-api-key") == "sk-ant-api03-secret"
+    assert called_req.get_header("Authorization") is None
+    assert called_req.get_header("Anthropic-beta") is None
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_tailor(mock_urlopen: MagicMock, sample_resume: Resume) -> None:
+    """Verify ClaudeClient returns a correctly-parsed Resume after tailoring."""
+    mock_response = MagicMock()
+    tailored_data = sample_resume.to_dict()
+    tailored_data["basics"]["summary"] = "Tailored via Claude."
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": json.dumps(tailored_data)}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="sk-ant-oat01-key")
+    tailored_resume = client.tailor_resume("Python role", sample_resume)
+
+    assert tailored_resume.basics.summary == "Tailored via Claude."
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_tailor_retries_once_on_malformed_json(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify Claude tailoring retries once on malformed output."""
+    tailored_data = sample_resume.to_dict()
+    tailored_data["basics"]["summary"] = "Claude tailored after retry."
+    mock_urlopen.side_effect = [
+        _urlopen_context_response(
+            json.dumps({"content": [{"type": "text", "text": "not json"}]}).encode(
+                "utf-8"
+            )
+        ),
+        _urlopen_context_response(
+            json.dumps(
+                {"content": [{"type": "text", "text": json.dumps(tailored_data)}]}
+            ).encode("utf-8")
+        ),
+    ]
+
+    client = ClaudeClient(api_key="key")
+    tailored_resume = client.tailor_resume("Python role", sample_resume)
+
+    assert tailored_resume.basics.summary == "Claude tailored after retry."
+    assert mock_urlopen.call_count == 2
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_tailor_fails_after_single_retry(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify persistent malformed Claude output fails after one retry."""
+    mock_urlopen.side_effect = [
+        _urlopen_context_response(
+            json.dumps({"content": [{"type": "text", "text": "{broken"}]}).encode(
+                "utf-8"
+            )
+        ),
+        _urlopen_context_response(
+            json.dumps({"content": [{"type": "text", "text": "{broken"}]}).encode(
+                "utf-8"
+            )
+        ),
+    ]
+
+    client = ClaudeClient(api_key="key")
+
+    with pytest.raises(ValidationError, match="Claude resume tailoring failed"):
+        client.tailor_resume("Python role", sample_resume)
+
+    assert mock_urlopen.call_count == 2
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_extract_job_details(mock_urlopen: MagicMock) -> None:
+    """Verify ClaudeClient parses structured job details via HTTP mock."""
+    mock_response = MagicMock()
+    extraction_payload = {
+        "company": "Anthropic Partner",
+        "role": "Claude Engineer",
+        "location": "San Francisco",
+        "salary": "$250k",
+    }
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": json.dumps(extraction_payload)}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="key")
+    details = client.extract_job_details(
+        "Fetched text", "Job Title", "https://anthropic.com/jobs"
+    )
+
+    assert details == extraction_payload
+    mock_urlopen.assert_called_once()
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_extract_job_details_malformed(mock_urlopen: MagicMock) -> None:
+    """Verify Claude extraction wraps parse failures in ValidationError."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": "invalid json content"}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="key")
+
+    msg = "Claude job details extraction failed"
+    with pytest.raises(ValidationError, match=msg):
+        client.extract_job_details("text", "title", "https://example.com/jobs")
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_failure_handling(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify Claude HTTP issues or connection errors raise ValidationError."""
+    mock_urlopen.side_effect = urllib.error.URLError("Connection reset")
+
+    client = ClaudeClient(api_key="key")
+
+    with pytest.raises(ValidationError, match="Claude Connection Error"):
+        client.triage_job("Python role", sample_resume)
+
+    mock_urlopen.side_effect = None
+    mock_response = MagicMock()
+    mock_response.read.return_value = b'{"status": "ok"}'
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    msg = "Invalid response format from Claude"
+    with pytest.raises(ValidationError, match=msg):
+        client.triage_job("Python role", sample_resume)
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_http_error_handling(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify Claude client extracts details from HTTPError objects."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"Unauthorized access"
+    http_error = urllib.error.HTTPError(
+        url="https://api.anthropic.com/v1/messages",
+        code=401,
+        msg="Unauthorized",
+        hdrs=None,  # type: ignore
+        fp=mock_response,
+    )
+    mock_urlopen.side_effect = http_error
+
+    client = ClaudeClient(api_key="key")
+
+    msg = "Claude HTTP Error 401: Unauthorized. Body: Unauthorized access"
+    with pytest.raises(ValidationError, match=msg):
+        client.triage_job("Python role", sample_resume)
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_quota_exceeded(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify Claude client maps HTTP 429 to QuotaExceededError."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"Rate limit exceeded"
+    http_error = urllib.error.HTTPError(
+        url="https://api.anthropic.com/v1/messages",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=None,  # type: ignore
+        fp=mock_response,
+    )
+    mock_urlopen.side_effect = http_error
+
+    client = ClaudeClient(api_key="key")
+
+    with pytest.raises(QuotaExceededError, match="Claude rate limit exceeded"):
+        client.triage_job("Python role", sample_resume)
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_plain_text(mock_urlopen: MagicMock) -> None:
+    """Verify Claude chat extracts system prompt and returns text."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": "Hello from Claude!"}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="sk-ant-oat01-key")
+    result = client.chat(
+        [
+            ChatMessage(role="system", content="Be concise."),
+            ChatMessage(role="user", content="hi"),
+            ChatMessage(role="assistant", content="Hello there"),
+            ChatMessage(role="user", content="again"),
+        ]
+    )
+
+    assert result.content == "Hello from Claude!"
+    assert result.tool_calls is None
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["model"] == _DEFAULT_CLAUDE_MODEL
+    assert body["system"] == "Be concise."
+    assert body["messages"] == [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": [{"type": "text", "text": "Hello there"}]},
+        {"role": "user", "content": "again"},
+    ]
+    assert "tools" not in body
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_tool_call_round_trip(mock_urlopen: MagicMock) -> None:
+    """Verify Claude chat maps tools to Anthropic schema and handles tool_use."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_abc123",
+                    "name": "web_search",
+                    "input": {"query": "Acme revenue"},
+                }
+            ]
+        }
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="key")
+    result = client.chat(
+        [ChatMessage(role="user", content="Research Acme")],
+        tools=[WEB_SEARCH_TOOL],
+    )
+
+    assert result.role == "assistant"
+    assert result.content == ""
+    assert result.tool_calls == [
+        ToolCall(
+            name="web_search",
+            arguments={"query": "Acme revenue"},
+            id="toolu_abc123",
+        )
+    ]
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["tools"] == [
+        {
+            "name": "web_search",
+            "description": "Search the web",
+            "input_schema": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        }
+    ]
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_tool_result_feedback(mock_urlopen: MagicMock) -> None:
+    """Verify tool results serialize as user tool_result content blocks."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": "Acme is private."}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="key")
+    client.chat(
+        [
+            ChatMessage(role="system", content="Be concise."),
+            ChatMessage(role="user", content="Research Acme"),
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    ToolCall(
+                        name="web_search",
+                        arguments={"query": "x"},
+                        id="toolu_1",
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                tool_call_id="toolu_1",
+                content='{"title": "Acme"}',
+            ),
+        ]
+    )
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["messages"] == [
+        {"role": "user", "content": "Research Acme"},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "web_search",
+                    "input": {"query": "x"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": '{"title": "Acme"}',
+                }
+            ],
+        },
+    ]
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_tool_call_without_id_raises(mock_urlopen: MagicMock) -> None:
+    """Verify assistant tool calls without an id fail fast with ValidationError."""
+    client = ClaudeClient(api_key="key")
+
+    msg = "Claude chat tool call 'web_search' is missing an id"
+    with pytest.raises(ValidationError, match=msg):
+        client.chat(
+            [
+                ChatMessage(
+                    role="assistant",
+                    tool_calls=[ToolCall(name="web_search", arguments={"query": "x"})],
+                )
+            ]
+        )
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_empty_response_raises(mock_urlopen: MagicMock) -> None:
+    """Verify Claude chat rejects responses with no text or tool calls."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps({"content": []}).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="key")
+
+    msg = "Claude chat returned an empty response"
+    with pytest.raises(ValidationError, match=msg):
+        client.chat([ChatMessage(role="user", content="hi")])
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_quota_exceeded(mock_urlopen: MagicMock) -> None:
+    """Verify Claude chat maps HTTP 429 to QuotaExceededError."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"Rate limit hit"
+    http_error = urllib.error.HTTPError(
+        url="https://api.anthropic.com/v1/messages",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=None,  # type: ignore
+        fp=mock_response,
+    )
+    mock_urlopen.side_effect = http_error
+
+    client = ClaudeClient(api_key="key")
+
+    with pytest.raises(QuotaExceededError, match="Claude rate limit exceeded"):
+        client.chat([ChatMessage(role="user", content="hi")])
