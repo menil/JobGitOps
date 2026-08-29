@@ -33,7 +33,7 @@ You must have the [GitHub CLI (`gh`)](https://cli.github.com/) installed and aut
 
 ### Quick Start (one-command install)
 
-Install into a new private repository with a single command. The interactive installer will check your GitHub CLI connection, walk you through setting up credentials (including a GitHub token and a Gemini or OpenRouter LLM API key), and configure your initial resume:
+Install into a new private repository with a single command. The interactive installer will check your GitHub CLI connection, walk you through setting up credentials (including a GitHub token and a Gemini, OpenRouter, or Claude Code LLM key), and configure your initial resume:
 
 ```bash
 npx jobgitops-installer

@@ -144,9 +144,10 @@ Executed via `npx` from the npm registry. Version pinning can be specified via t
 | --- | --- | --- |
 | Repo name | positional `$1` | `job-search` (prompt default) |
 | Visibility | `--visibility private\|public` | `private` |
-| Provider | `--provider gemini\|openrouter` | auto from the key present; prompts when none is |
+| Provider | `--provider gemini\|openrouter\|claude` | auto from the key present; prompts when none is |
 | Gemini key | `--gemini-key` or `$GEMINI_API_KEY` | prompt if absent |
 | OpenRouter key | `--openrouter-key` or `$OPENROUTER_API_KEY` | prompt if absent |
+| Claude key | `--claude-key` or `$CLAUDE_CODE_OAUTH_TOKEN` | prompt if absent |
 | Token (PAT fallback) | `--token` or `$GH_TOKEN` | `gh` auth |
 | Non-interactive | `--yes` | prompts on |
 | Simulation | `--dry-run` | off |
@@ -160,7 +161,7 @@ The `--token`/`$GH_TOKEN` PAT fallback is for environments where the GitHub CLI 
 3. **Fetch shell plane** — resolve the latest release tag (`gh api repos/menil/jobgitops/releases/latest`; override with `$JOBGITOPS_TAG` for pre-release testing), download its tarball, extract into a temp working dir. Trap-clean on exit. Download order: anonymous `codeload.github.com` tag → branch fallback → authenticated API tarball (`gh api repos/menil/jobgitops/tarball/<ref>`), the last one covering owner dogfooding against the still-private source repo. Extracted dir name differs between the two sources (`<repo>-<ref>` vs `<repo>-<sha>`), so the script resolves the single top-level directory rather than assuming a name.
 4. **Assemble** — write `config/settings.yaml` from defaults (`projects_v2` commented out, `search.enabled: true`, `search.location: Remote` as the documented default, `custom_queries` empty so queries derive from the resume, `fit_threshold: 3.5`). Confirm placeholder resume is present and untouched. Copy the root-pinned files verbatim into the assembled tree: `.github/labels.yml` and the runtime-core workflows (§7). Copy `template/resumes/template.html` and `template/resumes/style.css` alongside the placeholder resume.
 5. **Create empty repo** — `gh repo create <name> --<visibility> --confirm` (no `--source` yet; we control push ordering).
-6. **Set secrets** — `gh secret set GEMINI_API_KEY` / `OPENROUTER_API_KEY` for the chosen provider (read-hidden prompt; never echoed).
+6. **Set secrets** — `gh secret set GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` for the chosen provider (read-hidden prompt; never echoed).
 7. **Enable Actions + write permissions** — one API call with the user's admin token (the thing an in-repo workflow can never do):
    ```bash
    gh api --method PUT repos/<OWNER>/<REPO>/actions/permissions \
@@ -177,7 +178,7 @@ The `--token`/`$GH_TOKEN` PAT fallback is for environments where the GitHub CLI 
 - The script echoes each destructive command; any `gh` failure aborts with the command and exit code.
 - Re-running against an existing repo name fails cleanly at create with a "use a different name" message.
 - Secrets are never printed or written to disk beyond the `gh secret set` call.
-- The provider key is **verified against its API** before the repo is created (Gemini: `GET /v1beta/models` with `X-Goog-Api-Key`; OpenRouter: `GET /api/v1/auth/key` with a Bearer header) — the key travels as a header, never in the URL or in output. Verification replaces the old length heuristic, which could not catch a typo'd or expired key. During key entry the terminal echoes `*` per keystroke (`read -s` does not exist in POSIX `sh` and, where present, gives no feedback at all).
+- The provider key is **verified against its API** before the repo is created (Gemini: `GET /v1beta/models` with `X-Goog-Api-Key`; OpenRouter: `GET /api/v1/auth/key` with a Bearer header; Claude: `GET /v1/models` with OAuth or API key headers) — the key travels as a header, never in the URL or in output. Verification replaces the old length heuristic, which could not catch a typo'd or expired key. During key entry the terminal echoes `*` per keystroke (`read -s` does not exist in POSIX `sh` and, where present, gives no feedback at all).
 
 ---
 

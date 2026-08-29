@@ -183,23 +183,25 @@ Configure the following secrets and variables under **Settings > Secrets and var
 
 | Secret | Required | Purpose |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | One of the two | Gemini provider key (from [Google AI Studio](https://aistudio.google.com/)) |
-| `OPENROUTER_API_KEY` | One of the two | OpenRouter provider key — also powers the automated PR review |
+| `GEMINI_API_KEY` | One of the three | Gemini provider key (from [Google AI Studio](https://aistudio.google.com/)) |
+| `OPENROUTER_API_KEY` | One of the three | OpenRouter provider key — also powers the automated PR review |
+| `CLAUDE_CODE_OAUTH_TOKEN` | One of the three | Claude provider credential: supports either a Claude Code subscription OAuth token (`sk-ant-oat...` generated via `claude setup-token`) or a standard Anthropic API key (`sk-ant-api03...`); auto-detected at runtime |
 | `GH_PAT` | Optional | GitHub Personal Access Token. Serves as the single pipeline token for Projects V2, Gist status badges, and repository mutations. Falls back to `GITHUB_TOKEN` only when **unset** |
 | `TAVILY_API_KEY` | Optional | Enables the `tavily` search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional | Enables the `brave` search provider for the Issue Assistant's web research |
 | `JINA_API_KEY` | Optional | Free key (jina.ai) for the Jina Reader fallback on JS-heavy job boards; raises the anonymous 20 RPM limit to 500 RPM |
 
 > [!NOTE]
-> At least one of `GEMINI_API_KEY` or `OPENROUTER_API_KEY` is required for triage. If `GH_PAT` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation and Gist status badges then degrade/skip) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `GH_PAT` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token. We recommend using **Fine-Grained Personal Access Tokens (Beta)** scoped strictly to your job search repository.
+> At least one of `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` is required for triage. If `GH_PAT` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation and Gist status badges then degrade/skip) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `GH_PAT` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token. We recommend using **Fine-Grained Personal Access Tokens (Beta)** scoped strictly to your job search repository.
 
 #### Variables
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `LLM_PROVIDER` | auto-detected | `gemini` or `openrouter` (auto-detected from keys when unset) |
+| `LLM_PROVIDER` | auto-detected | `gemini`, `openrouter`, or `claude` (auto-detected from keys when unset) |
 | `GEMINI_MODEL` | `models/gemini-2.5-flash` | Gemini model (`models/` prefix recommended; bare `gemini-*` names also accepted) |
 | `OPENROUTER_MODEL` | `openrouter/free` | OpenRouter model, provider prefix required. Also drives the PR-review action, where it inherits this default or falls back to `openrouter/free` |
+| `CLAUDE_MODEL` | `claude-3-7-sonnet-20250219` | Claude model (e.g., `claude-3-7-sonnet-20250219` or `claude-3-5-sonnet-20241022`) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenRouter endpoint used by the PR-review action |
 | `OPENROUTER_MAX_TOKENS` | `4096` | Max tokens for the PR-review action |
 
