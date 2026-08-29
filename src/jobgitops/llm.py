@@ -905,7 +905,7 @@ class ClaudeClient(LLMClient):
     """
 
     def __init__(
-        self, api_key: str, model_name: str = "claude-3-7-sonnet-20250219"
+        self, api_key: str, model_name: str = "claude-3-5-sonnet-20241022"
     ) -> None:
         self.api_key = api_key
         self.model_name = model_name
@@ -1056,7 +1056,7 @@ class ClaudeClient(LLMClient):
 
 _DEFAULT_GEMINI_MODEL = "models/gemini-2.5-flash"
 _DEFAULT_OPENROUTER_MODEL = "openrouter/free"
-_DEFAULT_CLAUDE_MODEL = "claude-3-7-sonnet-20250219"
+_DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
 
 
 def _get_model_name(env_var: str, default_val: str) -> str:
@@ -1146,7 +1146,7 @@ def get_llm_client(model: str | None = None) -> LLMClient:
             raise ValidationError(
                 f"Invalid model name: '{model_name}'. "
                 "Claude model names must start with 'claude-' "
-                "(e.g., 'claude-3-7-sonnet-20250219')."
+                "(e.g., 'claude-3-5-sonnet-20241022')."
             )
         return ClaudeClient(api_key=claude_key, model_name=model_name)
     else:

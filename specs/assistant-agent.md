@@ -523,7 +523,7 @@ fields with the defaults above, so existing configs parse unchanged.
 
 **Model default resolution:** the stock defaults —
 `models/gemini-2.5-flash` (Gemini), `openrouter/free` (OpenRouter), and
-`claude-3-7-sonnet-20250219` (Claude)
+`claude-3-5-sonnet-20241022` (Claude)
 — are used as the responder's defaults. While `models/gemini-2.5-flash` natively supports function calling, `openrouter/free` acts as a dynamic router. Although the OpenRouter auto-router filters dynamically for requested capabilities (like tool use), free models cannot guarantee consistent capability support or high rate limits compared to pinned paid models.
 `research.model`, when set, overrides the provider default for the responder
 only (triage/tailor keep `GEMINI_MODEL` / `OPENROUTER_MODEL` / `CLAUDE_MODEL`).
