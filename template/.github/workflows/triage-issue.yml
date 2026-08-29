@@ -107,9 +107,11 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
 
       - name: Update Badge (Failed)
         if: failure() && steps.verify.outputs.valid != 'false' && github.repository != vars.TEMPLATE_REPO
