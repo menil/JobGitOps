@@ -904,9 +904,7 @@ class ClaudeClient(LLMClient):
     and standard Anthropic API keys.
     """
 
-    def __init__(
-        self, api_key: str, model_name: str = "claude-3-5-sonnet-20241022"
-    ) -> None:
+    def __init__(self, api_key: str, model_name: str = "claude-sonnet-5") -> None:
         self.api_key = api_key
         self.model_name = model_name
 
@@ -922,6 +920,14 @@ class ClaudeClient(LLMClient):
         if self.api_key.startswith("sk-ant-oat"):
             headers["Authorization"] = f"Bearer {self.api_key}"
             headers["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20"
+            current_system = payload.get("system")
+            if current_system:
+                if _CLAUDE_CODE_SYSTEM_PREFIX not in current_system:
+                    payload["system"] = (
+                        f"{_CLAUDE_CODE_SYSTEM_PREFIX}\n\n{current_system}"
+                    )
+            else:
+                payload["system"] = _CLAUDE_CODE_SYSTEM_PREFIX
         else:
             headers["x-api-key"] = self.api_key
 
@@ -1056,7 +1062,8 @@ class ClaudeClient(LLMClient):
 
 _DEFAULT_GEMINI_MODEL = "models/gemini-2.5-flash"
 _DEFAULT_OPENROUTER_MODEL = "openrouter/free"
-_DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
+_DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
+_CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude."
 
 
 def _get_model_name(env_var: str, default_val: str) -> str:
@@ -1146,7 +1153,7 @@ def get_llm_client(model: str | None = None) -> LLMClient:
             raise ValidationError(
                 f"Invalid model name: '{model_name}'. "
                 "Claude model names must start with 'claude-' "
-                "(e.g., 'claude-3-5-sonnet-20241022')."
+                "(e.g., 'claude-sonnet-5')."
             )
         return ClaudeClient(api_key=claude_key, model_name=model_name)
     else:

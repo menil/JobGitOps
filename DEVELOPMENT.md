@@ -201,7 +201,7 @@ Configure the following secrets and variables under **Settings > Secrets and var
 | `LLM_PROVIDER` | auto-detected | `gemini`, `openrouter`, or `claude` (auto-detected from keys when unset) |
 | `GEMINI_MODEL` | `models/gemini-2.5-flash` | Gemini model (`models/` prefix recommended; bare `gemini-*` names also accepted) |
 | `OPENROUTER_MODEL` | `openrouter/free` | OpenRouter model, provider prefix required. Also drives the PR-review action, where it inherits this default or falls back to `openrouter/free` |
-| `CLAUDE_MODEL` | `claude-3-5-sonnet-20241022` | Claude model (e.g., `claude-3-5-sonnet-20241022` or `claude-3-5-haiku-20241022`) |
+| `CLAUDE_MODEL` | `claude-sonnet-5` | Claude model (e.g., `claude-sonnet-5` or `claude-haiku-4-5-20251001`) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenRouter endpoint used by the PR-review action |
 | `OPENROUTER_MAX_TOKENS` | `4096` | Max tokens for the PR-review action |
 

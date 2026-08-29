@@ -1545,6 +1545,8 @@ def test_claude_client_triage_oauth_token(
     assert called_req.get_header("Anthropic-version") == "2023-06-01"
     assert called_req.get_header("Content-type") == "application/json"
     assert called_req.full_url == "https://api.anthropic.com/v1/messages"
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert "You are Claude Code" in body.get("system", "")
 
 
 @patch("urllib.request.urlopen")
@@ -1779,7 +1781,8 @@ def test_claude_chat_plain_text(mock_urlopen: MagicMock) -> None:
     called_req = mock_urlopen.call_args[0][0]
     body = json.loads(called_req.data.decode("utf-8"))
     assert body["model"] == _DEFAULT_CLAUDE_MODEL
-    assert body["system"] == "Be concise."
+    assert "Be concise." in body["system"]
+    assert "You are Claude Code" in body["system"]
     assert body["messages"] == [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": [{"type": "text", "text": "Hello there"}]},
