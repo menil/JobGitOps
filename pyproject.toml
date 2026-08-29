@@ -21,6 +21,9 @@ dependencies = [
     # resolved version.
     "ddgs>=9.14.4",
     "trafilatura>=2.2.0",
+    # numpy>=1.26.0 provides prebuilt wheels for Python 3.12+ and avoids distutils
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
 ]
 
 [project.scripts]
