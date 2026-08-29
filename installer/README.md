@@ -17,8 +17,8 @@ npx jobgitops-installer
 The installer walks you through:
 
 1. Creating a new private GitHub repository from the latest JobGitOps release
-2. Choosing an LLM provider (Gemini or OpenRouter) and storing its API key as
-   a GitHub Secret
+2. Choosing an LLM provider (Gemini, OpenRouter, or Claude Code) and
+   storing its API key or token as a GitHub Secret
 3. Optionally configuring extra search integrations (Tavily, Brave, Jina)
 4. Optionally creating a linked GitHub Projects V2 Kanban board
 
@@ -40,9 +40,10 @@ Usage: jobgitops-installer [options] [repo-name]
 | ------ | ----------- |
 | `-y, --yes` | Skip interactive questions and accept defaults |
 | `--dry-run` | Output commands that would run without executing them |
-| `--provider <provider>` | LLM provider to use (`gemini` or `openrouter`) |
+| `--provider <provider>` | LLM provider to use (`gemini`, `openrouter`, or `claude`) |
 | `--gemini-key <key>` | Gemini API key |
 | `--openrouter-key <key>` | OpenRouter API key |
+| `--claude-key <key>` | Claude Code subscription token (`claude setup-token`) or standard Anthropic API key |
 | `--tavily-key <key>` | Tavily API key (optional search integration) |
 | `--brave-key <key>` | Brave API key (optional search integration) |
 | `--jina-key <key>` | Jina API key (optional search integration) |
