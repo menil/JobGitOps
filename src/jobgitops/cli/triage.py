@@ -116,7 +116,7 @@ def _sanitize_apply_url(apply_url: str | None) -> str:
         not (apply_url.startswith("http://") or apply_url.startswith("https://"))
         or any(char in apply_url for char in " ()[]\"'<>")
     ):
-        logger.warning("apply_url is invalid or unsafe: %s", apply_url)
+        logger.warning("apply_url is invalid or unsafe; dropping URL.")
         return ""
     return apply_url
 
