@@ -345,7 +345,7 @@ def _push_with_lease_retry(
         "Initial push of '%s' rejected (%s); refreshing and retrying with "
         "--force-with-lease",
         branch_name,
-        original_error,
+        redact_sensitive_string(str(original_error)),
     )
     try:
         run_git(["fetch", remote, branch_name], cwd=repo_path)

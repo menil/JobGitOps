@@ -444,9 +444,9 @@ def publish_job(
 
     if dry_run:
         logger.info(
-            "[DRY RUN] Would create issue: %s. Body snippet: %s...",
+            "[DRY RUN] Would create issue: %s. Body length: %d chars",
             issue_title,
-            issue_body[:100].replace("\n", " "),
+            len(issue_body),
         )
         return None
 
