@@ -433,7 +433,7 @@ def test_get_llm_client_anthropic_api_key() -> None:
     {
         "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test",
         "LLM_PROVIDER": "Claude",
-        "CLAUDE_MODEL": "claude-3-5-sonnet-20241022",
+        "CLAUDE_MODEL": "claude-3-opus-20240229",
     },
     clear=True,
 )
@@ -441,7 +441,7 @@ def test_get_llm_client_custom_claude_model() -> None:
     """Verify custom Claude model can be configured through environment variables."""
     client = get_llm_client()
     assert isinstance(client, ClaudeClient)
-    assert client.model_name == "claude-3-5-sonnet-20241022"
+    assert client.model_name == "claude-3-opus-20240229"
 
 
 @patch.dict(
