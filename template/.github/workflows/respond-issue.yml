@@ -52,9 +52,11 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
           JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
