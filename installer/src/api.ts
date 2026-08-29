@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { LLMProvider, getProviderLabel } from "./constants.js";
 
 export async function getGhCliToken(): Promise<string> {
   try {
@@ -482,22 +483,44 @@ function picocolorsBold(str: string): string {
 }
 
 /**
+ * Detects whether a Claude credential is an OAuth subscription token
+ * (e.g. generated via `claude setup-token`, prefixed with `sk-ant-oat`)
+ * requiring Bearer authentication and beta headers, versus a standard API key.
+ */
+export function isClaudeOAuthToken(apiKey: string): boolean {
+  return apiKey.trim().startsWith("sk-ant-oat");
+}
+
+/**
  * Validates the primary LLM API key by executing a fast mock query against
  * the provider's official model-listing endpoints.
  */
 export async function validateApiKey(
-  provider: "gemini" | "openrouter",
+  provider: LLMProvider,
   apiKey: string,
 ): Promise<void> {
-  const url =
-    provider === "gemini"
-      ? `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
-      : "https://openrouter.ai/api/v1/auth/key";
+  let url: string;
+  let headers: Record<string, string> | undefined;
 
-  const headers =
-    provider === "openrouter"
-      ? { Authorization: `Bearer ${apiKey}` }
-      : undefined;
+  if (provider === "gemini") {
+    url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+  } else if (provider === "openrouter") {
+    url = "https://openrouter.ai/api/v1/auth/key";
+    headers = { Authorization: `Bearer ${apiKey}` };
+  } else {
+    url = "https://api.anthropic.com/v1/models";
+    headers = {
+      "anthropic-version": "2023-06-01",
+    };
+    if (isClaudeOAuthToken(apiKey)) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+      headers["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20";
+    } else {
+      headers["x-api-key"] = apiKey;
+    }
+  }
+
+  const providerLabel = getProviderLabel(provider);
 
   try {
     const response = await fetch(url, { headers });
@@ -509,7 +532,7 @@ export async function validateApiKey(
           response.status === 400
         ) {
           throw new Error(
-            `${provider === "gemini" ? "Gemini" : "OpenRouter"} key rejected by the API (HTTP ${response.status})`,
+            `${providerLabel} key rejected by the API (HTTP ${response.status})`,
           );
         }
         throw new Error(`API returned HTTP ${response.status}`);
@@ -529,7 +552,7 @@ export async function validateApiKey(
     }
     // Network or transport failure
     throw new Error(
-      `Could not reach the ${provider === "gemini" ? "Gemini" : "OpenRouter"} API: ${error.message || error}`,
+      `Could not reach the ${providerLabel} API: ${error.message || error}`,
       { cause: error },
     );
   }

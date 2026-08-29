@@ -19,7 +19,7 @@ import {
 export interface InstallOptions {
   repoName: string;
   visibility: "private" | "public";
-  provider: "gemini" | "openrouter";
+  provider: "gemini" | "openrouter" | "claude";
   primaryKey: string;
   optionalKeys: Record<string, string>;
   wantProjects: boolean;
@@ -437,7 +437,7 @@ async function createGitHubRepository(
 async function provisionSecretsAndPermissions(
   owner: string,
   repoName: string,
-  provider: "gemini" | "openrouter",
+  provider: "gemini" | "openrouter" | "claude",
   primaryKey: string,
   optionalKeys: Record<string, string>,
   token: string | undefined,
@@ -449,9 +449,17 @@ async function provisionSecretsAndPermissions(
     "Uploading credentials securely to GitHub Secrets...",
   ).start();
   if (!dryRun) {
-    // Primary API key
-    const primarySecretName =
-      provider === "gemini" ? "GEMINI_API_KEY" : "OPENROUTER_API_KEY";
+    // Primary API key: Note that CLAUDE_CODE_OAUTH_TOKEN is used as the
+    // repository secret for both OAuth tokens and standard API keys;
+    // ClaudeClient dynamically branches on token prefix at runtime.
+    let primarySecretName: string;
+    if (provider === "gemini") {
+      primarySecretName = "GEMINI_API_KEY";
+    } else if (provider === "openrouter") {
+      primarySecretName = "OPENROUTER_API_KEY";
+    } else {
+      primarySecretName = "CLAUDE_CODE_OAUTH_TOKEN";
+    }
     await uploadSecret(owner, repoName, primarySecretName, primaryKey, token);
 
     // Optional keys

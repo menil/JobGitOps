@@ -162,6 +162,47 @@ describe("validateApiKey", () => {
     );
   });
 
+  it("succeeds if response is OK for Claude with OAuth token", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+    } as any);
+
+    await expect(
+      validateApiKey("claude", "sk-ant-oat01-token"),
+    ).resolves.not.toThrow();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://api.anthropic.com/v1/models",
+      {
+        headers: {
+          Authorization: "Bearer sk-ant-oat01-token",
+          "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+        },
+      },
+    );
+  });
+
+  it("succeeds if response is OK for Claude with API key", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+    } as any);
+
+    await expect(
+      validateApiKey("claude", "sk-ant-api03-secret"),
+    ).resolves.not.toThrow();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://api.anthropic.com/v1/models",
+      {
+        headers: {
+          "x-api-key": "sk-ant-api03-secret",
+          "anthropic-version": "2023-06-01",
+        },
+      },
+    );
+  });
+
   it("throws key rejected error if status is 400, 401, or 403", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -170,6 +211,17 @@ describe("validateApiKey", () => {
 
     await expect(validateApiKey("gemini", "bad-key")).rejects.toThrow(
       "Gemini key rejected by the API (HTTP 403)",
+    );
+  });
+
+  it("throws key rejected error for Claude when status is 401", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+    } as any);
+
+    await expect(validateApiKey("claude", "bad-token")).rejects.toThrow(
+      "Claude key rejected by the API (HTTP 401)",
     );
   });
 
@@ -197,6 +249,15 @@ describe("validateApiKey", () => {
     } catch (err: any) {
       expect(err.cause).toBe(mockError);
     }
+  });
+
+  it("throws network/transport error for Claude if fetch fails", async () => {
+    const mockError = new Error("Connection Refused");
+    global.fetch = vi.fn().mockRejectedValue(mockError);
+
+    await expect(validateApiKey("claude", "key")).rejects.toThrow(
+      "Could not reach the Claude API: Connection Refused",
+    );
   });
 });
 
