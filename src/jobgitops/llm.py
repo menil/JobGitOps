@@ -1,4 +1,4 @@
-"""Pluggable LLM client wrapper supporting Gemini and OpenRouter providers."""
+"""Pluggable LLM client wrapper supporting Gemini, OpenRouter, and Claude providers."""
 
 import json
 import logging
@@ -586,6 +586,84 @@ def _openai_message_to_chat_message(message: dict[str, Any]) -> ChatMessage:
     return ChatMessage(role="assistant", content=content, tool_calls=tool_calls or None)
 
 
+def _openai_tools_to_anthropic(tools: list[dict]) -> list[dict]:
+    """Convert OpenAI-style tool schemas to Anthropic tools payload.
+
+    Each tool must follow the OpenAI schema
+    ``{"type": "function", "function": {name, description, parameters}}``.
+    """
+    declarations = []
+    for tool in tools:
+        function = tool.get("function")
+        if not isinstance(function, dict):
+            raise ValidationError(
+                f"Tool must follow the OpenAI schema with a 'function' object: {tool}"
+            )
+        declarations.append(
+            {
+                "name": function.get("name"),
+                "description": function.get("description", ""),
+                "input_schema": function.get("parameters", {}),
+            }
+        )
+    return declarations
+
+
+def _messages_to_anthropic(
+    messages: list[ChatMessage],
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """Convert ChatMessages into a top-level system prompt and Anthropic messages."""
+    system_parts: list[str] = []
+    converted: list[dict[str, Any]] = []
+    for message in messages:
+        if message.role == "system":
+            if message.content:
+                system_parts.append(message.content)
+        elif message.role == "assistant":
+            blocks: list[dict[str, Any]] = []
+            if message.content:
+                blocks.append({"type": "text", "text": message.content})
+            for call in message.tool_calls or []:
+                if not call.id:
+                    raise ValidationError(
+                        f"Claude chat tool call '{call.name}' is missing "
+                        "an id; tool results cannot reference it"
+                    )
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": call.id,
+                        "name": call.name,
+                        "input": call.arguments,
+                    }
+                )
+            converted.append({"role": "assistant", "content": blocks})
+        elif message.role == "tool":
+            tool_result_block: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": message.tool_call_id or "",
+                "content": (
+                    message.content
+                    if isinstance(message.content, str)
+                    else json.dumps(message.content)
+                ),
+            }
+            if (
+                converted
+                and converted[-1]["role"] == "user"
+                and isinstance(converted[-1]["content"], list)
+            ):
+                converted[-1]["content"].append(tool_result_block)
+            else:
+                converted.append({"role": "user", "content": [tool_result_block]})
+        elif message.role == "user":
+            converted.append({"role": "user", "content": message.content})
+        else:
+            raise ValidationError(f"Unknown message role: {message.role}")
+    system_prompt = "\n".join(system_parts) if system_parts else None
+    return system_prompt, converted
+
+
 class GeminiClient(LLMClient):
     """LLM client implementation utilizing the official Google Generative AI SDK."""
 
@@ -819,8 +897,166 @@ class OpenRouterClient(LLMClient):
             ) from e
 
 
+class ClaudeClient(LLMClient):
+    """LLM client implementation utilizing the Anthropic Messages API.
+
+    Supports both Claude Code OAuth tokens (e.g. from `claude setup-token`)
+    and standard Anthropic API keys.
+    """
+
+    def __init__(
+        self, api_key: str, model_name: str = "claude-3-7-sonnet-20250219"
+    ) -> None:
+        self.api_key = api_key
+        self.model_name = model_name
+
+    def _request_messages(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a messages payload to Anthropic Messages API.
+
+        Returns the parsed JSON response.
+        """
+        headers = {
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        if self.api_key.startswith("sk-ant-oat"):
+            headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20"
+        else:
+            headers["x-api-key"] = self.api_key
+
+        if "max_tokens" not in payload:
+            payload["max_tokens"] = 4096
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                if "content" not in res_data or not isinstance(
+                    res_data["content"], list
+                ):
+                    raise ValidationError(
+                        f"Invalid response format from Claude: {res_data}"
+                    )
+                return res_data
+        except urllib.error.HTTPError as e:
+            try:
+                error_body = e.read().decode("utf-8")
+            except Exception:
+                error_body = ""
+            if e.code == 429:
+                raise QuotaExceededError(
+                    f"Claude rate limit exceeded: {e.reason}. Body: {error_body}"
+                ) from e
+            raise ValidationError(
+                f"Claude HTTP Error {e.code}: {e.reason}. Body: {error_body}"
+            ) from e
+        except urllib.error.URLError as e:
+            raise ValidationError(f"Claude Connection Error: {e.reason}") from e
+        except TimeoutError as e:
+            raise ValidationError(f"Claude Request Timeout: {e}") from e
+        except json.JSONDecodeError as e:
+            raise ValidationError(f"Claude Invalid JSON Response: {e}") from e
+        except ValidationError:
+            raise
+
+    def _call_claude(self, prompt: str, system: str | None = None) -> str:
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system:
+            payload["system"] = system
+        res_data = self._request_messages(payload)
+        text_parts = [
+            block.get("text", "")
+            for block in res_data.get("content", [])
+            if block.get("type") == "text"
+        ]
+        return "".join(text_parts)
+
+    def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: list[dict] | None = None,
+    ) -> ChatMessage:
+        system, anthropic_messages = _messages_to_anthropic(messages)
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "max_tokens": 4096,
+            "messages": anthropic_messages,
+        }
+        if system:
+            payload["system"] = system
+        if tools:
+            payload["tools"] = _openai_tools_to_anthropic(tools)
+
+        res_data = self._request_messages(payload)
+        content = ""
+        tool_calls: list[ToolCall] = []
+        for block in res_data.get("content", []):
+            if block.get("type") == "text":
+                content += block.get("text", "")
+            elif block.get("type") == "tool_use":
+                tool_calls.append(
+                    ToolCall(
+                        name=block["name"],
+                        arguments=block.get("input", {}),
+                        id=block.get("id"),
+                    )
+                )
+        if not content and not tool_calls:
+            raise ValidationError(
+                "Claude chat returned an empty response (no text or tool calls)"
+            )
+        return ChatMessage(
+            role="assistant", content=content, tool_calls=tool_calls or None
+        )
+
+    def triage_job(
+        self,
+        job_description: str,
+        resume: Resume,
+        work_preference: str = "remote",
+    ) -> TriageResult:
+        prompt = format_triage_prompt(job_description, resume, work_preference)
+        try:
+            response_text = self._call_claude(prompt)
+            clean_text = clean_json_string(response_text)
+            data = json.loads(clean_text)
+            return TriageResult.from_dict(data)
+        except (json.JSONDecodeError, ValidationError) as e:
+            raise ValidationError(f"Claude triage evaluation failed: {e}") from e
+
+    def tailor_resume(self, job_description: str, resume: Resume) -> Resume:
+        resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
+        prompt = TAILOR_PROMPT.format(
+            resume_yaml=resume_yaml, job_description=job_description
+        )
+        return _parse_tailored_resume(
+            lambda hint: self._call_claude(prompt + hint), "Claude"
+        )
+
+    def extract_job_details(
+        self, fetched_text: str, page_title: str, url: str
+    ) -> dict[str, str]:
+        prompt = _build_job_details_prompt(fetched_text, page_title, url)
+        try:
+            response_text = self._call_claude(prompt)
+            return _parse_job_details_response(response_text)
+        except (json.JSONDecodeError, ValidationError) as e:
+            raise ValidationError(f"Claude job details extraction failed: {e}") from e
+
+
 _DEFAULT_GEMINI_MODEL = "models/gemini-2.5-flash"
 _DEFAULT_OPENROUTER_MODEL = "openrouter/free"
+_DEFAULT_CLAUDE_MODEL = "claude-3-7-sonnet-20250219"
 
 
 def _get_model_name(env_var: str, default_val: str) -> str:
@@ -834,12 +1070,12 @@ def get_llm_client(model: str | None = None) -> LLMClient:
 
     Args:
         model: Optional model-name override (spec 8.1). When provided it wins
-            over the ``GEMINI_MODEL`` / ``OPENROUTER_MODEL`` env vars; this is
-            how the responder applies its ``research.model`` config while
-            triage/tailor keep their provider defaults.
+            over the ``GEMINI_MODEL`` / ``OPENROUTER_MODEL`` / ``CLAUDE_MODEL``
+            env vars; this is how the responder applies its ``research.model``
+            config while triage/tailor keep their provider defaults.
 
     Returns:
-        An instantiated ``GeminiClient`` or ``OpenRouterClient``.
+        An instantiated ``GeminiClient``, ``OpenRouterClient``, or ``ClaudeClient``.
 
     Raises:
         ValidationError: When no provider/credential is configured, the
@@ -848,8 +1084,13 @@ def get_llm_client(model: str | None = None) -> LLMClient:
     provider = os.environ.get("LLM_PROVIDER")
     gemini_key = os.environ.get("GEMINI_API_KEY")
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    claude_key = (
+        os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+        or os.environ.get("CLAUDE_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+    )
 
-    allowed_providers = {"gemini", "openrouter"}
+    allowed_providers = {"gemini", "openrouter", "claude", "anthropic"}
 
     if provider:
         provider = provider.strip().lower()
@@ -863,10 +1104,12 @@ def get_llm_client(model: str | None = None) -> LLMClient:
             provider = "gemini"
         elif openrouter_key:
             provider = "openrouter"
+        elif claude_key:
+            provider = "claude"
         else:
             raise ValidationError(
-                "No LLM provider configured. Please set GEMINI_API_KEY or "
-                "OPENROUTER_API_KEY."
+                "No LLM provider configured. Please set GEMINI_API_KEY, "
+                "OPENROUTER_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN."
             )
 
     if provider == "gemini":
@@ -893,5 +1136,18 @@ def get_llm_client(model: str | None = None) -> LLMClient:
                 "(e.g., 'google/gemini-1.5-flash' or 'anthropic/claude-3')."
             )
         return OpenRouterClient(api_key=openrouter_key, model_name=model_name)
+    elif provider in ("claude", "anthropic"):
+        if not claude_key:
+            raise ValidationError(
+                "CLAUDE_CODE_OAUTH_TOKEN environment variable is missing."
+            )
+        model_name = model or _get_model_name("CLAUDE_MODEL", _DEFAULT_CLAUDE_MODEL)
+        if not (model_name.startswith("claude-") or "/" in model_name):
+            raise ValidationError(
+                f"Invalid model name: '{model_name}'. "
+                "Claude model names must start with 'claude-' "
+                "(e.g., 'claude-3-7-sonnet-20250219')."
+            )
+        return ClaudeClient(api_key=claude_key, model_name=model_name)
     else:
         raise ValidationError(f"Unknown LLM provider specified: {provider}")
