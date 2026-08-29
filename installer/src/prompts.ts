@@ -31,23 +31,34 @@ export async function promptProjectsV2(): Promise<boolean> {
   });
 }
 
-export async function promptProvider(): Promise<"gemini" | "openrouter"> {
+export async function promptProvider(): Promise<
+  "gemini" | "openrouter" | "claude"
+> {
   return select({
     message: "Which LLM provider do you want to use?",
     choices: [
       { name: `✨ ${pc.bold("Gemini")}`, value: "gemini" as const },
       { name: `🔌 ${pc.bold("OpenRouter")}`, value: "openrouter" as const },
+      {
+        name: `🧠 ${pc.bold("Claude Code")} (Pro/Max subscription via claude setup-token)`,
+        value: "claude" as const,
+      },
     ],
   });
 }
 
 export async function promptApiKey(
-  provider: "gemini" | "openrouter",
+  provider: "gemini" | "openrouter" | "claude",
 ): Promise<string> {
-  const name =
-    provider === "gemini"
-      ? "Gemini (GEMINI_API_KEY)"
-      : "OpenRouter (OPENROUTER_API_KEY)";
+  let name: string;
+  if (provider === "gemini") {
+    name = "Gemini (GEMINI_API_KEY)";
+  } else if (provider === "openrouter") {
+    name = "OpenRouter (OPENROUTER_API_KEY)";
+  } else {
+    name =
+      "Claude Code Token (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`)";
+  }
   return password({
     message: `Enter your ${pc.cyan(name)}:`,
     mask: true,

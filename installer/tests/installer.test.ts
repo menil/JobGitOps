@@ -249,6 +249,68 @@ describe("runInstallation", () => {
     );
   });
 
+  it("performs secrets upload for CLAUDE_CODE_OAUTH_TOKEN when provider is claude", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = mockGithubFetch();
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "private",
+        provider: "claude",
+        primaryKey: "sk-ant-oat01-mock-key",
+        optionalKeys: {},
+        wantProjects: false,
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const execaCalls = vi.mocked(execa).mock.calls;
+    const secretCalls = execaCalls.filter(
+      (call) =>
+        call[0] === "gh" &&
+        call[1]?.includes("secret") &&
+        call[1]?.includes("set"),
+    );
+    expect(secretCalls.length).toBe(2);
+    expect(secretCalls.some((call) => call[1]?.[2] === "GH_PAT")).toBe(true);
+    expect(
+      secretCalls.some((call) => call[1]?.[2] === "CLAUDE_CODE_OAUTH_TOKEN"),
+    ).toBe(true);
+  });
+
+  it("performs secrets upload for CLAUDE_CODE_OAUTH_TOKEN when provider is claude and key is API key", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = mockGithubFetch();
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "private",
+        provider: "claude",
+        primaryKey: "sk-ant-api03-mock-api-key",
+        optionalKeys: {},
+        wantProjects: false,
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const execaCalls = vi.mocked(execa).mock.calls;
+    const secretCalls = execaCalls.filter(
+      (call) =>
+        call[0] === "gh" &&
+        call[1]?.includes("secret") &&
+        call[1]?.includes("set"),
+    );
+    expect(secretCalls.length).toBe(2);
+    expect(secretCalls.some((call) => call[1]?.[2] === "GH_PAT")).toBe(true);
+    expect(
+      secretCalls.some((call) => call[1]?.[2] === "CLAUDE_CODE_OAUTH_TOKEN"),
+    ).toBe(true);
+  });
+
   it("publishes the Projects V2 board when repository visibility is public", async () => {
     vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
     const fetchMock = mockGithubFetch((body) =>

@@ -15,6 +15,7 @@ import {
   OptionalService,
 } from "./prompts.js";
 import { runInstallation } from "./installer.js";
+import { LLMProvider, getProviderLabel } from "./constants.js";
 
 const program = new Command();
 
@@ -28,9 +29,16 @@ program
     "Output commands that would run without executing them",
     false,
   )
-  .option("--provider <provider>", "LLM provider to use (gemini or openrouter)")
+  .option(
+    "--provider <provider>",
+    "LLM provider to use (gemini, openrouter, or claude)",
+  )
   .option("--gemini-key <key>", "Gemini API key")
   .option("--openrouter-key <key>", "OpenRouter API key")
+  .option(
+    "--claude-key <key>",
+    "Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN) or Anthropic API key",
+  )
   .option("--tavily-key <key>", "Tavily API key")
   .option("--brave-key <key>", "Brave API key")
   .option("--jina-key <key>", "Jina API key")
@@ -134,16 +142,30 @@ program
         provider = "gemini"; // default
       }
 
-      if (provider !== "gemini" && provider !== "openrouter") {
+      if (
+        provider !== "gemini" &&
+        provider !== "openrouter" &&
+        provider !== "claude"
+      ) {
         throw new Error(
-          `Invalid provider '${provider}'. Supported values: 'gemini', 'openrouter'.`,
+          `Invalid provider '${provider}'. Supported values: 'gemini', 'openrouter', 'claude'.`,
         );
       }
 
-      let primaryKey =
-        provider === "gemini"
-          ? options.geminiKey || process.env.GEMINI_API_KEY
-          : options.openrouterKey || process.env.OPENROUTER_API_KEY;
+      let primaryKey = "";
+      if (provider === "gemini") {
+        primaryKey = options.geminiKey || process.env.GEMINI_API_KEY || "";
+      } else if (provider === "openrouter") {
+        primaryKey =
+          options.openrouterKey || process.env.OPENROUTER_API_KEY || "";
+      } else {
+        primaryKey =
+          options.claudeKey ||
+          process.env.CLAUDE_CODE_OAUTH_TOKEN ||
+          process.env.CLAUDE_API_KEY ||
+          process.env.ANTHROPIC_API_KEY ||
+          "";
+      }
 
       if (!primaryKey && interactive) {
         primaryKey = await promptApiKey(provider);
@@ -152,8 +174,9 @@ program
       }
 
       // 5.1 Validate the primary API key
+      const providerLabel = getProviderLabel(provider as LLMProvider);
       const validateSpinner = ora(
-        `Verifying ${provider === "gemini" ? "Gemini" : "OpenRouter"} API key...`,
+        `Verifying ${providerLabel} API key/token...`,
       ).start();
       try {
         await validateApiKey(provider, primaryKey);
