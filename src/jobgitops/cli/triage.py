@@ -458,7 +458,8 @@ def _handle_mismatch(
     labels_added = ", ".join(f"`{label}`" for label in mismatch_labels)
     comment_body = (
         f"### AI Triage: Mismatch Detected "
-        f"(Fit Score: {triage_res.fit_score:.1f}/{fit_threshold:.1f})\n\n"
+        f"(Fit Score: {triage_res.fit_score:.1f}/5.0, "
+        f"Threshold: {fit_threshold:.1f})\n\n"
         f"**Reasoning:**\n{triage_res.reasoning}\n\n"
         f"#### Score Breakdown:\n"
         f"- **Tech Stack Match:** {triage_res.tech_stack_fit:.1f}/5.0\n"
@@ -694,12 +695,13 @@ def _handle_approved_match(
             status_text = status_to_header.get(initial_status, "Status Updated")
             header = (
                 f"### AI Triage: {status_text} "
-                f"(Fit Score: {triage_res.fit_score:.1f})\n\n"
+                f"(Fit Score: {triage_res.fit_score:.1f}/5.0)\n\n"
             )
         else:
             header = (
                 f"### AI Triage: Match Approved! "
-                f"(Fit Score: {triage_res.fit_score:.1f}/{settings.fit_threshold:.1f}, "
+                f"(Fit Score: {triage_res.fit_score:.1f}/5.0, "
+                f"Threshold: {settings.fit_threshold:.1f}, "
                 f"Grade: {get_fit_grade_label(triage_res.fit_score)})\n\n"
             )
 

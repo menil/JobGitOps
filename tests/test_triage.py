@@ -456,7 +456,7 @@ def test_run_triage_mismatch(
     comment_arg = mock_gh_client.post_comment.call_args[0][1]
     assert "Mismatch Detected" in comment_arg
     assert "Insufficient Python experience" in comment_arg
-    assert "3.4/3.5" in comment_arg
+    assert "3.4/5.0, Threshold: 3.5" in comment_arg
     assert "**Labels Added:** `location-mismatch`, `salary-mismatch`" in comment_arg
 
     mock_gh_client.remove_label.assert_called_once_with(12, "triage-pending")
