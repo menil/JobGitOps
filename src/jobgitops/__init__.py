@@ -12,6 +12,7 @@ from jobgitops.git_ops import (
 )
 from jobgitops.github_client import GitHubClient, GitHubClientError
 from jobgitops.llm import (
+    ClaudeClient,
     GeminiClient,
     LLMClient,
     OpenRouterClient,
@@ -31,6 +32,7 @@ from jobgitops.scraper import ScrapedJob, parse_job_row, run_scraper
 __all__ = [
     "TriageResult",
     "LLMClient",
+    "ClaudeClient",
     "GeminiClient",
     "OpenRouterClient",
     "get_llm_client",
