@@ -32,13 +32,13 @@ def test_slugify() -> None:
 
 
 def test_mask_value() -> None:
-    """Test masking of sensitive log values keeps only the first character."""
-    assert mask_value("Google") == "G***"
-    assert mask_value("SAP") == "S***"
-    assert mask_value("A") == "A***"
+    """Test masking of sensitive log values replaces them entirely."""
+    assert mask_value("Google") == "[REDACTED]"
+    assert mask_value("SAP") == "[REDACTED]"
+    assert mask_value("A") == "[REDACTED]"
     assert mask_value("") == ""
-    # Length of the masked value should not reveal the length of the input.
-    assert len(mask_value("Google")) == len(mask_value("SAP"))
+    # No characters of the input should survive into the masked output.
+    assert "Google" not in mask_value("Google")
 
 
 def test_allocate_lengths() -> None:

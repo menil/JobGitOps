@@ -26,17 +26,18 @@ def redact_sensitive_string(s: str) -> str:
 
 
 def mask_value(s: str) -> str:
-    """Mask a string for logging, keeping only its first character visible.
+    """Redact a string for logging, replacing it with a fixed placeholder.
 
     Used for job-search details (company, role, branch names) that reveal a
     user's application activity and should not appear in clear text in logs.
-    Uses a fixed-width mask rather than preserving length, since the exact
-    length of a short value (e.g. a company name like "SAP" or "3M") can be
-    enough to identify it on its own.
+    Every branch returns a literal, never the ``s`` parameter itself: static
+    analysis tools (e.g. CodeQL) summarize a function as tainted if *any*
+    code path returns its tainted input, even an edge-case branch that never
+    actually executes with sensitive data, so partial masking (e.g. keeping
+    the first character) or an `if not s: return s` guard does not actually
+    break the taint from the source to the log sink.
     """
-    if not s:
-        return s
-    return s[0] + "***"
+    return "[REDACTED]" if s else ""
 
 
 class GitOpsError(Exception):
