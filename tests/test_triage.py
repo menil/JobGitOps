@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import pathlib
 import sys
@@ -1023,6 +1024,7 @@ def test_run_triage_full_body_skips_fetch(
 def test_run_triage_updates_issue_title(
     mock_resume: Resume,
     mock_settings: Settings,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test run_triage updates the issue title when it differs from canonical."""
     mock_llm_client = mock.MagicMock(spec=LLMClient)
@@ -1048,23 +1050,31 @@ def test_run_triage_updates_issue_title(
         "Build things."
     )
 
-    run_triage(
-        issue_number=15,
-        issue_title="Salesforce Job Request",
-        issue_body=body,
-        issue_node_id="node_abc",
-        issue_labels=["triage-pending"],
-        repo_path=pathlib.Path(),
-        gh_client=mock_gh_client,
-        settings=mock_settings,
-        resume=mock_resume,
-        llm_client=mock_llm_client,
-    )
+    with caplog.at_level(logging.INFO, logger="jobgitops.triage"):
+        run_triage(
+            issue_number=15,
+            issue_title="Salesforce Job Request",
+            issue_body=body,
+            issue_node_id="node_abc",
+            issue_labels=["triage-pending"],
+            repo_path=pathlib.Path(),
+            gh_client=mock_gh_client,
+            settings=mock_settings,
+            resume=mock_resume,
+            llm_client=mock_llm_client,
+        )
 
     # Verify that the GitHub client was called to update the title
     mock_gh_client.update_issue_title.assert_called_once_with(
         15, "[Salesforce] Lead Software Engineer"
     )
+
+    # The company/role are job-search activity and must never appear in
+    # clear text in logs (see mask_value()); only the masked form should.
+    assert "Salesforce" not in caplog.text
+    assert "Lead Software Engineer" not in caplog.text
+    assert "S***" in caplog.text
+    assert "L***" in caplog.text
 
 
 @mock.patch("jobgitops.cli.triage.compile_resume")

@@ -88,13 +88,24 @@ const createProjectV2Response = () => ({
   }),
 });
 
+// Compares the parsed hostname rather than a substring match, since
+// `url.includes("codeload.github.com")` would also match hosts like
+// "codeload.github.com.evil.example".
+function isCodeloadHost(url: string): boolean {
+  try {
+    return new URL(url).hostname === "codeload.github.com";
+  } catch {
+    return false;
+  }
+}
+
 // Shared URL-routing fetch stub covering every endpoint runInstallation hits,
 // so tests only customize the GraphQL responses they actually care about.
 function mockGithubFetch(
   graphql: GraphqlRouteHandler = () => createProjectV2Response(),
 ) {
   return vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url.includes("codeload.github.com") || url.includes("/tarball/")) {
+    if (isCodeloadHost(url) || url.includes("/tarball/")) {
       return {
         ok: true,
         body: {
