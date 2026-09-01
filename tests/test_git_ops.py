@@ -14,6 +14,7 @@ from jobgitops.git_ops import (
     commit_changes,
     create_or_checkout_branch,
     generate_branch_name,
+    mask_value,
     push_branch,
     run_git,
     slugify,
@@ -28,6 +29,16 @@ def test_slugify() -> None:
     assert slugify("Company & Co.") == "company-co"
     assert slugify("Company - ") == "company"
     assert slugify("---") == ""
+
+
+def test_mask_value() -> None:
+    """Test masking of sensitive log values keeps only the first character."""
+    assert mask_value("Google") == "G***"
+    assert mask_value("SAP") == "S***"
+    assert mask_value("A") == "A***"
+    assert mask_value("") == ""
+    # Length of the masked value should not reveal the length of the input.
+    assert len(mask_value("Google")) == len(mask_value("SAP"))
 
 
 def test_allocate_lengths() -> None:

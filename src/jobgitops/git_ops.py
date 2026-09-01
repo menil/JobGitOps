@@ -25,6 +25,20 @@ def redact_sensitive_string(s: str) -> str:
     return s
 
 
+def mask_value(s: str) -> str:
+    """Mask a string for logging, keeping only its first character visible.
+
+    Used for job-search details (company, role, branch names) that reveal a
+    user's application activity and should not appear in clear text in logs.
+    Uses a fixed-width mask rather than preserving length, since the exact
+    length of a short value (e.g. a company name like "SAP" or "3M") can be
+    enough to identify it on its own.
+    """
+    if not s:
+        return s
+    return s[0] + "***"
+
+
 class GitOpsError(Exception):
     """Raised when a Git operation fails."""
 
@@ -344,7 +358,7 @@ def _push_with_lease_retry(
     logger.info(
         "Initial push of '%s' rejected (%s); refreshing and retrying with "
         "--force-with-lease",
-        branch_name,
+        mask_value(branch_name),
         redact_sensitive_string(str(original_error)),
     )
     try:

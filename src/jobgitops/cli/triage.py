@@ -21,6 +21,7 @@ from jobgitops.git_ops import (
     commit_changes,
     create_or_checkout_branch,
     generate_branch_name,
+    mask_value,
     push_branch,
     run_git,
 )
@@ -559,7 +560,7 @@ def _create_tailored_application_branch(
     finally:
         # Only revert checkout if branch was actually switched
         if branch_switched and branch_name != original_branch:
-            logger.info("Returning to original branch: %s", original_branch)
+            logger.info("Returning to original branch: %s", mask_value(original_branch))
             try:
                 # Use force checkout to clean any partially modified states
                 run_git(["checkout", "-f", original_branch], cwd=repo_path)
@@ -677,7 +678,7 @@ def _handle_approved_match(
         branch_name = generate_branch_name(
             job_details["company"], job_details["role"], job_details["apply_url"]
         )
-        logger.info("Target application branch: %s", branch_name)
+        logger.info("Target application branch: %s", mask_value(branch_name))
 
         _create_tailored_application_branch(
             repo_path=repo_path,
@@ -800,14 +801,16 @@ def run_triage(
         web_client: Optional WebClient used to fetch URL-only issues when the
             body has no job-description section (spec 5.5).
     """
-    logger.info("Starting triage for issue #%d: %s", issue_number, issue_title)
+    logger.info(
+        "Starting triage for issue #%d: %s", issue_number, mask_value(issue_title)
+    )
 
     # 1. Parse details from issue body
     job_details = parse_job_details(issue_body, issue_title)
     logger.info(
         "Parsed job details: %s at %s",
-        job_details["role"],
-        job_details["company"],
+        mask_value(job_details["role"]),
+        mask_value(job_details["company"]),
     )
 
     # URL-aware parsing (spec 5.5): when the body has no job-description
@@ -836,8 +839,8 @@ def run_triage(
         job_details["apply_url"] = _sanitize_apply_url(apply_url)
         logger.info(
             "Fetched job posting: %s at %s",
-            job_details["role"],
-            job_details["company"],
+            mask_value(job_details["role"]),
+            mask_value(job_details["company"]),
         )
 
     # 2. Triage evaluation
@@ -853,7 +856,11 @@ def run_triage(
     new_title = f"[{company}] {role}"
     if issue_title != new_title:
         try:
-            logger.info("Updating issue title to: %s", new_title)
+            logger.info(
+                "Updating issue title to: [%s] %s",
+                mask_value(company),
+                mask_value(role),
+            )
             gh_client.update_issue_title(issue_number, new_title)
         except Exception as e:
             logger.warning("Failed to update issue title: %s", e)
