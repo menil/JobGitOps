@@ -1070,11 +1070,10 @@ def test_run_triage_updates_issue_title(
     )
 
     # The company/role are job-search activity and must never appear in
-    # clear text in logs (see mask_value()); only the masked form should.
+    # clear text in logs (see mask_value()); only the redacted form should.
     assert "Salesforce" not in caplog.text
     assert "Lead Software Engineer" not in caplog.text
-    assert "S***" in caplog.text
-    assert "L***" in caplog.text
+    assert "[REDACTED]" in caplog.text
 
 
 @mock.patch("jobgitops.cli.triage.compile_resume")
