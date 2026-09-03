@@ -664,6 +664,29 @@ def _messages_to_anthropic(
     return system_prompt, converted
 
 
+def _fold_system_into_first_message(
+    system_text: str, messages: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Prepend ``system_text`` into the first user turn instead of ``system``.
+
+    A Claude Code OAuth token (``sk-ant-oat...``) only accepts the stock
+    Claude Code identity string in the ``system`` field verbatim; any other
+    content there is rejected outright, surfaced as a generic 429
+    ``rate_limit_error`` regardless of the added content's size — confirmed
+    empirically by sending the identical string with and without a single
+    extra trailing character. Real system-prompt content is therefore carried
+    in the conversation instead, ahead of the first user turn.
+    """
+    if not messages or messages[0].get("role") != "user":
+        return [{"role": "user", "content": system_text}, *messages]
+    first_content = messages[0].get("content")
+    if isinstance(first_content, str):
+        folded: Any = f"{system_text}\n\n---\n\n{first_content}"
+    else:
+        folded = [{"type": "text", "text": system_text}, *(first_content or [])]
+    return [{"role": "user", "content": folded}, *messages[1:]]
+
+
 class GeminiClient(LLMClient):
     """LLM client implementation utilizing the official Google Generative AI SDK."""
 
@@ -921,13 +944,11 @@ class ClaudeClient(LLMClient):
             headers["Authorization"] = f"Bearer {self.api_key}"
             headers["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20"
             current_system = payload.get("system")
-            if current_system:
-                if _CLAUDE_CODE_SYSTEM_PREFIX not in current_system:
-                    payload["system"] = (
-                        f"{_CLAUDE_CODE_SYSTEM_PREFIX}\n\n{current_system}"
-                    )
-            else:
-                payload["system"] = _CLAUDE_CODE_SYSTEM_PREFIX
+            if current_system and current_system != _CLAUDE_CODE_SYSTEM_PREFIX:
+                payload["messages"] = _fold_system_into_first_message(
+                    current_system, payload.get("messages", [])
+                )
+            payload["system"] = _CLAUDE_CODE_SYSTEM_PREFIX
         else:
             headers["x-api-key"] = self.api_key
 

@@ -12,6 +12,7 @@ import google.api_core.exceptions
 import pytest
 
 from jobgitops.llm import (
+    _CLAUDE_CODE_SYSTEM_PREFIX,
     _DEFAULT_CLAUDE_MODEL,
     _DEFAULT_OPENROUTER_MODEL,
     ChatMessage,
@@ -1765,7 +1766,7 @@ def test_claude_chat_plain_text(mock_urlopen: MagicMock) -> None:
     ).encode("utf-8")
     mock_urlopen.return_value.__enter__.return_value = mock_response
 
-    client = ClaudeClient(api_key="sk-ant-oat01-key")
+    client = ClaudeClient(api_key="key")
     result = client.chat(
         [
             ChatMessage(role="system", content="Be concise."),
@@ -1781,14 +1782,105 @@ def test_claude_chat_plain_text(mock_urlopen: MagicMock) -> None:
     called_req = mock_urlopen.call_args[0][0]
     body = json.loads(called_req.data.decode("utf-8"))
     assert body["model"] == _DEFAULT_CLAUDE_MODEL
-    assert "Be concise." in body["system"]
-    assert "You are Claude Code" in body["system"]
+    assert body["system"] == "Be concise."
     assert body["messages"] == [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": [{"type": "text", "text": "Hello there"}]},
         {"role": "user", "content": "again"},
     ]
     assert "tools" not in body
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_oauth_folds_custom_system_into_first_message(
+    mock_urlopen: MagicMock,
+) -> None:
+    """An OAuth token gets the bare Claude Code system prompt; custom system
+    content is folded into the first user turn instead.
+
+    Anthropic rejects any customized `system` field on a Claude Code OAuth
+    token outright (confirmed empirically: even a single extra character
+    appended to the stock identity string causes every request to fail with a
+    429 `rate_limit_error`, regardless of size) — so a custom system prompt
+    must never reach the `system` field for these tokens.
+    """
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": "Hello from Claude!"}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="sk-ant-oat01-key")
+    client.chat(
+        [
+            ChatMessage(role="system", content="Be concise."),
+            ChatMessage(role="user", content="hi"),
+            ChatMessage(role="assistant", content="Hello there"),
+            ChatMessage(role="user", content="again"),
+        ]
+    )
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["system"] == _CLAUDE_CODE_SYSTEM_PREFIX
+    assert body["messages"] == [
+        {"role": "user", "content": "Be concise.\n\n---\n\nhi"},
+        {"role": "assistant", "content": [{"type": "text", "text": "Hello there"}]},
+        {"role": "user", "content": "again"},
+    ]
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_oauth_no_custom_system_stays_bare(
+    mock_urlopen: MagicMock,
+) -> None:
+    """With no custom system content, an OAuth token's system stays bare and
+    the message list is untouched."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": "Hello from Claude!"}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="sk-ant-oat01-key")
+    client.chat([ChatMessage(role="user", content="hi")])
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["system"] == _CLAUDE_CODE_SYSTEM_PREFIX
+    assert body["messages"] == [{"role": "user", "content": "hi"}]
+
+
+@patch("urllib.request.urlopen")
+def test_claude_chat_oauth_folds_system_ahead_of_tool_call_first_turn(
+    mock_urlopen: MagicMock,
+) -> None:
+    """When the first turn isn't a plain user message, the folded system
+    content becomes its own leading user turn instead of being merged."""
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": "ok"}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="sk-ant-oat01-key")
+    client.chat(
+        [
+            ChatMessage(role="system", content="Be concise."),
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    ToolCall(name="web_search", arguments={"query": "x"}, id="t1")
+                ],
+            ),
+            ChatMessage(role="tool", tool_call_id="t1", content="result"),
+        ]
+    )
+
+    called_req = mock_urlopen.call_args[0][0]
+    body = json.loads(called_req.data.decode("utf-8"))
+    assert body["system"] == _CLAUDE_CODE_SYSTEM_PREFIX
+    assert body["messages"][0] == {"role": "user", "content": "Be concise."}
 
 
 @patch("urllib.request.urlopen")
