@@ -51,3 +51,4 @@ devenv.local.yaml
 .env.local
 .env.*.local
 *.env
+/.beads.gate.lock
