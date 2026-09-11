@@ -849,6 +849,7 @@ def run_triage(
         job_details["description"],
         resume,
         work_preference=settings.search.work_preference,
+        job_location=job_details.get("location"),
     )
     # Update issue title to follow the canonical [Company] Role format
     company = job_details.get("company", DEFAULT_COMPANY)

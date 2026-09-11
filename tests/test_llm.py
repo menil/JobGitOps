@@ -24,6 +24,7 @@ from jobgitops.llm import (
     TriageResult,
     _build_job_details_prompt,
     clean_json_string,
+    format_triage_prompt,
     get_llm_client,
 )
 from jobgitops.schema import Resume, ValidationError
@@ -1476,10 +1477,7 @@ def test_openrouter_chat_invalid_response_format(mock_urlopen: MagicMock) -> Non
 
 def test_format_triage_prompt() -> None:
     """Verify format_triage_prompt handles partial/missing locations safely."""
-    from jobgitops import Resume
-    from jobgitops.llm import format_triage_prompt
-
-    # Full location
+    # Full location with explicit job location
     resume_full = Resume.from_dict(
         {
             "basics": {
@@ -1488,10 +1486,14 @@ def test_format_triage_prompt() -> None:
             }
         }
     )
-    prompt_full = format_triage_prompt("Desc", resume_full, "hybrid")
+    prompt_full = format_triage_prompt(
+        "Desc", resume_full, "hybrid", job_location="Kirkland, WA"
+    )
     assert "Candidate Location: Seattle, WA, US" in prompt_full
+    assert "Stated Work Location: Kirkland, WA" in prompt_full
+    assert "metropolitan area or a reasonable commuting radius" in prompt_full
 
-    # Partial location (missing state)
+    # Partial location (missing state) and unspecified job location
     resume_partial = Resume.from_dict(
         {
             "basics": {
@@ -1502,11 +1504,32 @@ def test_format_triage_prompt() -> None:
     )
     prompt_partial = format_triage_prompt("Desc", resume_partial, "remote")
     assert "Candidate Location: Singapore, SG" in prompt_partial
+    assert "Stated Work Location: Not specified" in prompt_partial
 
-    # Missing location
+    # Missing location and whitespace/non-string resilience
     resume_none = Resume.from_dict({"basics": {"name": "John Doe"}})
-    prompt_none = format_triage_prompt("Desc", resume_none, "remote")
+    prompt_none = format_triage_prompt("Desc", resume_none, "remote", job_location="")
     assert "Candidate Location: Unknown" in prompt_none
+    assert "Stated Work Location: Not specified" in prompt_none
+
+    prompt_space = format_triage_prompt(
+        "Desc", resume_none, "remote", job_location="   "
+    )
+    assert "Stated Work Location: Not specified" in prompt_space
+
+    prompt_int = format_triage_prompt("Desc", resume_none, "remote", job_location=94105)
+    assert "Stated Work Location: 94105" in prompt_int
+
+    prompt_bool = format_triage_prompt(
+        "Desc", resume_none, "remote", job_location=False
+    )
+    assert "Stated Work Location: Not specified" in prompt_bool
+
+    # Multiline location collapses to single line
+    prompt_multiline = format_triage_prompt(
+        "Desc", resume_none, "remote", job_location="Kirkland,\nWA"
+    )
+    assert "Stated Work Location: Kirkland, WA" in prompt_multiline
 
 
 @patch("urllib.request.urlopen")
@@ -2041,3 +2064,63 @@ def test_claude_chat_quota_exceeded(mock_urlopen: MagicMock) -> None:
 
     with pytest.raises(QuotaExceededError, match="Claude rate limit exceeded"):
         client.chat([ChatMessage(role="user", content="hi")])
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_client_triage_forwards_job_location(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify OpenRouterClient forwards job_location into prompt payload."""
+    mock_response = MagicMock()
+    triage_payload = {
+        "fit_score": 4.5,
+        "tech_stack_fit": 4.5,
+        "experience_fit": 4.5,
+        "location_fit": 4.5,
+        "salary_fit": 4.5,
+        "industry_fit": 4.5,
+        "reasoning": "Fits Redmond commute.",
+    }
+    mock_response.read.return_value = json.dumps(
+        {"choices": [{"message": {"content": json.dumps(triage_payload)}}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+    res = client.triage_job("Python role", sample_resume, job_location="Redmond, WA")
+    assert res.fit_score == 4.5
+
+    called_req = mock_urlopen.call_args[0][0]
+    payload = json.loads(called_req.data.decode("utf-8"))
+    user_prompt = payload["messages"][0]["content"]
+    assert "Stated Work Location: Redmond, WA" in user_prompt
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_triage_forwards_job_location(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify ClaudeClient forwards job_location into prompt payload."""
+    mock_response = MagicMock()
+    triage_payload = {
+        "fit_score": 4.5,
+        "tech_stack_fit": 4.5,
+        "experience_fit": 4.5,
+        "location_fit": 4.5,
+        "salary_fit": 4.5,
+        "industry_fit": 4.5,
+        "reasoning": "Fits Bellevue commute.",
+    }
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": json.dumps(triage_payload)}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="key")
+    res = client.triage_job("Python role", sample_resume, job_location="Bellevue, WA")
+    assert res.fit_score == 4.5
+
+    called_req = mock_urlopen.call_args[0][0]
+    payload = json.loads(called_req.data.decode("utf-8"))
+    user_prompt = payload["messages"][0]["content"]
+    assert "Stated Work Location: Bellevue, WA" in user_prompt
