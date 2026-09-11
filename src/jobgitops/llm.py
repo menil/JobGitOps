@@ -228,6 +228,8 @@ TRIAGE_PROMPT = (
     "Candidate Preferences:\n"
     "- Target Work Preference: {work_preference}\n"
     "- Candidate Location: {candidate_location}\n\n"
+    "Job Information:\n"
+    "- Stated Work Location: {job_location}\n\n"
     "Job Description:\n"
     "{job_description}\n\n"
     "Please evaluate the following 5 dimensions:\n"
@@ -236,7 +238,12 @@ TRIAGE_PROMPT = (
     "2. Experience & Years Fit (seniority level, scope of responsibilities, "
     "and years of experience)\n"
     "3. Location & Timezone Suitability (compare remote/onsite and timezone "
-    "expectations to candidate preferences/location)\n"
+    "expectations to candidate preferences/location. Note: Neighboring cities "
+    "within the same metropolitan area or a reasonable commuting radius—e.g. "
+    "Kirkland, Bellevue, or Redmond for Seattle—are acceptable geographic matches "
+    "for onsite/hybrid roles; do not heavily penalize them. If location is "
+    "unspecified in the posting, grade 5.0 unless the role clearly requires "
+    "relocation or incompatible hours)\n"
     "4. Salary Alignment (assess if salary matches; if unspecified, grade 5.0 "
     "unless seniority/market fit is poor)\n"
     "5. Industry Domain Familiarity (overlap with domains such as SaaS, "
@@ -349,6 +356,7 @@ def format_triage_prompt(
     job_description: str,
     resume: Resume,
     work_preference: str,
+    job_location: str | None = None,
 ) -> str:
     """Format the LLM triage prompt with resume and location attributes.
 
@@ -356,17 +364,19 @@ def format_triage_prompt(
         job_description: The job posting text.
         resume: The parsed candidate resume.
         work_preference: Candidate's target work style.
+        job_location: The stated work location for the job posting.
 
     Returns:
         The formatted prompt string for LLM evaluation.
     """
     resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
 
-    loc = resume.basics.location
-    if loc:
-        city = loc.city or "Unknown"
-        state = loc.state or ""
-        country = loc.country_code or "Unknown"
+    basics = getattr(resume, "basics", None)
+    loc = getattr(basics, "location", None) if basics is not None else None
+    if loc is not None:
+        city = (getattr(loc, "city", None) or "").strip() or "Unknown"
+        state = (getattr(loc, "state", None) or "").strip()
+        country = (getattr(loc, "country_code", None) or "").strip() or "Unknown"
         if state:
             candidate_location = f"{city}, {state}, {country}"
         else:
@@ -374,11 +384,17 @@ def format_triage_prompt(
     else:
         candidate_location = "Unknown"
 
+    if job_location is not None and not isinstance(job_location, bool):
+        loc_str = " ".join(str(job_location).split()) or "Not specified"
+    else:
+        loc_str = "Not specified"
+
     return TRIAGE_PROMPT.format(
         resume_yaml=resume_yaml,
         job_description=job_description,
         work_preference=work_preference,
         candidate_location=candidate_location,
+        job_location=loc_str,
     )
 
 
@@ -391,8 +407,19 @@ class LLMClient(ABC):
         job_description: str,
         resume: Resume,
         work_preference: str = "remote",
+        job_location: str | None = None,
     ) -> TriageResult:
-        """Evaluate a job description against the resume across 5 dimensions."""
+        """Evaluate a job description against the resume across 5 dimensions.
+
+        Args:
+            job_description: Full text of the job description to evaluate.
+            resume: Parsed candidate base resume.
+            work_preference: Candidate's target work style ("remote", "hybrid").
+            job_location: Optional stated job location for commute/geographic fit.
+
+        Returns:
+            TriageResult containing dimensional scores (1.0-5.0) and reasoning text.
+        """
         pass
 
     @abstractmethod
@@ -706,10 +733,16 @@ class GeminiClient(LLMClient):
         job_description: str,
         resume: Resume,
         work_preference: str = "remote",
+        job_location: str | None = None,
     ) -> TriageResult:
         import google.api_core.exceptions
 
-        prompt = format_triage_prompt(job_description, resume, work_preference)
+        prompt = format_triage_prompt(
+            job_description,
+            resume,
+            work_preference,
+            job_location=job_location,
+        )
         try:
             response = self.model.generate_content(
                 prompt,
@@ -888,8 +921,14 @@ class OpenRouterClient(LLMClient):
         job_description: str,
         resume: Resume,
         work_preference: str = "remote",
+        job_location: str | None = None,
     ) -> TriageResult:
-        prompt = format_triage_prompt(job_description, resume, work_preference)
+        prompt = format_triage_prompt(
+            job_description,
+            resume,
+            work_preference,
+            job_location=job_location,
+        )
         try:
             response_text = self._call_openrouter(prompt)
             clean_text = clean_json_string(response_text)
@@ -1051,8 +1090,14 @@ class ClaudeClient(LLMClient):
         job_description: str,
         resume: Resume,
         work_preference: str = "remote",
+        job_location: str | None = None,
     ) -> TriageResult:
-        prompt = format_triage_prompt(job_description, resume, work_preference)
+        prompt = format_triage_prompt(
+            job_description,
+            resume,
+            work_preference,
+            job_location=job_location,
+        )
         try:
             response_text = self._call_claude(prompt)
             clean_text = clean_json_string(response_text)

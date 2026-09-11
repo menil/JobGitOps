@@ -448,7 +448,10 @@ def test_run_triage_mismatch(
 
     # Verify LLM was called
     mock_llm_client.triage_job.assert_called_once_with(
-        "Need 10 years of Python.", mock_resume, work_preference="hybrid"
+        "Need 10 years of Python.",
+        mock_resume,
+        work_preference="hybrid",
+        job_location="Remote",
     )
     mock_llm_client.tailor_resume.assert_not_called()
 
@@ -865,6 +868,7 @@ def test_run_triage_bare_url_body_fetches_and_substitutes(
         "We need a senior Python engineer with 5+ years of experience.",
         mock_resume,
         work_preference="hybrid",
+        job_location="Remote",
     )
 
     # The approved-match comment uses the LLM-inferred company/role.
@@ -962,7 +966,10 @@ def test_run_triage_bare_url_without_web_client_skips_fetch(
     # No fetch, no extraction: the raw URL body is triaged as the description.
     mock_llm_client.extract_job_details.assert_not_called()
     mock_llm_client.triage_job.assert_called_once_with(
-        "https://acme.com/jobs/123", mock_resume, work_preference="hybrid"
+        "https://acme.com/jobs/123",
+        mock_resume,
+        work_preference="hybrid",
+        job_location="Remote",
     )
 
 
@@ -1017,7 +1024,10 @@ def test_run_triage_full_body_skips_fetch(
     web_client.fetch_url.assert_not_called()
     mock_llm_client.extract_job_details.assert_not_called()
     mock_llm_client.triage_job.assert_called_once_with(
-        "Need 10 years of Python.", mock_resume, work_preference="hybrid"
+        "Need 10 years of Python.",
+        mock_resume,
+        work_preference="hybrid",
+        job_location="Remote",
     )
 
 
@@ -1755,3 +1765,60 @@ def test_main_all_pending_mode(
     assert call_kwargs["resume"] == mock_resume
     assert call_kwargs["repo_path"] == pathlib.Path().resolve()
     mock_get_llm.assert_called_once()
+
+
+@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("jobgitops.cli.triage._create_tailored_application_branch")
+def test_run_triage_forwards_header_location(
+    mock_create_branch: mock.MagicMock,
+    mock_run_git: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test run_triage passes location from issue header to triage_job."""
+    mock_run_git.side_effect = make_run_git_stub()
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=4.5,
+        tech_stack_fit=5.0,
+        experience_fit=4.5,
+        location_fit=4.5,
+        salary_fit=4.0,
+        industry_fit=4.5,
+        reasoning="Great fit in Kirkland, close to Seattle.",
+    )
+    mock_llm_client.tailor_resume.return_value = mock_resume
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "owner/repo"
+    mock_gh_client.project_id = "proj_123"
+
+    run_triage(
+        issue_number=51,
+        issue_title="[Google] Staff Engineer",
+        issue_body=(
+            "**Company:** Google\n"
+            "**Role:** Staff Engineer\n"
+            "**Location:** Kirkland, WA\n"
+            "**Salary:** $200k - $250k\n"
+            "**Source:** linkedin\n"
+            "**Apply URL:** https://careers.google.com/jobs/51\n"
+            "## Job Description\n"
+            "Build scalable cloud services."
+        ),
+        issue_node_id="node_51",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path(),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    mock_llm_client.triage_job.assert_called_once_with(
+        "Build scalable cloud services.",
+        mock_resume,
+        work_preference="hybrid",
+        job_location="Kirkland, WA",
+    )
+    mock_create_branch.assert_called_once()
