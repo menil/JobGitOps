@@ -3,7 +3,7 @@
 import pathlib
 
 import scripts.format_resume as format_resume
-from jobgitops.loader import render_resume_yaml, resume_yaml_is_canonical
+from jobgitops.loader import load_resume, render_resume_yaml, resume_yaml_is_canonical
 from jobgitops.schema import Resume
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -23,6 +23,65 @@ def _write_canonical_resume(tmp_path: pathlib.Path) -> pathlib.Path:
     resume_file = tmp_path / "resume.yaml"
     resume_file.write_text(render_resume_yaml(resume), encoding="utf-8")
     return resume_file
+
+
+def test_canonical_omits_empty_optional_arrays_written_by_hand(tmp_path) -> None:
+    """A hand-written resume lacking optional arrays is already canonical.
+
+    Regression test: before this fix, render_resume_yaml force-populated
+    empty optional arrays (highlights, courses, profiles, etc.), so any
+    resume.yaml written without them -- valid per the JSON Resume schema,
+    since these fields are optional -- failed the canonical-format check
+    and blocked scraping/triaging until Auto-Format Resume happened to
+    re-run. Confirmed against a real user resume during manual end-to-end
+    testing of the theme migration.
+    """
+    content = (
+        "basics:\n"
+        "  name: Jane Doe\n"
+        "  location:\n"
+        "    city: Seattle\n"
+        "    region: WA\n"
+        "    countryCode: US\n"
+        "work:\n"
+        "- name: Acme\n"
+        "  position: Engineer\n"
+        "  startDate: '2020-01-01'\n"
+    )
+    resume_file = tmp_path / "resume.yaml"
+    resume_file.write_text(content, encoding="utf-8")
+
+    assert resume_yaml_is_canonical(resume_file)
+
+
+def test_canonical_normalizes_explicit_empty_array_to_omitted(tmp_path) -> None:
+    """An explicitly-written empty array (e.g. `highlights: []`) is not canonical.
+
+    from_dict can't distinguish "key omitted" from "key present but empty"
+    -- both collapse to the same in-memory empty list -- so canonical form
+    treats them identically too: both normalize to omitted. This is the
+    intended consequence of "missing optional fields aren't a formatting
+    issue," not a gap: it keeps exactly one canonical spelling for "no
+    highlights," rather than two (omitted and `[]`) that would both need to
+    be accepted as canonical.
+    """
+    content = (
+        "basics:\n"
+        "  name: Jane Doe\n"
+        "  location:\n"
+        "    city: Seattle\n"
+        "    region: WA\n"
+        "    countryCode: US\n"
+        "work:\n"
+        "- name: Acme\n"
+        "  position: Engineer\n"
+        "  highlights: []\n"
+    )
+    resume_file = tmp_path / "resume.yaml"
+    resume_file.write_text(content, encoding="utf-8")
+
+    assert not resume_yaml_is_canonical(resume_file)
+    assert "highlights" not in render_resume_yaml(load_resume(resume_file))
 
 
 def test_resume_yaml_is_canonical() -> None:

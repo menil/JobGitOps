@@ -139,6 +139,89 @@ def test_resume_serialization_optional_fields() -> None:
     }
 
 
+def test_nested_entry_optional_arrays_default_to_always_present() -> None:
+    """Verify nested Work/Education/Skill/Project arrays force-populate too.
+
+    test_resume_serialization_optional_fields only covers the top-level
+    Resume lists being empty; this covers the independent case of an
+    individual entry (e.g. one work item) lacking its own nested array
+    (e.g. that item's highlights) -- the same theme-crash-prevention
+    rationale applies at this level too, and it's a distinct code path
+    (Work/Education/Skill/Project.to_dict, not Resume.to_dict).
+    """
+    data = {
+        "basics": {
+            "name": "Only Name",
+            "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
+        },
+        "work": [{"name": "Acme", "position": "Engineer"}],  # no highlights
+        "education": [{"institution": "MIT"}],  # no courses
+        "skills": [{"name": "Languages"}],  # no keywords
+        "projects": [{"name": "Side Project"}],  # no highlights or keywords
+    }
+    resume = Resume.from_dict(data)
+    serialized = resume.to_dict()
+
+    assert serialized["work"][0]["highlights"] == []
+    assert serialized["education"][0]["courses"] == []
+    assert serialized["skills"][0]["keywords"] == []
+    assert serialized["projects"][0]["highlights"] == []
+    assert serialized["projects"][0]["keywords"] == []
+
+
+def test_resume_serialization_omits_empty_arrays_for_canonical_yaml(
+    sample_resume_data,
+) -> None:
+    """Verify include_empty_arrays=False omits genuinely-empty optional arrays.
+
+    Used by loader.py's render_resume_yaml for the canonical resumes/resume.yaml
+    -- unlike the theme-facing resume.json (default True), an author who never
+    wrote an optional array shouldn't be forced to just to pass the
+    canonical-format check. Non-empty arrays are still emitted either way.
+    """
+    minimal_data = {
+        "basics": {
+            "name": "Only Name",
+            "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
+        }
+    }
+    resume = Resume.from_dict(minimal_data)
+    serialized = resume.to_dict(include_empty_arrays=False)
+
+    assert serialized == {
+        "basics": {
+            "name": "Only Name",
+            "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
+        }
+    }
+
+    # A mix of empty and non-empty optional arrays within the same resume
+    # is handled independently: non-empty ones are still emitted, empty
+    # ones are omitted. Project.to_dict has two independently-gated arrays
+    # (highlights, keywords) -- populate only one to prove neither
+    # conditional accidentally checks the other's field.
+    mixed_data = dict(minimal_data)
+    mixed_data["work"] = [
+        {
+            "name": "Acme",
+            "position": "Engineer",
+            "highlights": ["Shipped a thing"],
+        }
+    ]
+    mixed_data["education"] = [{"institution": "MIT"}]  # no courses
+    mixed_data["skills"] = [{"name": "Languages"}]  # no keywords
+    mixed_data["projects"] = [
+        {"name": "Side Project", "highlights": ["Launched it"]}  # no keywords
+    ]
+    resume = Resume.from_dict(mixed_data)
+    serialized = resume.to_dict(include_empty_arrays=False)
+    assert serialized["work"][0]["highlights"] == ["Shipped a thing"]
+    assert "courses" not in serialized["education"][0]
+    assert "keywords" not in serialized["skills"][0]
+    assert serialized["projects"][0]["highlights"] == ["Launched it"]
+    assert "keywords" not in serialized["projects"][0]
+
+
 def test_compile_resume_json(sample_resume_data, tmp_path) -> None:
     """Verify resume JSON compiler generates a correct and readable JSON Resume file."""
     resume = Resume.from_dict(sample_resume_data)

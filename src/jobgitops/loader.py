@@ -63,8 +63,18 @@ def render_resume_yaml(resume: Resume) -> str:
     Single source of truth for the on-disk resume format so that the base
     file and tailored output stay byte-identical in style, keeping diffs
     limited to actual content changes.
+
+    Omits empty optional arrays (include_empty_arrays=False) rather than
+    forcing e.g. `highlights: []`/`profiles: []` to always be present: that
+    force-populate behavior exists for the theme-facing resume.json (real
+    JSON Resume themes crash on a missing, not just empty, array -- see
+    Resume.to_dict), not for this human-facing canonical file, where an
+    author who never wrote an optional array shouldn't be forced to just to
+    pass the canonical-format check.
     """
-    return yaml.safe_dump(resume.to_dict(), allow_unicode=True, sort_keys=False)
+    return yaml.safe_dump(
+        resume.to_dict(include_empty_arrays=False), allow_unicode=True, sort_keys=False
+    )
 
 
 def resume_yaml_is_canonical(path: str | pathlib.Path) -> bool:
