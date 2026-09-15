@@ -362,6 +362,13 @@ class ResearchConfig:
 
 _GITHUB_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
+# A bare "<major>.<minor>.<patch>[-prerelease][+build]" -- rejects npm dist
+# tags ("latest", "next") and semver ranges ("^2.0.0", "~1.2.3", ">=1.0.0"),
+# which previously passed this check since they're merely non-empty strings
+# after the last "@" -- confirmed as a real gap during review, since those
+# are exactly the "floating" specs this check exists to reject.
+_NPM_PINNED_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
+
 
 def theme_looks_pinned(theme_spec: str) -> bool:
     """Check theme_spec is pinned to an exact version or 40-char commit SHA.
@@ -379,7 +386,7 @@ def theme_looks_pinned(theme_spec: str) -> bool:
         _, _, ref = theme_spec.partition("#")
         return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(ref))
     name, sep, version = theme_spec.rpartition("@")
-    return bool(sep) and bool(name) and bool(version)
+    return bool(sep) and bool(name) and bool(_NPM_PINNED_VERSION_RE.fullmatch(version))
 
 
 @dataclass

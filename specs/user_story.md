@@ -28,7 +28,7 @@ Instead, he maintains his base resume in his Git repository in a clean YAML form
 - Maintain a single, authoritative "source of truth" for his entire career history.
 - Programmatically parse his skills and work experience for matching and scraping.
 - Track every modification, project detail, and role update with Git commit messages.
-- Use automated templates and rendering engines (like WeasyPrint) to compile his resume on-the-fly.
+- Use automated rendering engines (JSON Resume themes via the `resumed` CLI) to compile his resume on-the-fly.
 
 With this foundation established, the daily automated workflows of JobGitOps can seamlessly read, evaluate, and tailor his profile. For Martin, the ideal day looks like this:
 
@@ -48,7 +48,7 @@ Instead of wading through hundreds of irrelevant jobs, Martin lets the AI Triage
 For the high-scoring roles, Martin needs a tailored resume. Instead of manually editing PDFs, the system automates this through Git:
 - The AI Engine spawns a dedicated Git branch for the application: `applications/company-role-hash`.
 - The engine rewrites `resumes/resume.yaml` on that branch, subtly adjusting his highlight bullets and skills to emphasize what the company is looking for.
-- It renders a beautiful, print-ready PDF using WeasyPrint from standard HTML/CSS templates on the branch.
+- It renders a beautiful, print-ready PDF using his configured JSON Resume theme on the branch.
 - The PDF and modified YAML are committed (adhering strictly to Conventional Commit standards to keep the repository log tidy) and pushed to the branch, leaving a clean Git diff that Martin can inspect to see exactly what changed.
 - The bot posts a comment on the GitHub Issue with a direct link to the compiled PDF on the branch.
 

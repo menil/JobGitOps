@@ -33,8 +33,8 @@ flowchart TD
         I -->|"< threshold"| J[Close Issue with Reason]
         I -->|">= threshold"| K[Create Branch applications/company-role-hash]
 
-        K -->|Jinja2 Templating| L["Generate resume.yaml & resume.json"]
-        L -->|WeasyPrint| M(Generate resume.pdf)
+        K -->|Serialize| L["Generate resume.yaml & resume.json"]
+        L -->|resumed + JSON Resume theme| M(Generate resume.pdf)
         M -->|Push Branch| N[Git Branch]
         N -->|Add Link & Comment| Issues
     end
@@ -57,7 +57,7 @@ The following GitHub Actions workflows manage the automated lifecycle of the scr
 | `pr-review.yml` | PR opened, reopened, or marked ready for review (dependabot skipped) | Automated code review via OpenRouter |
 | `sync-labels.yml` | Push to `main` | Applies issue labels from `.github/labels.yml` and migrates renamed labels (e.g. `interviewing` → `in-loop`) |
 
-These workflows run inside a pre-built Docker container hosting WeasyPrint libraries and uv, avoiding runner bootstrap delays.
+These workflows run inside a pre-built Docker container hosting Bun, Chromium/Puppeteer, and uv, avoiding runner bootstrap delays.
 
 ---
 
@@ -79,7 +79,7 @@ Labels (names, colors, descriptions) are managed as code in `.github/labels.yml`
 
 ## Local Development
 
-We use `devenv` and `nix` to manage system dependencies (like Cairo and Pango required for WeasyPrint HTML-to-PDF rendering) and Python dependencies reproducibly.
+We use `devenv` and `nix` to manage system dependencies (fonts for PDF rendering fidelity, `just`, `shellcheck`) and Python dependencies reproducibly.
 
 > [!NOTE]
 > Detailed developer environment configuration rules and issue tracking rules are in [AGENTS.md](AGENTS.md).
@@ -134,8 +134,6 @@ python -m jobgitops.cli.project_sync backfill --reverse         # Reconcile boar
 
 ### Local Troubleshooting & Resolution Tips
 
-- **Missing Cairo / Pango Libraries (`OSError: dlopen`)**:
-  WeasyPrint requires native system libraries mapped by Nix. Always enter the environment via `devenv shell` or enable `direnv allow` before executing Python scripts or test suites. Running development commands directly on the host system will fail.
 - **Coverage Gate Failures**:
   If `just validate` fails the 90% test coverage requirement, run coverage with term-missing line reporting to find untested blocks:
   ```bash
@@ -157,7 +155,7 @@ src/jobgitops/cli/            # CLI entry points (scrape, triage, respond, statu
 src/jobgitops/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper, status_model)
 scripts/format_resume.py      # Canonical resume.yaml formatter
 installer/                    # TypeScript bootstrap installer package (see [specs/bootstrap-installer.md](specs/bootstrap-installer.md))
-template/                     # Installer user-repo content: config defaults, placeholder resume, renderer templates, README, .gitignore
+template/                     # Installer user-repo content: config defaults, placeholder resume, README, .gitignore
 tests/                        # pytest suite (90% coverage enforced)
 tests/fixtures/               # Committed fixture config + resume used by tests and the formatter
 specs/                        # Architecture specs + user stories
