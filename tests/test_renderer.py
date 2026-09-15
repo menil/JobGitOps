@@ -12,6 +12,7 @@ from jobgitops.renderer import (
     ThemeInstallError,
     _parse_installed_theme_name,
     _theme_bare_name,
+    _theme_is_installed,
     compile_resume,
     compile_resume_json,
     compile_resume_pdf,
@@ -214,6 +215,18 @@ def test_parse_installed_theme_name_raises_if_no_installed_line() -> None:
     """Verify a clear error when bun's output doesn't contain the expected line."""
     with pytest.raises(ThemeInstallError, match="Could not determine"):
         _parse_installed_theme_name("Resolving dependencies\n", "some-spec")
+
+
+def test_theme_is_installed_checks_bun_global_node_modules(
+    tmp_path, monkeypatch
+) -> None:
+    """Verify the real (unmocked) presence check against the actual filesystem."""
+    monkeypatch.setattr("jobgitops.renderer._BUN_GLOBAL_NODE_MODULES", tmp_path)
+
+    assert _theme_is_installed("some-theme") is False
+
+    (tmp_path / "some-theme").mkdir()
+    assert _theme_is_installed("some-theme") is True
 
 
 def test_ensure_theme_installed_skips_install_when_already_present() -> None:
