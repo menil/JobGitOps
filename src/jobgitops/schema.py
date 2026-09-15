@@ -653,8 +653,21 @@ class Basics:
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Basics: {e}") from e
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert Basics to dictionary conforming to JSON Resume schema."""
+    def to_dict(self, *, include_empty_arrays: bool = True) -> dict[str, Any]:
+        """Convert Basics to dictionary conforming to JSON Resume schema.
+
+        Args:
+            include_empty_arrays: When True (the default, used for the
+                theme-facing resume.json), always emit `profiles` even when
+                empty -- real JSON Resume themes (e.g.
+                @jsonresume/jsonresume-theme-professional) assume this key
+                exists and crash on `basics.profiles.find(...)` when it's
+                absent entirely, confirmed by hands-on testing while
+                building JobGitOps-184. When False (used for the canonical
+                resumes/resume.yaml), omit it when empty instead, so an
+                author who never wrote `profiles` isn't forced to -- see
+                loader.py's render_resume_yaml.
+        """
         res: dict[str, Any] = {
             "name": self.name,
         }
@@ -670,11 +683,9 @@ class Basics:
             res["summary"] = self.summary
         if self.location is not None:
             res["location"] = self.location.to_dict()
-        # Always emit `profiles`, even empty: real JSON Resume themes (e.g.
-        # @jsonresume/jsonresume-theme-professional) assume this key exists
-        # and crash on `basics.profiles.find(...)` when it's absent entirely,
-        # confirmed by hands-on testing while building JobGitOps-184.
-        res["profiles"] = [p.to_dict() for p in self.profiles]
+        profiles = [p.to_dict() for p in self.profiles]
+        if profiles or include_empty_arrays:
+            res["profiles"] = profiles
         return res
 
 
@@ -736,8 +747,11 @@ class Work:
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Work: {e}") from e
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert Work to dictionary conforming to JSON Resume schema."""
+    def to_dict(self, *, include_empty_arrays: bool = True) -> dict[str, Any]:
+        """Convert Work to dictionary conforming to JSON Resume schema.
+
+        See Basics.to_dict's `include_empty_arrays` docstring.
+        """
         res: dict[str, Any] = {
             "name": self.name,
             "position": self.position,
@@ -750,10 +764,8 @@ class Work:
             res["endDate"] = self.end_date
         if self.summary is not None:
             res["summary"] = self.summary
-        # Always emit `highlights`, even empty -- see the comment on
-        # Basics.to_dict's `profiles` field for why real themes assume
-        # array-typed JSON Resume fields are present rather than omitted.
-        res["highlights"] = self.highlights
+        if self.highlights or include_empty_arrays:
+            res["highlights"] = self.highlights
         return res
 
 
@@ -815,8 +827,11 @@ class Education:
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Education: {e}") from e
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert Education to dictionary conforming to JSON Resume schema."""
+    def to_dict(self, *, include_empty_arrays: bool = True) -> dict[str, Any]:
+        """Convert Education to dictionary conforming to JSON Resume schema.
+
+        See Basics.to_dict's `include_empty_arrays` docstring.
+        """
         res: dict[str, Any] = {
             "institution": self.institution,
         }
@@ -832,9 +847,8 @@ class Education:
             res["endDate"] = self.end_date
         if self.score is not None:
             res["score"] = self.score
-        # Always emit `courses`, even empty -- see the comment on
-        # Basics.to_dict's `profiles` field.
-        res["courses"] = self.courses
+        if self.courses or include_empty_arrays:
+            res["courses"] = self.courses
         return res
 
 
@@ -879,14 +893,16 @@ class Skill:
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Skill: {e}") from e
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert Skill to dictionary conforming to JSON Resume schema."""
+    def to_dict(self, *, include_empty_arrays: bool = True) -> dict[str, Any]:
+        """Convert Skill to dictionary conforming to JSON Resume schema.
+
+        See Basics.to_dict's `include_empty_arrays` docstring.
+        """
         res: dict[str, Any] = {
             "name": self.name,
         }
-        # Always emit `keywords`, even empty -- see the comment on
-        # Basics.to_dict's `profiles` field.
-        res["keywords"] = self.keywords
+        if self.keywords or include_empty_arrays:
+            res["keywords"] = self.keywords
         return res
 
 
@@ -953,17 +969,20 @@ class Project:
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Project: {e}") from e
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert Project to dictionary conforming to JSON Resume schema."""
+    def to_dict(self, *, include_empty_arrays: bool = True) -> dict[str, Any]:
+        """Convert Project to dictionary conforming to JSON Resume schema.
+
+        See Basics.to_dict's `include_empty_arrays` docstring.
+        """
         res: dict[str, Any] = {
             "name": self.name,
         }
         if self.description is not None:
             res["description"] = self.description
-        # Always emit `highlights`/`keywords`, even empty -- see the comment
-        # on Basics.to_dict's `profiles` field.
-        res["highlights"] = self.highlights
-        res["keywords"] = self.keywords
+        if self.highlights or include_empty_arrays:
+            res["highlights"] = self.highlights
+        if self.keywords or include_empty_arrays:
+            res["keywords"] = self.keywords
         if self.start_date is not None:
             res["startDate"] = self.start_date
         if self.end_date is not None:
@@ -1045,17 +1064,37 @@ class Resume:
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Resume: {e}") from e
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert Resume to dictionary conforming to JSON Resume schema."""
-        # `work`/`education`/`skills`/`projects` are always emitted, even
-        # empty -- see the comment on Basics.to_dict's `profiles` field for
-        # why real JSON Resume themes assume these array-typed sections are
-        # present rather than omitted.
+    def to_dict(self, *, include_empty_arrays: bool = True) -> dict[str, Any]:
+        """Convert Resume to dictionary conforming to JSON Resume schema.
+
+        Args:
+            include_empty_arrays: See Basics.to_dict's docstring; threaded
+                through to every nested Work/Education/Skill/Project, and
+                also governs whether `work`/`education`/`skills`/`projects`
+                themselves are emitted when empty. renderer.py's
+                compile_resume_json uses the default (True) for the
+                theme-facing resume.json; loader.py's render_resume_yaml
+                passes False for the canonical resumes/resume.yaml.
+        """
         res: dict[str, Any] = {
-            "basics": self.basics.to_dict(),
-            "work": [w.to_dict() for w in self.work],
-            "education": [e.to_dict() for e in self.education],
-            "skills": [s.to_dict() for s in self.skills],
-            "projects": [p.to_dict() for p in self.projects],
+            "basics": self.basics.to_dict(include_empty_arrays=include_empty_arrays),
         }
+        work = [w.to_dict(include_empty_arrays=include_empty_arrays) for w in self.work]
+        if work or include_empty_arrays:
+            res["work"] = work
+        education = [
+            e.to_dict(include_empty_arrays=include_empty_arrays) for e in self.education
+        ]
+        if education or include_empty_arrays:
+            res["education"] = education
+        skills = [
+            s.to_dict(include_empty_arrays=include_empty_arrays) for s in self.skills
+        ]
+        if skills or include_empty_arrays:
+            res["skills"] = skills
+        projects = [
+            p.to_dict(include_empty_arrays=include_empty_arrays) for p in self.projects
+        ]
+        if projects or include_empty_arrays:
+            res["projects"] = projects
         return res
