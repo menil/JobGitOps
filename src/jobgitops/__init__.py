@@ -21,9 +21,11 @@ from jobgitops.llm import (
 )
 from jobgitops.loader import load_resume, load_settings
 from jobgitops.renderer import (
+    ThemeInstallError,
     compile_resume,
     compile_resume_json,
     compile_resume_pdf,
+    ensure_theme_installed,
 )
 from jobgitops.schema import Resume, Settings, ValidationError
 from jobgitops.scraper import ScrapedJob, parse_job_row, run_scraper
@@ -53,6 +55,8 @@ __all__ = [
     "compile_resume",
     "compile_resume_pdf",
     "compile_resume_json",
+    "ensure_theme_installed",
+    "ThemeInstallError",
     "run_scraper",
     "ScrapedJob",
     "parse_job_row",

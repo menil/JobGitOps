@@ -5,12 +5,18 @@ import json
 import logging
 import os
 import pathlib
+import re
 import shlex
 import subprocess
 
 from jobgitops.schema import Resume
 
 logger = logging.getLogger("jobgitops.renderer")
+
+
+class ThemeInstallError(Exception):
+    """Raised when a JSON Resume theme package can't be installed or used."""
+
 
 # Dropped-privilege account baked into the runtime image (see Dockerfile).
 # Chromium's own sandbox cannot be enabled in this container runtime (Docker's
@@ -34,9 +40,13 @@ _RESUMED_BIN = "/opt/bun/bin/resumed"
 # CLAUDE_API_KEY/ANTHROPIC_API_KEY in llm.py and TAVILY_API_KEY/
 # BRAVE_API_KEY/JINA_API_KEY in web.py were all missing from an earlier
 # denylist version of this set), whereas a new secret is safe by default
-# against an allowlist. `su` resets HOME/USER/LOGNAME to _RENDER_USER's own
-# passwd entry regardless of what's passed here, so those don't need to be
-# listed. Dropping privilege to _RENDER_USER does not by itself stop
+# against an allowlist. For the render step, `su` resets HOME/USER/LOGNAME
+# to _RENDER_USER's own passwd entry regardless of what's passed here, so
+# HOME isn't needed there -- but ensure_theme_installed's install/interface-
+# check subprocesses run as root directly, with no `su` to reset it, and
+# `bun add -g`/`bun -e` need a real HOME to resolve their own config/cache
+# locations (e.g. ~/.bunfig.toml lookups), so it's included for that path.
+# Dropping privilege to _RENDER_USER does not by itself stop
 # environment-variable inheritance -- a child process still gets whatever
 # env is passed by default -- so this matters as defense in depth around
 # Chromium rendering resume content (ultimately derived from scraped job
@@ -44,6 +54,7 @@ _RESUMED_BIN = "/opt/bun/bin/resumed"
 _ALLOWED_ENV_VARS = frozenset(
     {
         "PATH",
+        "HOME",
         "LANG",
         "LC_ALL",
         "TZ",
@@ -53,6 +64,208 @@ _ALLOWED_ENV_VARS = frozenset(
         "PUPPETEER_SKIP_DOWNLOAD",
     }
 )
+
+
+def _filtered_env() -> dict[str, str]:
+    """Build a subprocess environment limited to _ALLOWED_ENV_VARS.
+
+    Used for every subprocess this module launches that runs third-party
+    code (resumed/Chromium rendering, and theme install/interface-check
+    below) -- not just the unprivileged render step. `bun add -g` and the
+    `bun -e` interface check both run as root and, for the latter,
+    `import()` the theme package's own module-level code -- an unfiltered
+    environment there would hand every secret in the process to that
+    third-party code before privilege is ever dropped.
+    """
+    return {key: value for key, value in os.environ.items() if key in _ALLOWED_ENV_VARS}
+
+
+# Where `bun add -g` actually places installed packages, given
+# BUN_INSTALL=/opt/bun in the Dockerfile (bun's default is ~/.bun instead).
+_BUN_GLOBAL_NODE_MODULES = pathlib.Path("/opt/bun/install/global/node_modules")
+
+_GITHUB_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+
+def _theme_looks_pinned(theme_spec: str) -> bool:
+    """Check theme_spec is pinned to an exact version or 40-char commit SHA.
+
+    Matches the format documented in template/config/settings.yaml: an npm
+    "<package>@<version>" spec, or a "github:<owner>/<repo>#<sha>" spec
+    pinned to a full commit SHA (not a branch or tag name).
+    """
+    if theme_spec.startswith("github:"):
+        _, _, ref = theme_spec.partition("#")
+        return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(ref))
+    name, sep, version = theme_spec.rpartition("@")
+    return bool(sep) and bool(name) and bool(version)
+
+
+def _theme_bare_name(theme_spec: str) -> str | None:
+    """Return the bare installed package name for an npm-style spec.
+
+    Returns None for a "github:" spec, whose real package name (read from
+    its own package.json, not necessarily matching the repo name) isn't
+    known until after it's installed -- see _parse_installed_theme_name.
+    """
+    if theme_spec.startswith("github:"):
+        return None
+    # Version is everything after the LAST "@" -- scoped packages like
+    # "@scope/name@version" have two "@"s, and a bare scoped name with no
+    # version at all (just "@scope/name") has exactly one, at index 0, which
+    # must NOT be treated as a version separator -- hence requiring `name`
+    # to be non-empty too, not just `sep`.
+    name, sep, _version = theme_spec.rpartition("@")
+    return name if sep and name else theme_spec
+
+
+def _parse_installed_theme_name(bun_stdout: str, theme_spec: str) -> str:
+    """Extract the resolved package name from `bun add -g`'s own output.
+
+    Needed for "github:" specs, where bun reports a line like "installed
+    <name>@github:<owner>/<repo>#<sha>" -- <name> comes from the installed
+    package's own package.json and may not match the repo name. Confirmed by
+    hands-on testing that a plain rpartition("@") on this line correctly
+    isolates <name> in both the npm-version and github-spec cases, since
+    neither a semver version nor a "github:owner/repo#sha" string itself
+    contains an "@", and bun's own report always includes a real version/
+    spec suffix after the name (unlike an arbitrary user-supplied spec,
+    which is why _theme_bare_name needs the extra bare-scoped-name check
+    above and this function doesn't).
+    """
+    for line in bun_stdout.splitlines():
+        line = line.strip()
+        if line.startswith("installed "):
+            spec_part = line.removeprefix("installed ").split(" with binaries:")[0]
+            name, sep, _rest = spec_part.rpartition("@")
+            if sep:
+                return name
+    raise ThemeInstallError(
+        f"Could not determine the installed package name for theme "
+        f"{theme_spec!r} from bun's output."
+    )
+
+
+def _theme_is_installed(bare_name: str) -> bool:
+    return (_BUN_GLOBAL_NODE_MODULES / bare_name).is_dir()
+
+
+def _validate_theme_interface(bare_name: str) -> None:
+    """Confirm the installed package actually exports a render(resume) fn.
+
+    Catches a non-conforming package (or a bad install) here, with a clear
+    error, instead of a confusing failure deep inside a later `resumed
+    export` run.
+    """
+    check_script = (
+        f"import({json.dumps(bare_name)})"
+        ".then(m => process.exit(typeof m.render === 'function' ? 0 : 1))"
+        ".catch(e => { console.error(e); process.exit(2); })"
+    )
+    result = subprocess.run(
+        [_BUN_BIN, "-e", check_script],
+        # `bun -e` resolves modules relative to its CWD (like a script file
+        # would), not relative to _BUN_GLOBAL_NODE_MODULES -- confirmed by
+        # hands-on testing that without this, a theme with its own
+        # dependencies (e.g. the default theme's react/react-dom) fails to
+        # resolve them when this runs from an arbitrary caller CWD (e.g.
+        # /workspace, jobgitops' own directory, which has no relation to the
+        # installed theme's dependency tree).
+        cwd=_BUN_GLOBAL_NODE_MODULES,
+        env=_filtered_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        # Full output (e.g. why the import actually failed) goes to logs
+        # only -- see the identical rationale on compile_resume_pdf's own
+        # error path below, which this mirrors.
+        logger.error(
+            "Theme %r failed its render(resume) interface check: %s",
+            bare_name,
+            result.stderr.strip() or result.stdout.strip(),
+        )
+        raise ThemeInstallError(
+            f"Installed theme {bare_name!r} does not export a usable "
+            "render(resume) function -- it may not be a valid JSON Resume "
+            "theme, or failed to load. See the workflow run logs for details."
+        )
+
+
+def ensure_theme_installed(theme_spec: str) -> str:
+    """Ensure a JSON Resume theme is installed in the shared global Bun tree.
+
+    Installs it via `bun add -g` if not already present, and returns its
+    bare package name for use with compile_resume/compile_resume_pdf.
+
+    Must run as root (or whoever owns /opt/bun): this writes into the shared
+    global tree that compile_resume_pdf's rendering subprocess -- which runs
+    as the unprivileged _RENDER_USER -- only ever reads from. Confirmed by
+    hands-on testing that a runtime (not just Dockerfile-build-time) `bun add
+    -g` run as root already produces world-readable files under the default
+    umask (0o755 dirs / 0o644 files), so _RENDER_USER can read a
+    freshly-installed theme with no extra chmod step needed here.
+
+    Args:
+        theme_spec: A pinned npm spec ("<package>@<version>") or GitHub spec
+            ("github:<owner>/<repo>#<commit-sha>"), per
+            template/config/settings.yaml's documented `theme` format.
+
+    Returns:
+        The bare installed package name (e.g.
+        "@jsonresume/jsonresume-theme-professional") -- NOT the pinned spec
+        passed in. Pass this straight to compile_resume/compile_resume_pdf.
+
+    Raises:
+        ThemeInstallError: If installation fails, or the installed package
+            doesn't export a usable render(resume) function.
+    """
+    if not _theme_looks_pinned(theme_spec):
+        logger.warning(
+            "Theme spec %r is not pinned to an exact version or commit SHA. "
+            "JobGitOps installs and executes this package's code at render "
+            "time -- an unpinned spec can silently change what code runs "
+            "between renders.",
+            theme_spec,
+        )
+
+    bare_name = _theme_bare_name(theme_spec)
+    # Relies on short-circuit evaluation: `_theme_is_installed(bare_name)` is
+    # never reached (and never called with None) when bare_name is None.
+    if bare_name is None or not _theme_is_installed(bare_name):
+        logger.info("Installing resume theme %r", theme_spec)
+        result = subprocess.run(
+            [_BUN_BIN, "add", "-g", theme_spec],
+            env=_filtered_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            # Full output goes to logs only -- see the identical rationale
+            # on compile_resume_pdf's own error path below.
+            logger.error(
+                "Failed to install theme %r: %s",
+                theme_spec,
+                result.stderr.strip() or result.stdout.strip(),
+            )
+            raise ThemeInstallError(
+                f"Failed to install theme {theme_spec!r}. "
+                "See the workflow run logs for details."
+            )
+
+        if bare_name is None:
+            bare_name = _parse_installed_theme_name(result.stdout, theme_spec)
+
+    # Always validated, even on the already-installed fast path above: a
+    # directory merely existing (e.g. a corrupted image layer, a partial
+    # install left over from a previous run) is not proof the package is
+    # usable, and this is the only thing that would otherwise catch that
+    # before a confusing failure deep inside a later `resumed export` run.
+    _validate_theme_interface(bare_name)
+
+    return bare_name
 
 
 def compile_resume_pdf(
@@ -116,13 +329,9 @@ def compile_resume_pdf(
         "--puppeteer-arg=--no-sandbox",
     ]
 
-    filtered_env = {
-        key: value for key, value in os.environ.items() if key in _ALLOWED_ENV_VARS
-    }
-
     result = subprocess.run(
         ["su", "-s", "/bin/sh", _RENDER_USER, "-c", shlex.join(resumed_command)],
-        env=filtered_env,
+        env=_filtered_env(),
         capture_output=True,
         text=True,
         check=False,

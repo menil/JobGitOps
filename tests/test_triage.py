@@ -528,6 +528,7 @@ def test_run_triage_mismatch_no_reason_labels(
     mock_gh_client.update_project_status.assert_not_called()
 
 
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
 @mock.patch("jobgitops.cli.triage.compile_resume")
 @mock.patch("jobgitops.cli.triage.commit_changes")
 @mock.patch("jobgitops.cli.triage.push_branch")
@@ -547,6 +548,7 @@ def test_run_triage_match_approved(
     mock_push_branch: mock.MagicMock,
     mock_commit: mock.MagicMock,
     mock_compile: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
     fit_score: float,
     expected_label: str,
     mock_resume: Resume,
@@ -722,6 +724,7 @@ def test_build_inline_diff_section_truncates_at_line_boundary(
         assert line.startswith("-abcdef")
 
 
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
 @mock.patch("jobgitops.cli.triage.compile_resume")
 @mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
 @mock.patch("jobgitops.cli.triage.run_git")
@@ -729,6 +732,7 @@ def test_run_triage_tailoring_failure(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
     mock_compile: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
     mock_resume: Resume,
     mock_settings: Settings,
     tmp_path: pathlib.Path,
@@ -789,6 +793,7 @@ def test_run_triage_tailoring_failure(
     mock_run_git.assert_any_call(["checkout", "-f", "main-branch"], cwd=tmp_path)
 
 
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
 @mock.patch("jobgitops.cli.triage.compile_resume")
 @mock.patch("jobgitops.cli.triage.commit_changes")
 @mock.patch("jobgitops.cli.triage.push_branch")
@@ -800,6 +805,7 @@ def test_run_triage_bare_url_body_fetches_and_substitutes(
     mock_push_branch: mock.MagicMock,
     mock_commit: mock.MagicMock,
     mock_compile: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
     mock_resume: Resume,
     mock_settings: Settings,
 ) -> None:
@@ -1086,6 +1092,7 @@ def test_run_triage_updates_issue_title(
     assert "[REDACTED]" in caplog.text
 
 
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
 @mock.patch("jobgitops.cli.triage.compile_resume")
 @mock.patch("jobgitops.cli.triage.commit_changes")
 @mock.patch("jobgitops.cli.triage.push_branch")
@@ -1097,6 +1104,7 @@ def test_run_triage_already_applied(
     mock_push_branch: mock.MagicMock,
     mock_commit: mock.MagicMock,
     mock_compile: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
     mock_resume: Resume,
     mock_settings: Settings,
     tmp_path: pathlib.Path,
@@ -1163,6 +1171,7 @@ def test_run_triage_already_applied(
     mock_gh_client.update_project_status.assert_called_once_with("node_xyz", "Applied")
 
 
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
 @mock.patch("jobgitops.cli.triage.compile_resume")
 @mock.patch("jobgitops.cli.triage.commit_changes")
 @mock.patch("jobgitops.cli.triage.push_branch")
@@ -1174,6 +1183,7 @@ def test_run_triage_interviewing(
     mock_push_branch: mock.MagicMock,
     mock_commit: mock.MagicMock,
     mock_compile: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
     mock_resume: Resume,
     mock_settings: Settings,
     tmp_path: pathlib.Path,
