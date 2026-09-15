@@ -39,6 +39,7 @@ from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_loggi
 from jobgitops.github_client import GitHubClient, GitHubClientError, extract_label_names
 from jobgitops.llm import QuotaExceededError, get_llm_client
 from jobgitops.loader import load_resume, load_settings
+from jobgitops.schema import Resume, Settings
 from jobgitops.status_model import (
     LABEL_TO_STATUS,
     LIFECYCLE_LABELS,
@@ -223,8 +224,8 @@ def execute_action(
     issue_node_id: str | None,
     repo_path: pathlib.Path,
     gh_client: GitHubClient,
-    settings: Any,
-    resume: Any,
+    settings: Settings,
+    resume: Resume,
     llm_client: Any,
     web_client: Any,
     current_labels: list[str] | None = None,
@@ -303,8 +304,8 @@ def handle_comment_event(
     gh_client: GitHubClient,
     web_client: Any,
     llm_client: Any,
-    settings: Any,
-    resume: Any,
+    settings: Settings,
+    resume: Resume,
     repo_path: pathlib.Path,
     bot_logins: set[str],
 ) -> None:
@@ -379,8 +380,8 @@ def handle_opened_event(
     gh_client: GitHubClient,
     web_client: Any,
     llm_client: Any,
-    settings: Any,
-    resume: Any,
+    settings: Settings,
+    resume: Resume,
     repo_path: pathlib.Path,
 ) -> None:
     """Process an ``issues`` opened event (spec 4.1 opened-issue job).

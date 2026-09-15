@@ -11,6 +11,7 @@ from unittest import mock
 import pytest
 
 from jobgitops.cli.triage import (
+    _DEFAULT_RESUME_THEME,
     BATCH_PAGE_SIZE,
     EXIT_QUOTA_EXCEEDED,
     FIT_CATEGORY_MISMATCH_LABELS,
@@ -610,7 +611,12 @@ def test_run_triage_match_approved(
     # Verify Git/Compile orchestrations
     mock_run_git.assert_any_call(["rev-parse", "--abbrev-ref", "HEAD"], cwd=tmp_path)
     mock_checkout_branch.assert_called_once_with(tmp_path, mock.ANY)
+    # mock_settings.theme is None (the fixture's default), so the fallback
+    # constant is what should be resolved -- and it's ensure_theme_installed's
+    # *return value*, not the raw spec, that must reach compile_resume.
+    mock_ensure_theme_installed.assert_called_once_with(_DEFAULT_RESUME_THEME)
     mock_compile.assert_called_once()
+    assert mock_compile.call_args.args[1] == mock_ensure_theme_installed.return_value
     mock_commit.assert_called_once_with(
         tmp_path,
         ["resumes/resume.yaml", "resumes/resume.json", "resumes/resume.pdf"],
@@ -659,6 +665,78 @@ def test_run_triage_match_approved(
     mock_gh_client.update_project_status.assert_called_once_with(
         "node_xyz", "Ready to Apply"
     )
+
+
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.commit_changes")
+@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
+def test_run_triage_uses_settings_theme_when_set(
+    mock_run_git: mock.MagicMock,
+    mock_checkout_branch: mock.MagicMock,
+    mock_push_branch: mock.MagicMock,
+    mock_commit: mock.MagicMock,
+    mock_compile: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
+    mock_resume: Resume,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verify a configured settings.theme overrides the hardcoded default.
+
+    Confirmed as a real coverage gap during review: prior tests only ever
+    exercised the settings.theme=None fallback path, so a regression that
+    ignored settings.theme entirely (always using _DEFAULT_RESUME_THEME)
+    would have passed every existing test unchanged.
+    """
+    custom_theme_spec = "jsonresume-theme-elegant@1.16.1"
+    settings_with_theme = Settings(fit_threshold=3.5, theme=custom_theme_spec)
+
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=4.8,
+        tech_stack_fit=5.0,
+        experience_fit=5.0,
+        location_fit=4.0,
+        salary_fit=5.0,
+        industry_fit=5.0,
+        reasoning="Great fit.",
+    )
+    tailored_res = Resume.from_dict(mock_resume.to_dict())
+    mock_llm_client.tailor_resume.return_value = tailored_res
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "my-owner/my-repo"
+    mock_gh_client.project_id = None
+
+    mock_run_git.side_effect = make_run_git_stub()
+
+    body = (
+        "**Company:** Google\n"
+        "**Role:** Senior Py Dev\n"
+        "**Apply URL:** https://google.com/apply\n"
+        "## Job Description\n"
+        "Looking for Python expert."
+    )
+
+    with mock.patch("pathlib.Path.open", mock.mock_open()):
+        run_triage(
+            issue_number=15,
+            issue_title="[Google] Senior Py Dev",
+            issue_body=body,
+            issue_node_id="node_xyz",
+            issue_labels=["triage-pending"],
+            repo_path=tmp_path,
+            gh_client=mock_gh_client,
+            settings=settings_with_theme,
+            resume=mock_resume,
+            llm_client=mock_llm_client,
+        )
+
+    mock_ensure_theme_installed.assert_called_once_with(custom_theme_spec)
+    mock_compile.assert_called_once()
+    assert mock_compile.call_args.args[1] == mock_ensure_theme_installed.return_value
 
 
 @mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")

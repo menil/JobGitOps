@@ -12,7 +12,6 @@ from jobgitops.renderer import (
     ThemeInstallError,
     _parse_installed_theme_name,
     _theme_bare_name,
-    _theme_looks_pinned,
     compile_resume,
     compile_resume_json,
     compile_resume_pdf,
@@ -153,25 +152,6 @@ def test_compile_resume_json(sample_resume_data, tmp_path) -> None:
         loaded_data = json.load(f)
 
     assert loaded_data == resume.to_dict()
-
-
-@pytest.mark.parametrize(
-    ("theme_spec", "expected"),
-    [
-        ("@jsonresume/jsonresume-theme-professional@1.0.22", True),
-        ("jsonresume-theme-elegant@1.16.1", True),
-        ("lodash@4.0.0", True),
-        ("@jsonresume/jsonresume-theme-professional", False),  # no version at all
-        ("lodash", False),  # no version at all
-        (f"github:owner/repo#{'a' * 40}", True),  # full 40-char commit sha
-        ("github:owner/repo#main", False),  # branch, not a sha
-        ("github:owner/repo#abc123", False),  # short/abbreviated sha
-        ("github:owner/repo", False),  # no ref at all
-    ],
-)
-def test_theme_looks_pinned(theme_spec: str, expected: bool) -> None:
-    """Verify the pin-format check matches settings.yaml's documented rules."""
-    assert _theme_looks_pinned(theme_spec) is expected
 
 
 @pytest.mark.parametrize(

@@ -5,9 +5,10 @@
 fit_threshold: 3.5
 
 # Visual theme for resumes/resume.pdf, sourced from the JSON Resume theme
-# ecosystem (https://jsonresume.org/themes). [PLANNED: rendering still runs
-# via Jinja2/WeasyPrint today; this key is not yet read by the pipeline,
-# which will shell out to the `resumed` CLI once that work lands.]
+# ecosystem (https://jsonresume.org/themes) and rendered via the `resumed`
+# CLI. Not set here, or missing entirely (e.g. a repo installed before this
+# key existed)? JobGitOps silently falls back to a pinned default -- no
+# warning, no error, no migration step required.
 # Accepts either form below, always pinned -- never a floating name, branch,
 # or tag -- since JobGitOps installs and executes this package's code at
 # render time:
