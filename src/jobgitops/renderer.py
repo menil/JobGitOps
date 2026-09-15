@@ -1,74 +1,147 @@
-"""Resume compilation and rendering pipeline using Jinja2 and WeasyPrint."""
+"""Resume compilation pipeline using the JSON Resume `resumed` CLI."""
 
+import grp
 import json
+import logging
+import os
 import pathlib
-
-from jinja2 import Environment, FileSystemLoader
-from weasyprint import HTML
+import shlex
+import subprocess
 
 from jobgitops.schema import Resume
 
+logger = logging.getLogger("jobgitops.renderer")
 
-def render_resume_to_html(resume: Resume, template_path: str | pathlib.Path) -> str:
-    """Render a parsed Resume object to HTML using a Jinja2 template.
+# Dropped-privilege account baked into the runtime image (see Dockerfile).
+# Chromium's own sandbox cannot be enabled in this container runtime (Docker's
+# default seccomp/namespace restrictions apply regardless of caller UID), so
+# `--puppeteer-arg=--no-sandbox` is still required below; running as this
+# unprivileged user instead of root still meaningfully narrows the blast
+# radius of a Chromium renderer compromise.
+_RENDER_USER = "pptruser"
 
-    Args:
-        resume: The parsed Resume instance to render.
-        template_path: Path to the Jinja2 HTML template file.
+# Absolute paths, not bare command names: `su -s /bin/sh <user> -c` does not
+# reliably inherit the caller's PATH, and resumed's global install lives
+# outside any user's home directory (see BUN_INSTALL=/opt/bun in the
+# Dockerfile) specifically so `_RENDER_USER` can read it.
+_BUN_BIN = "/usr/local/bin/bun"
+_RESUMED_BIN = "/opt/bun/bin/resumed"
 
-    Returns:
-        The rendered HTML string.
-
-    Raises:
-        FileNotFoundError: If the template file does not exist.
-    """
-    template_path = pathlib.Path(template_path)
-    if not template_path.is_file():
-        raise FileNotFoundError(f"Template file not found at: {template_path}")
-
-    # Set up FileSystemLoader pointing to the template's directory.
-    # This allows resolving template inheritance or includes if the template grows.
-    env = Environment(
-        loader=FileSystemLoader(str(template_path.parent)),
-        autoescape=True,
-    )
-    template = env.get_template(template_path.name)
-
-    # Pass individual fields to match standard JSON Resume schema conventions
-    # used in the default HTML templates (e.g., {{ basics.name }}).
-    return template.render(
-        basics=resume.basics,
-        work=resume.work,
-        education=resume.education,
-        skills=resume.skills,
-        projects=resume.projects,
-    )
+# Only these pass through to the rendering subprocess -- everything else
+# (all API keys/tokens included) is dropped by default. Chosen as an
+# allowlist rather than a denylist of known secrets: a denylist silently
+# leaks any secret nobody thought to add to it (confirmed during review --
+# CLAUDE_API_KEY/ANTHROPIC_API_KEY in llm.py and TAVILY_API_KEY/
+# BRAVE_API_KEY/JINA_API_KEY in web.py were all missing from an earlier
+# denylist version of this set), whereas a new secret is safe by default
+# against an allowlist. `su` resets HOME/USER/LOGNAME to _RENDER_USER's own
+# passwd entry regardless of what's passed here, so those don't need to be
+# listed. Dropping privilege to _RENDER_USER does not by itself stop
+# environment-variable inheritance -- a child process still gets whatever
+# env is passed by default -- so this matters as defense in depth around
+# Chromium rendering resume content (ultimately derived from scraped job
+# postings and LLM-tailored text, i.e. not fully trusted input).
+_ALLOWED_ENV_VARS = frozenset(
+    {
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "TZ",
+        "TMPDIR",
+        "BUN_INSTALL",
+        "PUPPETEER_EXECUTABLE_PATH",
+        "PUPPETEER_SKIP_DOWNLOAD",
+    }
+)
 
 
 def compile_resume_pdf(
-    resume: Resume,
-    template_path: str | pathlib.Path,
+    resume_json_path: str | pathlib.Path,
+    theme_name: str,
     output_pdf_path: str | pathlib.Path,
 ) -> None:
-    """Compile a Resume object to a PDF file using WeasyPrint.
+    """Compile a JSON Resume file to a PDF using the `resumed` CLI.
 
     Args:
-        resume: The parsed Resume instance to compile.
-        template_path: Path to the Jinja2 HTML template file.
+        resume_json_path: Path to an existing JSON Resume file (see
+            compile_resume_json).
+        theme_name: Bare installed theme package name (e.g.
+            "@jsonresume/jsonresume-theme-professional") -- NOT a pinned
+            "name@version"/"name#sha" install spec. resumed's module
+            resolution looks the package up by name in the tree it's
+            installed in; it doesn't take a version.
         output_pdf_path: Output target path for the compiled PDF file.
+
+    Raises:
+        FileNotFoundError: If resume_json_path does not exist.
+        RuntimeError: If the resumed subprocess exits non-zero.
     """
-    template_path = pathlib.Path(template_path)
+    resume_json_path = pathlib.Path(resume_json_path)
     output_pdf_path = pathlib.Path(output_pdf_path)
 
-    # Ensure target output directory exists before writing
+    if not resume_json_path.is_file():
+        raise FileNotFoundError(f"Resume JSON file not found at: {resume_json_path}")
+
     output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    # The directory above is typically created by the caller (e.g. triage.py's
+    # git checkout handling) as root, but resumed itself runs as the
+    # unprivileged _RENDER_USER below and would otherwise get EACCES writing
+    # the output PDF into a directory it doesn't own. Prefer handing the
+    # directory's group to _RENDER_USER's own group and making it group-
+    # writable (0o775) over a blanket world-writable 0o777. Falls back to
+    # 0o777 when that's not possible -- e.g. _RENDER_USER's group doesn't
+    # exist (running outside the container, such as local dev/test) or we
+    # lack permission to chown (not running as root there either).
+    try:
+        render_user_gid = grp.getgrnam(_RENDER_USER).gr_gid
+        os.chown(output_pdf_path.parent, -1, render_user_gid)
+        output_pdf_path.parent.chmod(0o775)
+    except (KeyError, PermissionError, OSError):
+        output_pdf_path.parent.chmod(0o777)
 
-    rendered_html = render_resume_to_html(resume, template_path)
+    # NOT `bunx resumed export`: bunx re-resolves resumed into an isolated
+    # per-invocation cache on every call and cannot see the globally-
+    # installed theme/puppeteer siblings baked into the image, so it fails
+    # with "Could not load theme ... Is it installed?" even when the theme
+    # really is installed (confirmed by hands-on testing -- see Dockerfile).
+    resumed_command = [
+        _BUN_BIN,
+        _RESUMED_BIN,
+        "export",
+        str(resume_json_path.resolve()),
+        "-t",
+        theme_name,
+        "-o",
+        str(output_pdf_path.resolve()),
+        "--puppeteer-arg=--no-sandbox",
+    ]
 
-    # We set base_url to the template directory so WeasyPrint can resolve
-    # the linked style.css (and any images) relative to the template.
-    html_doc = HTML(string=rendered_html, base_url=str(template_path.parent))
-    html_doc.write_pdf(output_pdf_path)
+    filtered_env = {
+        key: value for key, value in os.environ.items() if key in _ALLOWED_ENV_VARS
+    }
+
+    result = subprocess.run(
+        ["su", "-s", "/bin/sh", _RENDER_USER, "-c", shlex.join(resumed_command)],
+        env=filtered_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        # Full output goes to logs only -- it's raw Bun/Node/Chromium output
+        # that could echo container filesystem details, and callers (e.g.
+        # triage.py) surface exception messages in GitHub issue comments,
+        # which isn't an appropriate destination for that level of detail.
+        logger.error(
+            "resumed export failed (exit %d): %s",
+            result.returncode,
+            result.stderr.strip() or result.stdout.strip(),
+        )
+        raise RuntimeError(
+            f"resumed export failed (exit {result.returncode}). "
+            "See the workflow run logs for details."
+        )
 
 
 def compile_resume_json(
@@ -96,17 +169,20 @@ def compile_resume_json(
 
 def compile_resume(
     resume: Resume,
-    template_path: str | pathlib.Path,
+    theme_name: str,
     output_pdf_path: str | pathlib.Path,
     output_json_path: str | pathlib.Path,
 ) -> None:
-    """Compile both the PDF and JSON representations of the resume.
+    """Compile both the JSON and PDF representations of the resume.
+
+    The JSON file is written first since resumed's PDF export reads it from
+    disk as its input.
 
     Args:
         resume: The parsed Resume instance.
-        template_path: Path to the Jinja2 HTML template file.
+        theme_name: Bare installed theme package name (see compile_resume_pdf).
         output_pdf_path: Output target path for the compiled PDF.
         output_json_path: Output target path for the JSON resume.
     """
-    compile_resume_pdf(resume, template_path, output_pdf_path)
     compile_resume_json(resume, output_json_path)
+    compile_resume_pdf(output_json_path, theme_name, output_pdf_path)

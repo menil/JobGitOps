@@ -40,6 +40,12 @@ EXIT_ERROR = 1
 # POSIX exit code for temporary quota/rate-limit failure (EX_TEMPFAIL)
 EXIT_QUOTA_EXCEEDED = 75
 
+# TODO(JobGitOps-4dk): read this from the repo's settings.yaml `theme` key
+# instead of hardcoding it. Kept in sync with settings.yaml's pinned default
+# for now; JobGitOps-4dk resolves the pinned "name@version" spec down to the
+# bare package name compile_resume actually needs.
+_DEFAULT_RESUME_THEME = "@jsonresume/jsonresume-theme-professional"
+
 type ExitCode = EXIT_SUCCESS | EXIT_ERROR | EXIT_QUOTA_EXCEEDED
 
 # Maximum number of pending issues retrieved in each batch API request.
@@ -539,7 +545,7 @@ def _create_tailored_application_branch(
         # 2. Compile JSON & PDF
         compile_resume(
             tailored_resume,
-            resumes_dir / "template.html",
+            _DEFAULT_RESUME_THEME,
             resumes_dir / "resume.pdf",
             resumes_dir / "resume.json",
         )
