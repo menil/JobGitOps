@@ -22,13 +22,31 @@ on:
         type: boolean
         required: false
         default: false
-  # Bootstrap trigger: runs once when setup is completed (placeholder replaced).
-  # Chained to 'Auto-Format Resume' to ensure the resume is canonically formatted
-  # before scraping runs. Silent contract: dependent on the 'Auto-Format Resume'
-  # workflow keeping its exact name and completing successfully.
+  # Bootstrap trigger: fires when setup is completed (placeholder replaced) --
+  # see the concurrency note below for why it can fire twice in a row during
+  # bootstrap. Chained to 'Auto-Format Resume' to ensure the resume is
+  # canonically formatted before scraping runs. Silent contract: dependent on
+  # the 'Auto-Format Resume' workflow keeping its exact name and completing
+  # successfully.
   workflow_run:
     workflows: [Auto-Format Resume]
     types: [completed]
+
+# Auto-Format Resume can complete twice during bootstrap -- once for the
+# installer's initial commit, once for its own reformatting commit -- firing
+# this workflow_run trigger twice in quick succession. JOBGITOPS_INITIALIZED
+# is only set once a scrape succeeds (up to 30 min later), so without this
+# group the two runs' "check" jobs would both see it unset and both scrape
+# concurrently. cancel-in-progress: false means the second of those two runs
+# queues and waits rather than racing, so by the time it starts it always
+# sees an up-to-date JOBGITOPS_INITIALIZED and correctly no-ops via the
+# existing guard below. (GitHub Actions only holds one queued run per group,
+# so a third overlapping trigger would replace the queued run rather than
+# stack behind it -- fine here, since JOBGITOPS_INITIALIZED is already
+# current whenever a run does execute.)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
