@@ -314,14 +314,6 @@ async function assembleFiles(
       path.join(appDir, "resumes", "resume.yaml"),
     );
     await fs.copy(
-      path.join(templateSourceDir, "template", "resumes", "template.html"),
-      path.join(appDir, "resumes", "template.html"),
-    );
-    await fs.copy(
-      path.join(templateSourceDir, "template", "resumes", "style.css"),
-      path.join(appDir, "resumes", "style.css"),
-    );
-    await fs.copy(
       path.join(templateSourceDir, "template", "README.md"),
       path.join(appDir, "README.md"),
     );
