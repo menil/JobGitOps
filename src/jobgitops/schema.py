@@ -614,8 +614,11 @@ class Basics:
             res["summary"] = self.summary
         if self.location is not None:
             res["location"] = self.location.to_dict()
-        if self.profiles:
-            res["profiles"] = [p.to_dict() for p in self.profiles]
+        # Always emit `profiles`, even empty: real JSON Resume themes (e.g.
+        # @jsonresume/jsonresume-theme-professional) assume this key exists
+        # and crash on `basics.profiles.find(...)` when it's absent entirely,
+        # confirmed by hands-on testing while building JobGitOps-184.
+        res["profiles"] = [p.to_dict() for p in self.profiles]
         return res
 
 
@@ -691,8 +694,10 @@ class Work:
             res["endDate"] = self.end_date
         if self.summary is not None:
             res["summary"] = self.summary
-        if self.highlights:
-            res["highlights"] = self.highlights
+        # Always emit `highlights`, even empty -- see the comment on
+        # Basics.to_dict's `profiles` field for why real themes assume
+        # array-typed JSON Resume fields are present rather than omitted.
+        res["highlights"] = self.highlights
         return res
 
 
@@ -771,8 +776,9 @@ class Education:
             res["endDate"] = self.end_date
         if self.score is not None:
             res["score"] = self.score
-        if self.courses:
-            res["courses"] = self.courses
+        # Always emit `courses`, even empty -- see the comment on
+        # Basics.to_dict's `profiles` field.
+        res["courses"] = self.courses
         return res
 
 
@@ -822,8 +828,9 @@ class Skill:
         res: dict[str, Any] = {
             "name": self.name,
         }
-        if self.keywords:
-            res["keywords"] = self.keywords
+        # Always emit `keywords`, even empty -- see the comment on
+        # Basics.to_dict's `profiles` field.
+        res["keywords"] = self.keywords
         return res
 
 
@@ -897,10 +904,10 @@ class Project:
         }
         if self.description is not None:
             res["description"] = self.description
-        if self.highlights:
-            res["highlights"] = self.highlights
-        if self.keywords:
-            res["keywords"] = self.keywords
+        # Always emit `highlights`/`keywords`, even empty -- see the comment
+        # on Basics.to_dict's `profiles` field.
+        res["highlights"] = self.highlights
+        res["keywords"] = self.keywords
         if self.start_date is not None:
             res["startDate"] = self.start_date
         if self.end_date is not None:
@@ -984,15 +991,15 @@ class Resume:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert Resume to dictionary conforming to JSON Resume schema."""
+        # `work`/`education`/`skills`/`projects` are always emitted, even
+        # empty -- see the comment on Basics.to_dict's `profiles` field for
+        # why real JSON Resume themes assume these array-typed sections are
+        # present rather than omitted.
         res: dict[str, Any] = {
             "basics": self.basics.to_dict(),
+            "work": [w.to_dict() for w in self.work],
+            "education": [e.to_dict() for e in self.education],
+            "skills": [s.to_dict() for s in self.skills],
+            "projects": [p.to_dict() for p in self.projects],
         }
-        if self.work:
-            res["work"] = [w.to_dict() for w in self.work]
-        if self.education:
-            res["education"] = [e.to_dict() for e in self.education]
-        if self.skills:
-            res["skills"] = [s.to_dict() for s in self.skills]
-        if self.projects:
-            res["projects"] = [p.to_dict() for p in self.projects]
         return res

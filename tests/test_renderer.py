@@ -1,15 +1,16 @@
 """Unit tests for the resume rendering and compilation pipeline."""
 
 import json
-import pathlib
+import subprocess
+from unittest import mock
 
 import pytest
 
 from jobgitops.renderer import (
+    _ALLOWED_ENV_VARS,
     compile_resume,
     compile_resume_json,
     compile_resume_pdf,
-    render_resume_to_html,
 )
 from jobgitops.schema import Resume
 
@@ -72,6 +73,12 @@ def sample_resume_data() -> dict:
     }
 
 
+def _fake_completed_process(returncode: int = 0, stderr: str = "", stdout: str = ""):
+    return subprocess.CompletedProcess(
+        args=[], returncode=returncode, stdout=stdout, stderr=stderr
+    )
+
+
 def test_resume_serialization_roundtrip(sample_resume_data) -> None:
     """Verify that serialization to dict is stable and fully lossless on roundtrip."""
     # 1. Parse from standard dict structure
@@ -96,7 +103,14 @@ def test_resume_serialization_roundtrip(sample_resume_data) -> None:
 
 
 def test_resume_serialization_optional_fields() -> None:
-    """Verify that optional or empty fields are handled during serialization."""
+    """Verify array-typed JSON Resume sections are always present, even when empty.
+
+    Real themes (e.g. @jsonresume/jsonresume-theme-professional) assume
+    fields like basics.profiles or the top-level work/education/skills/
+    projects arrays exist and crash on a bare `.find()`/`.map()` call when
+    the key is omitted entirely -- confirmed by hands-on testing while
+    building JobGitOps-184.
+    """
     minimal_data = {
         "basics": {
             "name": "Only Name",
@@ -110,57 +124,13 @@ def test_resume_serialization_optional_fields() -> None:
         "basics": {
             "name": "Only Name",
             "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
-        }
+            "profiles": [],
+        },
+        "work": [],
+        "education": [],
+        "skills": [],
+        "projects": [],
     }
-    assert "work" not in serialized
-    assert "education" not in serialized
-    assert "skills" not in serialized
-    assert "projects" not in serialized
-
-
-def test_render_resume_to_html(sample_resume_data, tmp_path) -> None:
-    """Verify HTML rendering successfully interpolates parsed resume details."""
-    resume = Resume.from_dict(sample_resume_data)
-    template_file = tmp_path / "template.html"
-
-    # Create a simple template that uses fields from the Resume
-    template_file.write_text(
-        "<h1>{{ basics.name }}</h1><p>{{ basics.email }}</p>"
-        "<h2>{{ work[0].position }} at {{ work[0].name }}</h2>",
-        encoding="utf-8",
-    )
-
-    rendered_html = render_resume_to_html(resume, template_file)
-    assert "<h1>Jane Doe</h1>" in rendered_html
-    assert "<p>jane@example.com</p>" in rendered_html
-    assert "<h2>Staff Engineer at Acme</h2>" in rendered_html
-
-
-def test_render_resume_to_html_missing_template(sample_resume_data) -> None:
-    """Verify renderer raises FileNotFoundError if template does not exist."""
-    resume = Resume.from_dict(sample_resume_data)
-    non_existent = pathlib.Path("does/not/exist/template.html")
-
-    with pytest.raises(FileNotFoundError, match="Template file not found at"):
-        render_resume_to_html(resume, non_existent)
-
-
-def test_compile_resume_pdf(sample_resume_data, tmp_path) -> None:
-    """Verify WeasyPrint successfully renders HTML to a non-empty PDF file."""
-    resume = Resume.from_dict(sample_resume_data)
-    template_file = tmp_path / "template.html"
-    template_file.write_text(
-        "<html><body><h1>{{ basics.name }}</h1></body></html>", encoding="utf-8"
-    )
-
-    output_pdf = tmp_path / "output.pdf"
-    assert not output_pdf.exists()
-
-    compile_resume_pdf(resume, template_file, output_pdf)
-
-    assert output_pdf.is_file()
-    # A valid PDF file starts with standard magic signature '%PDF'
-    assert output_pdf.read_bytes().startswith(b"%PDF")
 
 
 def test_compile_resume_json(sample_resume_data, tmp_path) -> None:
@@ -179,26 +149,237 @@ def test_compile_resume_json(sample_resume_data, tmp_path) -> None:
     assert loaded_data == resume.to_dict()
 
 
-def test_compile_resume_full_pipeline(sample_resume_data, tmp_path) -> None:
-    """Verify compile_resume helper executes both PDF and JSON compiles successfully."""
-    resume = Resume.from_dict(sample_resume_data)
-    template_file = tmp_path / "template.html"
-    template_file.write_text(
-        "<html><body><h1>{{ basics.name }}</h1></body></html>", encoding="utf-8"
-    )
+def test_compile_resume_pdf_invokes_resumed_as_pptruser(
+    sample_resume_data, tmp_path
+) -> None:
+    """Verify compile_resume_pdf shells out to resumed via the validated invocation.
 
+    Must be `su -s /bin/sh pptruser -c "bun /opt/bun/bin/resumed export ..."`,
+    NOT `bunx resumed` (bunx re-resolves into an isolated cache and can't see
+    the globally-installed theme) and NOT as root (Chromium runs unprivileged
+    even though --no-sandbox is still required) -- see the Dockerfile.
+    """
+    resume = Resume.from_dict(sample_resume_data)
+    resume_json = tmp_path / "resume.json"
+    compile_resume_json(resume, resume_json)
+    output_pdf = tmp_path / "resume.pdf"
+
+    with mock.patch(
+        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+    ) as mock_run:
+        compile_resume_pdf(
+            resume_json, "@jsonresume/jsonresume-theme-professional", output_pdf
+        )
+
+    mock_run.assert_called_once()
+    argv = mock_run.call_args.args[0]
+    assert argv[:5] == ["su", "-s", "/bin/sh", "pptruser", "-c"]
+
+    inner_command = argv[5]
+    assert "/usr/local/bin/bun" in inner_command
+    assert "/opt/bun/bin/resumed" in inner_command
+    assert "export" in inner_command
+    assert str(resume_json.resolve()) in inner_command
+    assert "@jsonresume/jsonresume-theme-professional" in inner_command
+    assert str(output_pdf.resolve()) in inner_command
+    assert "--puppeteer-arg=--no-sandbox" in inner_command
+
+
+def test_compile_resume_pdf_chgrps_and_narrows_output_dir_to_render_user_group(
+    sample_resume_data, tmp_path
+) -> None:
+    """Verify the output directory is handed to _RENDER_USER's group (0o775).
+
+    Preferred over a blanket world-writable 0o777: the directory is typically
+    created by the caller (e.g. triage.py's git checkout handling) as root,
+    not `pptruser`, which would otherwise get EACCES writing the PDF into a
+    directory it doesn't own -- confirmed as a real bug during review, not
+    just a theoretical one.
+    """
+    resume = Resume.from_dict(sample_resume_data)
+    resume_json = tmp_path / "resume.json"
+    compile_resume_json(resume, resume_json)
+
+    output_dir = tmp_path / "resumes"
+    output_dir.mkdir(mode=0o700)  # simulate a restrictive, non-pptruser-owned dir
+    output_pdf = output_dir / "resume.pdf"
+
+    fake_group = mock.MagicMock(gr_gid=4242)
+    with (
+        mock.patch(
+            "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+        ),
+        mock.patch("jobgitops.renderer.grp.getgrnam", return_value=fake_group),
+        mock.patch("jobgitops.renderer.os.chown") as mock_chown,
+    ):
+        compile_resume_pdf(resume_json, "some-theme", output_pdf)
+
+    mock_chown.assert_called_once_with(output_dir, -1, 4242)
+    mode = output_dir.stat().st_mode
+    assert mode & 0o777 == 0o775
+
+
+def test_compile_resume_pdf_falls_back_to_world_writable_dir_outside_container(
+    sample_resume_data, tmp_path
+) -> None:
+    """Verify a missing _RENDER_USER group (e.g. local/test runs) still works.
+
+    Falls back to 0o777 rather than failing the whole render when the
+    container-specific group doesn't exist or can't be chown'd to.
+    """
+    resume = Resume.from_dict(sample_resume_data)
+    resume_json = tmp_path / "resume.json"
+    compile_resume_json(resume, resume_json)
+
+    output_dir = tmp_path / "resumes"
+    output_dir.mkdir(mode=0o700)
+    output_pdf = output_dir / "resume.pdf"
+
+    with mock.patch(
+        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+    ):
+        # No pptruser group on the machine running this test -- exercises the
+        # real KeyError fallback path, not a mocked one.
+        compile_resume_pdf(resume_json, "some-theme", output_pdf)
+
+    mode = output_dir.stat().st_mode
+    assert mode & 0o777 == 0o777
+
+
+def test_compile_resume_pdf_uses_bare_theme_name(sample_resume_data, tmp_path) -> None:
+    """Verify the theme argument passed to resumed is not the pinned install spec."""
+    resume = Resume.from_dict(sample_resume_data)
+    resume_json = tmp_path / "resume.json"
+    compile_resume_json(resume, resume_json)
+    output_pdf = tmp_path / "resume.pdf"
+
+    with mock.patch(
+        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+    ) as mock_run:
+        # Caller passes the bare name resolved by JobGitOps-4dk/9ru, never a
+        # pinned "name@version" spec -- resumed's import() doesn't take one.
+        compile_resume_pdf(
+            resume_json, "@jsonresume/jsonresume-theme-professional", output_pdf
+        )
+
+    inner_command = mock_run.call_args.args[0][5]
+    assert "@jsonresume/jsonresume-theme-professional@" not in inner_command
+
+
+def test_compile_resume_pdf_only_passes_allowed_env_vars(
+    sample_resume_data, tmp_path, monkeypatch
+) -> None:
+    """Verify only the env allowlist reaches the dropped-privilege subprocess.
+
+    An allowlist, not a denylist of known secrets: a denylist silently leaks
+    any secret nobody thought to add to it -- confirmed during review, when
+    CLAUDE_API_KEY/ANTHROPIC_API_KEY (llm.py) and TAVILY_API_KEY/
+    BRAVE_API_KEY/JINA_API_KEY (web.py) turned out to be missing from an
+    earlier denylist version of this filter despite being real secrets used
+    elsewhere in this codebase.
+    """
+    resume = Resume.from_dict(sample_resume_data)
+    resume_json = tmp_path / "resume.json"
+    compile_resume_json(resume, resume_json)
+    output_pdf = tmp_path / "resume.pdf"
+
+    monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
+    monkeypatch.setenv("GH_PAT", "secret-pat")
+    monkeypatch.setenv("GEMINI_API_KEY", "secret-gemini")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret-openrouter")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "secret-claude")
+    monkeypatch.setenv("CLAUDE_API_KEY", "secret-claude-api")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret-anthropic")
+    monkeypatch.setenv("TAVILY_API_KEY", "secret-tavily")
+    monkeypatch.setenv("BRAVE_API_KEY", "secret-brave")
+    monkeypatch.setenv("JINA_API_KEY", "secret-jina")
+    monkeypatch.setenv("SOME_FUTURE_SECRET_NOBODY_ALLOWLISTED_YET", "should-not-leak")
+    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin")
+
+    with mock.patch(
+        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+    ) as mock_run:
+        compile_resume_pdf(resume_json, "some-theme", output_pdf)
+
+    passed_env = mock_run.call_args.kwargs["env"]
+    assert set(passed_env) <= _ALLOWED_ENV_VARS
+    assert passed_env.get("PATH") == "/usr/local/bin:/usr/bin"
+    assert "GITHUB_TOKEN" not in passed_env
+    assert "GH_PAT" not in passed_env
+    assert "GEMINI_API_KEY" not in passed_env
+    assert "OPENROUTER_API_KEY" not in passed_env
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in passed_env
+    assert "CLAUDE_API_KEY" not in passed_env
+    assert "ANTHROPIC_API_KEY" not in passed_env
+    assert "TAVILY_API_KEY" not in passed_env
+    assert "BRAVE_API_KEY" not in passed_env
+    assert "JINA_API_KEY" not in passed_env
+    assert "SOME_FUTURE_SECRET_NOBODY_ALLOWLISTED_YET" not in passed_env
+
+
+def test_compile_resume_pdf_raises_on_nonzero_exit(
+    sample_resume_data, tmp_path, caplog
+) -> None:
+    """Verify a failing resumed invocation raises without leaking raw output.
+
+    The full stderr/stdout is logged (for operators reading Actions run
+    logs), but the exception message itself stays generic, since callers
+    (triage.py) post exception messages verbatim as GitHub issue comments --
+    not an appropriate destination for raw Bun/Node/Chromium output.
+    """
+    resume = Resume.from_dict(sample_resume_data)
+    resume_json = tmp_path / "resume.json"
+    compile_resume_json(resume, resume_json)
+    output_pdf = tmp_path / "resume.pdf"
+
+    failure = _fake_completed_process(
+        returncode=1, stderr="Could not load theme some-theme. Is it installed?"
+    )
+    with (
+        mock.patch("jobgitops.renderer.subprocess.run", return_value=failure),
+        pytest.raises(RuntimeError) as exc_info,
+    ):
+        compile_resume_pdf(resume_json, "some-theme", output_pdf)
+
+    assert "Could not load theme" not in str(exc_info.value)
+    assert "exit 1" in str(exc_info.value)
+    assert "Could not load theme" in caplog.text
+
+
+def test_compile_resume_pdf_missing_json_file(tmp_path) -> None:
+    """Verify compile_resume_pdf raises FileNotFoundError for a missing input file."""
+    missing_json = tmp_path / "does-not-exist.json"
+    output_pdf = tmp_path / "resume.pdf"
+
+    with pytest.raises(FileNotFoundError, match="Resume JSON file not found at"):
+        compile_resume_pdf(missing_json, "some-theme", output_pdf)
+
+
+def test_compile_resume_full_pipeline(sample_resume_data, tmp_path) -> None:
+    """Verify compile_resume writes JSON first, then compiles the PDF from that file."""
+    resume = Resume.from_dict(sample_resume_data)
     output_pdf = tmp_path / "resume.pdf"
     output_json = tmp_path / "resume.json"
 
     assert not output_pdf.exists()
     assert not output_json.exists()
 
-    compile_resume(resume, template_file, output_pdf, output_json)
+    with mock.patch(
+        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+    ) as mock_run:
+        compile_resume(
+            resume, "@jsonresume/jsonresume-theme-professional", output_pdf, output_json
+        )
 
-    assert output_pdf.is_file()
-    assert output_pdf.read_bytes().startswith(b"%PDF")
-
+    # The JSON file is real (compile_resume_json isn't mocked); the PDF
+    # export subprocess is mocked, so no actual resumed/Chromium run happens
+    # here -- that's covered by build-runner.yml's Docker-level smoke test.
     assert output_json.is_file()
     with output_json.open(encoding="utf-8") as f:
         loaded_data = json.load(f)
     assert loaded_data == resume.to_dict()
+
+    mock_run.assert_called_once()
+    inner_command = mock_run.call_args.args[0][5]
+    assert str(output_json.resolve()) in inner_command
+    assert str(output_pdf.resolve()) in inner_command
