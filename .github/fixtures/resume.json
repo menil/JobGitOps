@@ -1,0 +1,19 @@
+{
+  "basics": {
+    "name": "Test Person",
+    "label": "Software Engineer",
+    "email": "test@example.com",
+    "summary": "A minimal fixture used to smoke-test the resumed/Chromium rendering pipeline in CI.",
+    "profiles": []
+  },
+  "work": [
+    {
+      "name": "Example Corp",
+      "position": "Engineer",
+      "startDate": "2020-01-01",
+      "summary": "Did engineering things."
+    }
+  ],
+  "education": [],
+  "skills": [{ "name": "Testing", "keywords": ["pytest"] }]
+}
