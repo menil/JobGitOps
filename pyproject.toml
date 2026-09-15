@@ -10,8 +10,6 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
-    "weasyprint",
-    "jinja2",
     "pyyaml",
     "python-jobspy",
     "google-generativeai",

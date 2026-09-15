@@ -80,8 +80,7 @@ jobs:
             "${{ steps.image-name.outputs.image }}:ci-smoke-test" \
             sh -c '
               su -s /bin/sh pptruser -c "bun /opt/bun/bin/resumed export resume.json -t @jsonresume/jsonresume-theme-professional -o /tmp/resume.pdf --puppeteer-arg=--no-sandbox" &&
-              [ -s /tmp/resume.pdf ] &&
-              python3 -c "import weasyprint"
+              [ -s /tmp/resume.pdf ]
             '
 
       - name: Build and Push Docker Image

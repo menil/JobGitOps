@@ -4,10 +4,8 @@ FROM python:3.12-slim-bookworm
 # Prevent interactive prompts during apt package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies for git, just, shellcheck, fontconfig, WeasyPrint
-# (still used by the current renderer.py until it migrates to `resumed` --
-# see JobGitOps-nx0/JobGitOps-b4m, which will drop these once that lands),
-# and Chromium (+ its setuid sandbox helper) for headless PDF export via
+# Install system dependencies for git, just, shellcheck, fontconfig, and
+# Chromium (+ its setuid sandbox helper) for headless PDF export via
 # resumed/Puppeteer.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -16,11 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     shellcheck \
     build-essential \
     libffi-dev \
-    libcairo2 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
-    shared-mime-info \
     fonts-dejavu \
     fonts-liberation \
     chromium \
