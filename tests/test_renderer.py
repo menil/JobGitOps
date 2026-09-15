@@ -225,7 +225,12 @@ def test_compile_resume_pdf_falls_back_to_world_writable_dir_outside_container(
     """Verify a missing _RENDER_USER group (e.g. local/test runs) still works.
 
     Falls back to 0o777 rather than failing the whole render when the
-    container-specific group doesn't exist or can't be chown'd to.
+    container-specific group doesn't exist or can't be chown'd to. Mocks
+    grp.getgrnam to force this path explicitly rather than relying on the
+    ambient test environment lacking a "pptruser" group -- CI's own
+    `validate` job runs inside the actual runtime image (ghcr.io/menil/
+    jobgitops:latest), which does have a real pptruser group, so that
+    assumption silently doesn't hold everywhere this suite runs.
     """
     resume = Resume.from_dict(sample_resume_data)
     resume_json = tmp_path / "resume.json"
@@ -235,11 +240,14 @@ def test_compile_resume_pdf_falls_back_to_world_writable_dir_outside_container(
     output_dir.mkdir(mode=0o700)
     output_pdf = output_dir / "resume.pdf"
 
-    with mock.patch(
-        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+    with (
+        mock.patch(
+            "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+        ),
+        mock.patch(
+            "jobgitops.renderer.grp.getgrnam", side_effect=KeyError("no such group")
+        ),
     ):
-        # No pptruser group on the machine running this test -- exercises the
-        # real KeyError fallback path, not a mocked one.
         compile_resume_pdf(resume_json, "some-theme", output_pdf)
 
     mode = output_dir.stat().st_mode
