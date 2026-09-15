@@ -19,7 +19,7 @@ A serverless, GitOps-driven job application and tracking system. JobGitOps treat
 
 - 🤖 **Automated Role Discovery**: A scheduled Actions cron ([Daily Job Scraper](https://github.com/menil/jobgitops-example/actions/workflows/scrape-jobs.yml)) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
 - 🧠 **AI Triage & Tailoring**: A two-pass LLM engine ([Triage and Tailor Issue](https://github.com/menil/jobgitops-example/actions/workflows/triage-issue.yml)) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
-- 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to HTML and print-ready PDFs with Jinja2 + WeasyPrint on dedicated application branches — every version you send is a clean, reviewable Git diff.
+- 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to print-ready PDFs via a [JSON Resume theme](https://jsonresume.org/themes) of your choosing on dedicated application branches — every version you send is a clean, reviewable Git diff.
 - 💬 **Issue Assistant**: A tool-using agent ([Respond to Issue](https://github.com/menil/jobgitops-example/actions/workflows/respond-issue.yml)) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
 - 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → In Loop → Rejected`) with label-based automation and a label-only fallback.
 
@@ -85,7 +85,7 @@ skills:
       - "Python"
 ```
 
-Overwrite this file with your own work history, education, and skills. The rendering templates (`resumes/template.html`, `resumes/style.css`) stay on the branch alongside every tailored variant.
+Overwrite this file with your own work history, education, and skills. Every tailored variant is written to the branch alongside a generated `resumes/resume.json` and `resumes/resume.pdf`.
 
 ### `config/settings.yaml`
 
@@ -94,6 +94,9 @@ Controls search preferences and the triage threshold:
 ```yaml
 # Minimum fit score (1.0 to 5.0) required to tailor a resume and apply.
 fit_threshold: 3.5
+
+# Visual theme for resumes/resume.pdf, from the JSON Resume theme ecosystem.
+theme: "@jsonresume/jsonresume-theme-professional@1.0.22"
 
 search:
   enabled: true                         # Enable or disable daily scraping
@@ -120,6 +123,7 @@ search:
 #   model: ""                         # optional override; empty = provider default
 ```
 
+- **`theme`**: Selects the [JSON Resume theme](https://jsonresume.org/themes) used to render `resume.pdf` — browse [npm](https://www.npmjs.com/search?q=jsonresume-theme) or GitHub for options. Accepts either an npm package pinned to an exact version (`"<package>@<version>"`) or a GitHub-only theme pinned to a full 40-character commit SHA (`"github:<owner>/<repo>#<sha>"`). JobGitOps installs the theme package — running its own code in the process — and later renders with it, so always pin to an exact version or commit SHA, never a floating branch, tag, or dist-tag like `latest`. Omit this key to fall back to a pinned default theme.
 - **`custom_queries`**: When non-empty, the scraper uses these queries instead of auto-generating them from your resume — useful for targeting new stacks or domains.
 - **`projects_v2`**: When configured, issue cards move through your Projects V2 board automatically and column moves are reflected back as labels. Without it (or while the placeholder is in place), the system falls back to repository labels (`ready-to-apply`, `applied`, `in-loop`, `rejected`).
 

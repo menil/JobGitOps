@@ -31,8 +31,8 @@ flowchart TD
         I -->|< 4.0| J[Close Issue with Reason]
         I -->|>= 4.0| K[Create Branch applications/company-role]
         
-        K -->|Jinja2 Templating| L(Generate resume.yaml & resume.json)
-        L -->|WeasyPrint| M(Generate resume.pdf)
+        K -->|Serialize| L(Generate resume.yaml & resume.json)
+        L -->|resumed + JSON Resume theme| M(Generate resume.pdf)
         M -->|Push Branch| N[Git Branch]
         N -->|Add Link & Comment| Issues
     end
@@ -81,7 +81,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 *   **Location:** Modular structure in `src/jobgitops/` to separate concerns:
     *   `src/jobgitops/cli/triage.py`: Main event handler (parses issues, coordinates triage/tailor workflow).
     *   `src/jobgitops/llm.py`: Pluggable LLM wrapper (Gemini / OpenRouter / Claude) enforcing structured JSON schema parsing.
-    *   `src/jobgitops/renderer.py`: Compiles the resume YAML using Jinja2 HTML templates and triggers WeasyPrint for PDF generation.
+    *   `src/jobgitops/renderer.py`: Serializes the resume to JSON Resume format and shells out to the `resumed` CLI (Bun + Puppeteer/Chromium) with a configurable JSON Resume theme for PDF generation.
     *   `src/jobgitops/git_ops.py`: Encapsulates Git branch creation, checkout, staging, committing, and pushing.
     *   `src/jobgitops/github_client.py`: Interacts with the GitHub API (posting comments, labels, and Projects V2 board state updates).
 *   **Two-Pass LLM Strategy (Token-Saving):**
@@ -102,7 +102,7 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 *   **Resume Tailoring Pipeline:**
     *   Overwrites `resumes/resume.yaml` on the branch with the tailored content (enabling clean Git diff tracking against `main`).
     *   Generates a JSON version at `resumes/resume.json`.
-    *   Compiles `resumes/resume.pdf` using WeasyPrint with Jinja2 rendering of `resumes/template.html` and `resumes/style.css`.
+    *   Compiles `resumes/resume.pdf` via the `resumed` CLI using the JSON Resume theme configured by `theme` in `config/settings.yaml`.
     *   Commits and pushes the files to the application branch. The bot's commit messages must follow the Conventional Commits specification (e.g., `feat(application): tailor resume for [Company] - [Role]`).
 *   **Issue Comment & PDF Viewer Link:**
     *   Comments on the issue with fit scoring details and an application manual-link.
@@ -187,7 +187,7 @@ To enforce quality standards, local validation, and runner test checks:
 ### 5.1. Nix Environment Configuration
 *   **`devenv.nix`**: Defines the environment:
     *   Python 3.11+
-    *   System dependencies for WeasyPrint (`pkgs.cairo`, `pkgs.pango`, `pkgs.gobject-introspection`, `pkgs.libffi`, `pkgs.fontconfig`, and system fonts).
+    *   System fonts (DejaVu, Liberation) for PDF rendering fidelity.
     *   `languages.python` enabled with virtualenv mapping `requirements.txt`.
 *   **`.envrc`**: Configured with `use devenv` for seamless local `direnv` environment loading.
 

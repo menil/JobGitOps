@@ -828,8 +828,14 @@ def test_loader_exceptions(tmp_path: pathlib.Path) -> None:
         ("@jsonresume/jsonresume-theme-professional@1.0.22", True),
         ("jsonresume-theme-elegant@1.16.1", True),
         ("lodash@4.0.0", True),
+        ("lodash@4.0.0-beta.1", True),  # pinned prerelease is still pinned
         ("@jsonresume/jsonresume-theme-professional", False),  # no version at all
         ("lodash", False),  # no version at all
+        ("lodash@latest", False),  # floating npm dist tag
+        ("lodash@next", False),  # floating npm dist tag
+        ("lodash@^4.0.0", False),  # floating semver range
+        ("lodash@~4.0.0", False),  # floating semver range
+        ("lodash@4.x", False),  # floating semver range
         (f"github:owner/repo#{'a' * 40}", True),  # full 40-char commit sha
         ("github:owner/repo#main", False),  # branch, not a sha
         ("github:owner/repo#abc123", False),  # short/abbreviated sha

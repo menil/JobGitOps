@@ -86,9 +86,7 @@ template/
 ├── config/
 │   └── settings.yaml                   # defaults; search.enabled: true; projects_v2 commented out
 ├── resumes/
-│   ├── resume.yaml                     # PLACEHOLDER with sentinel (see §4)
-│   ├── template.html                   # Jinja2 resume template (required by renderer)
-│   └── style.css                       # PDF styling (required by renderer)
+│   └── resume.yaml                     # PLACEHOLDER with sentinel (see §4)
 ├── README.md                           # static setup badge + 3-line setup + docs link
 └── .gitignore                          # minimal
 ```
@@ -159,7 +157,7 @@ The `--token`/`$GH_TOKEN` PAT fallback is for environments where the GitHub CLI 
 1. **Preflight** — verify `gh` is installed and authenticated (`gh auth status`) or a token was supplied; repo name is a valid slug. Fail fast with actionable messages.
 2. **Permission check** — confirm the token can do everything the install needs *before* creating the repo: `gh api user` returns the `X-OAuth-Scopes` response header; require `repo` (create repo + set secrets) and `workflow` (enable Actions/write permissions). Missing scopes → exit with an actionable error naming the exact scopes to add (`gh auth refresh -s repo,workflow`). Any later step that still fails on permissions aborts with the command and exit code (§5.4).
 3. **Fetch shell plane** — resolve the latest release tag (`gh api repos/menil/jobgitops/releases/latest`; override with `$JOBGITOPS_TAG` for pre-release testing), download its tarball, extract into a temp working dir. Trap-clean on exit. Download order: anonymous `codeload.github.com` tag → branch fallback → authenticated API tarball (`gh api repos/menil/jobgitops/tarball/<ref>`), the last one covering owner dogfooding against the still-private source repo. Extracted dir name differs between the two sources (`<repo>-<ref>` vs `<repo>-<sha>`), so the script resolves the single top-level directory rather than assuming a name.
-4. **Assemble** — write `config/settings.yaml` from defaults (`projects_v2` commented out, `search.enabled: true`, `search.location: Remote` as the documented default, `custom_queries` empty so queries derive from the resume, `fit_threshold: 3.5`). Confirm placeholder resume is present and untouched. Copy the root-pinned files verbatim into the assembled tree: `.github/labels.yml` and the runtime-core workflows (§7). Copy `template/resumes/template.html` and `template/resumes/style.css` alongside the placeholder resume.
+4. **Assemble** — write `config/settings.yaml` from defaults (`projects_v2` commented out, `search.enabled: true`, `search.location: Remote` as the documented default, `custom_queries` empty so queries derive from the resume, `fit_threshold: 3.5`). Confirm placeholder resume is present and untouched. Copy the root-pinned files verbatim into the assembled tree: `.github/labels.yml` and the runtime-core workflows (§7).
 5. **Create empty repo** — `gh repo create <name> --<visibility> --confirm` (no `--source` yet; we control push ordering).
 6. **Set secrets** — `gh secret set GEMINI_API_KEY` / `OPENROUTER_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` for the chosen provider (read-hidden prompt; never echoed).
 7. **Enable Actions + write permissions** — one API call with the user's admin token (the thing an in-repo workflow can never do):

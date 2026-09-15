@@ -6,9 +6,7 @@ This file provides rules, instructions, and context for AI coding agents and hum
 
 This project uses `devenv` to manage system and virtual environment dependencies:
 - **Enter Environment**: Run `devenv shell` (or use `direnv allow` to automatically load it).
-- **Native dependencies**: WeasyPrint dependencies (`cairo`, `pango`, `glib`, `gdk-pixbuf`, etc.) are mapped cleanly inside the Nix shell.
 - **Shell Recommendation**: To avoid Nix startup latency and environment issues, always enter the Nix shell once (via `devenv shell`) and run your commands inside that active shell session. Running development commands directly on the host system will fail due to missing dependencies.
-- **Sandbox Execution**: When running devenv/Nix development commands in sandboxed environments (such as Antigravity run_command), set `BypassSandbox: true` so the process can dynamically load Cairo, Pango, and other shared libraries from the Nix store path (`/nix/store/...`).
 
 ## Quality Gates & Tasks (`Justfile`)
 

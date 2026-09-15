@@ -22,6 +22,15 @@ Per-user options live in `config/settings.yaml` and are edited directly in that 
 - `search.enabled` (set to `false` to pause daily scraping)
 - `fit_threshold` (minimum fit score, `1.0`–`5.0`, default `3.5`)
 
+### Resume theme
+
+`theme` controls how your tailored resume is rendered to PDF. It accepts any theme from the [JSON Resume theme ecosystem](https://jsonresume.org/themes) — browse [npm](https://www.npmjs.com/search?q=jsonresume-theme) or GitHub for options — in one of two pinned forms:
+
+- An npm package pinned to an exact version: `"<package>@<version>"`, e.g. `"@jsonresume/jsonresume-theme-professional@1.0.22"`
+- A GitHub-only theme pinned to a full 40-character commit SHA: `"github:<owner>/<repo>#<sha>"`
+
+JobGitOps installs the theme package — running its own code in the process — and later renders with it, so always pin to an exact version or commit SHA, never a floating branch, tag, or dist-tag like `latest`, since a theme maintainer could otherwise push new code that runs unreviewed in your repo's Actions. Omit this key to use the built-in default theme.
+
 ## Docs
 
 Full setup, configuration, and workflow documentation: <https://github.com/menil/jobgitops>
