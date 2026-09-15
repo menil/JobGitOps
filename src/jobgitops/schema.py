@@ -1,6 +1,7 @@
 """Data schemas and dataclasses for JobGitOps."""
 
 import datetime
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -359,6 +360,28 @@ class ResearchConfig:
             raise ValidationError(f"Failed to parse ResearchConfig: {e}") from e
 
 
+_GITHUB_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+
+def theme_looks_pinned(theme_spec: str) -> bool:
+    """Check theme_spec is pinned to an exact version or 40-char commit SHA.
+
+    Matches the format documented in template/config/settings.yaml: an npm
+    "<package>@<version>" spec, or a "github:<owner>/<repo>#<sha>" spec
+    pinned to a full commit SHA (not a branch or tag name). Lives here
+    (rather than in renderer.py, which actually installs/executes the
+    theme) so Settings.from_dict can enforce it at config-load time --
+    renderer.py imports this rather than duplicating it, since it already
+    depends on schema.py (for Resume) and the reverse dependency would be
+    circular.
+    """
+    if theme_spec.startswith("github:"):
+        _, _, ref = theme_spec.partition("#")
+        return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(ref))
+    name, sep, version = theme_spec.rpartition("@")
+    return bool(sep) and bool(name) and bool(version)
+
+
 @dataclass
 class Settings:
     """App-wide settings loaded from config/settings.yaml."""
@@ -368,6 +391,23 @@ class Settings:
     custom_queries: list[str] | None = None
     projects_v2: ProjectsV2Config | None = None
     research: ResearchConfig = field(default_factory=ResearchConfig)
+    # Pinned theme spec ("<package>@<version>" or "github:<owner>/<repo>#<sha>"),
+    # per this key's format documentation in config/settings.yaml. None when
+    # absent (e.g. a repo installed before this key existed) -- callers fall
+    # back to a hardcoded pinned default in that case, not this dataclass,
+    # since sync-template.sh never updates an existing repo's config/.
+    #
+    # Unlike every other field on this dataclass, this one is read from a
+    # file the repo owner (or anyone with write access to their repo) can
+    # edit, and it drives root-level `bun add -g` + import() execution --
+    # see ensure_theme_installed() in renderer.py. When set, it's validated
+    # here (below) rather than left to that later, unprivileged-boundary-
+    # unaware layer, both to reject an obviously-malformed value before any
+    # LLM spend (a bad theme otherwise only surfaces after triage_job/
+    # tailor_resume already ran for every approved-match issue in a batch)
+    # and because this is the only layer that can enforce it at all --
+    # ensure_theme_installed's own pin check only logs a warning.
+    theme: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Settings":
@@ -426,11 +466,20 @@ class Settings:
             research_data = data.get("research") or {}
             research = ResearchConfig.from_dict(research_data)
 
+            theme = _parse_str("theme", data.get("theme"))
+            if theme is not None and not theme_looks_pinned(theme):
+                raise ValidationError(
+                    "theme must be pinned to an exact version or commit SHA: "
+                    '"<package>@<version>" or "github:<owner>/<repo>#<40-char-sha>" '
+                    f"(got {theme!r}). Omit the key entirely to use the default."
+                )
+
             return cls(
                 fit_threshold=fit_threshold,
                 search=search,
                 custom_queries=custom_queries,
                 projects_v2=projects_v2,
+                theme=theme,
                 research=research,
             )
         except (ValueError, TypeError, ValidationError) as e:

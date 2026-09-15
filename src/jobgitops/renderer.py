@@ -5,11 +5,10 @@ import json
 import logging
 import os
 import pathlib
-import re
 import shlex
 import subprocess
 
-from jobgitops.schema import Resume
+from jobgitops.schema import Resume, theme_looks_pinned
 
 logger = logging.getLogger("jobgitops.renderer")
 
@@ -83,22 +82,6 @@ def _filtered_env() -> dict[str, str]:
 # Where `bun add -g` actually places installed packages, given
 # BUN_INSTALL=/opt/bun in the Dockerfile (bun's default is ~/.bun instead).
 _BUN_GLOBAL_NODE_MODULES = pathlib.Path("/opt/bun/install/global/node_modules")
-
-_GITHUB_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
-
-
-def _theme_looks_pinned(theme_spec: str) -> bool:
-    """Check theme_spec is pinned to an exact version or 40-char commit SHA.
-
-    Matches the format documented in template/config/settings.yaml: an npm
-    "<package>@<version>" spec, or a "github:<owner>/<repo>#<sha>" spec
-    pinned to a full commit SHA (not a branch or tag name).
-    """
-    if theme_spec.startswith("github:"):
-        _, _, ref = theme_spec.partition("#")
-        return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(ref))
-    name, sep, version = theme_spec.rpartition("@")
-    return bool(sep) and bool(name) and bool(version)
 
 
 def _theme_bare_name(theme_spec: str) -> str | None:
@@ -221,7 +204,11 @@ def ensure_theme_installed(theme_spec: str) -> str:
         ThemeInstallError: If installation fails, or the installed package
             doesn't export a usable render(resume) function.
     """
-    if not _theme_looks_pinned(theme_spec):
+    if not theme_looks_pinned(theme_spec):
+        # Settings.from_dict() already rejects an unpinned theme read from
+        # settings.yaml, so reaching this warning means either the hardcoded
+        # _DEFAULT_RESUME_THEME fallback itself is unpinned (a real bug) or
+        # a caller outside triage.py's normal path invoked this directly.
         logger.warning(
             "Theme spec %r is not pinned to an exact version or commit SHA. "
             "JobGitOps installs and executes this package's code at render "

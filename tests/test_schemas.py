@@ -6,7 +6,14 @@ from unittest.mock import patch
 import pytest
 
 from jobgitops.loader import load_resume, load_settings
-from jobgitops.schema import Basics, ResearchConfig, Resume, Settings, ValidationError
+from jobgitops.schema import (
+    Basics,
+    ResearchConfig,
+    Resume,
+    Settings,
+    ValidationError,
+    theme_looks_pinned,
+)
 
 
 def test_default_settings() -> None:
@@ -18,6 +25,7 @@ def test_default_settings() -> None:
     assert "linkedin" in settings.search.platforms
     assert settings.custom_queries is None
     assert settings.projects_v2 is None
+    assert settings.theme is None
     assert settings.research.search_provider == "duckduckgo"
     assert settings.research.max_results == 5
     assert settings.research.max_iterations == 6
@@ -45,6 +53,7 @@ def test_valid_settings_parsing() -> None:
         },
         "custom_queries": ["Python Developer"],
         "projects_v2": {"project_id": "PVT_123", "status_field_name": "Job Status"},
+        "theme": "@jsonresume/jsonresume-theme-professional@1.0.22",
         "research": {
             "search_provider": "tavily",
             "max_results": 3,
@@ -71,6 +80,7 @@ def test_valid_settings_parsing() -> None:
     assert settings.projects_v2 is not None
     assert settings.projects_v2.project_id == "PVT_123"
     assert settings.projects_v2.status_field_name == "Job Status"
+    assert settings.theme == "@jsonresume/jsonresume-theme-professional@1.0.22"
     assert settings.research.search_provider == "tavily"
     assert settings.research.max_results == 3
     assert settings.research.max_iterations == 4
@@ -108,6 +118,27 @@ def test_invalid_settings_types() -> None:
         ValidationError, match="fit_threshold must be between 1.0 and 5.0"
     ):
         Settings.from_dict({"fit_threshold": 5.1})
+
+    with pytest.raises(ValidationError, match="theme must be a string, not a boolean"):
+        Settings.from_dict({"theme": True})
+
+    with pytest.raises(
+        ValidationError, match="theme must be a string, not a collection"
+    ):
+        Settings.from_dict({"theme": ["@scope/name@1.0.0"]})
+
+    with pytest.raises(ValidationError, match="theme must be pinned"):
+        Settings.from_dict({"theme": "@scope/name"})  # no version at all
+
+    with pytest.raises(ValidationError, match="theme must be pinned"):
+        Settings.from_dict({"theme": "github:owner/repo#main"})  # branch, not a sha
+
+    # An explicit empty string is rejected rather than silently treated as
+    # "unset" -- confirmed as an untested ambiguity during review. Omitting
+    # the key entirely (not present in `data`) is the only way to get the
+    # None-and-fall-back-to-default behavior.
+    with pytest.raises(ValidationError, match="theme must be pinned"):
+        Settings.from_dict({"theme": ""})
 
     with pytest.raises(
         ValidationError, match="search.work_preference must be a string"
@@ -791,6 +822,25 @@ def test_loader_exceptions(tmp_path: pathlib.Path) -> None:
         load_resume(resume_file)
 
 
+@pytest.mark.parametrize(
+    ("theme_spec", "expected"),
+    [
+        ("@jsonresume/jsonresume-theme-professional@1.0.22", True),
+        ("jsonresume-theme-elegant@1.16.1", True),
+        ("lodash@4.0.0", True),
+        ("@jsonresume/jsonresume-theme-professional", False),  # no version at all
+        ("lodash", False),  # no version at all
+        (f"github:owner/repo#{'a' * 40}", True),  # full 40-char commit sha
+        ("github:owner/repo#main", False),  # branch, not a sha
+        ("github:owner/repo#abc123", False),  # short/abbreviated sha
+        ("github:owner/repo", False),  # no ref at all
+    ],
+)
+def test_theme_looks_pinned(theme_spec: str, expected: bool) -> None:
+    """Verify the pin-format check matches settings.yaml's documented rules."""
+    assert theme_looks_pinned(theme_spec) is expected
+
+
 def test_repo_defaults_integration() -> None:
     """Test the committed config and resume fixtures."""
     # Load and assert fixture settings
@@ -799,6 +849,9 @@ def test_repo_defaults_integration() -> None:
     assert settings.search.work_preference == "hybrid"
     assert settings.search.job_type == "fulltime"
     assert "linkedin" in settings.search.platforms
+    # No `theme` key in this fixture -- represents a repo installed before
+    # this setting existed; callers fall back to a hardcoded pinned default.
+    assert settings.theme is None
     assert settings.research.search_provider == "duckduckgo"
     assert settings.research.max_results == 5
     assert settings.research.max_iterations == 6

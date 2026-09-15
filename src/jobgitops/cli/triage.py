@@ -29,6 +29,7 @@ from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings, render_resume_yaml
 from jobgitops.renderer import compile_resume, ensure_theme_installed
+from jobgitops.schema import Resume, Settings
 from jobgitops.status_model import FIT_CATEGORY_MISMATCH_LABELS, LABEL_TO_STATUS
 from jobgitops.web import WebClient
 
@@ -40,10 +41,11 @@ EXIT_ERROR = 1
 # POSIX exit code for temporary quota/rate-limit failure (EX_TEMPFAIL)
 EXIT_QUOTA_EXCEEDED = 75
 
-# TODO(JobGitOps-4dk): read this from the repo's settings.yaml `theme` key
-# instead of hardcoding it. Kept in sync with settings.yaml's pinned default
-# for now. This is the pinned install spec, not the bare package name --
-# ensure_theme_installed() resolves it to the bare name compile_resume needs.
+# Fallback used when settings.theme is unset -- e.g. a repo installed before
+# this key existed, since sync-template.sh never updates an existing repo's
+# config/. Kept in sync with settings.yaml's own pinned default. This is the
+# pinned install spec, not the bare package name -- ensure_theme_installed()
+# resolves it to the bare name compile_resume needs.
 _DEFAULT_RESUME_THEME = "@jsonresume/jsonresume-theme-professional@1.0.22"
 
 type ExitCode = EXIT_SUCCESS | EXIT_ERROR | EXIT_QUOTA_EXCEEDED
@@ -513,8 +515,9 @@ def _handle_mismatch(
 def _create_tailored_application_branch(
     repo_path: pathlib.Path,
     branch_name: str,
-    tailored_resume: Any,
+    tailored_resume: Resume,
     job_details: dict[str, str],
+    settings: Settings,
 ) -> None:
     """Checkout tailored branch, write, compile, commit, and push changes."""
     # Track the original branch to return back cleanly
@@ -543,7 +546,7 @@ def _create_tailored_application_branch(
             f.write(yaml_content)
 
         # 2. Compile JSON & PDF
-        theme_name = ensure_theme_installed(_DEFAULT_RESUME_THEME)
+        theme_name = ensure_theme_installed(settings.theme or _DEFAULT_RESUME_THEME)
         compile_resume(
             tailored_resume,
             theme_name,
@@ -656,8 +659,8 @@ def _handle_approved_match(
     triage_res: TriageResult,
     repo_path: pathlib.Path,
     gh_client: GitHubClient,
-    settings: Any,
-    resume: Any,
+    settings: Settings,
+    resume: Resume,
     llm_client: LLMClient,
     initial_status: str | None = None,
 ) -> None:
@@ -692,6 +695,7 @@ def _handle_approved_match(
             branch_name=branch_name,
             tailored_resume=tailored_resume,
             job_details=job_details,
+            settings=settings,
         )
 
         # Post approval comment
@@ -786,8 +790,8 @@ def run_triage(
     issue_labels: list[str],
     repo_path: pathlib.Path,
     gh_client: GitHubClient,
-    settings: Any,
-    resume: Any,
+    settings: Settings,
+    resume: Resume,
     llm_client: LLMClient,
     web_client: Any | None = None,
     initial_status: str | None = None,
@@ -902,8 +906,8 @@ def run_triage(
 def run_all_pending(
     gh_client: GitHubClient,
     repo_path: pathlib.Path,
-    settings: Any,
-    resume: Any,
+    settings: Settings,
+    resume: Resume,
     llm_client: LLMClient,
     web_client: Any | None = None,
 ) -> ExitCode:
