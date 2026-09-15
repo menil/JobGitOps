@@ -56,6 +56,34 @@ jobs:
             type=ref,event=tag
             type=sha,prefix=,format=long
 
+      - name: Build Docker Image (local, for smoke test)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: ${{ steps.image-name.outputs.image }}:ci-smoke-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Guards against the exact class of regression this image is prone to:
+      # a `oven/bun:latest` bump, a Debian `chromium` point release, or a
+      # `resumed`/Puppeteer update silently breaking the hand-verified
+      # invocation contract documented in the Dockerfile (privilege-dropped
+      # `pptruser`, `--puppeteer-arg=--no-sandbox`, the apt-installed
+      # Chromium path). `docker build` succeeding proves none of that; only
+      # actually running `resumed export` does.
+      - name: Smoke-test resumed export in built image
+        run: |
+          docker run --rm \
+            -v "$PWD/.github/fixtures:/work" -w /work \
+            "${{ steps.image-name.outputs.image }}:ci-smoke-test" \
+            sh -c '
+              su -s /bin/sh pptruser -c "bun /opt/bun/bin/resumed export resume.json -t @jsonresume/jsonresume-theme-professional -o /tmp/resume.pdf --puppeteer-arg=--no-sandbox" &&
+              [ -s /tmp/resume.pdf ] &&
+              python3 -c "import weasyprint"
+            '
+
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v7
         with:
