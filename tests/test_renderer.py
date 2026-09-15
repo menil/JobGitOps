@@ -8,9 +8,15 @@ import pytest
 
 from jobgitops.renderer import (
     _ALLOWED_ENV_VARS,
+    _BUN_BIN,
+    ThemeInstallError,
+    _parse_installed_theme_name,
+    _theme_bare_name,
+    _theme_looks_pinned,
     compile_resume,
     compile_resume_json,
     compile_resume_pdf,
+    ensure_theme_installed,
 )
 from jobgitops.schema import Resume
 
@@ -149,6 +155,248 @@ def test_compile_resume_json(sample_resume_data, tmp_path) -> None:
     assert loaded_data == resume.to_dict()
 
 
+@pytest.mark.parametrize(
+    ("theme_spec", "expected"),
+    [
+        ("@jsonresume/jsonresume-theme-professional@1.0.22", True),
+        ("jsonresume-theme-elegant@1.16.1", True),
+        ("lodash@4.0.0", True),
+        ("@jsonresume/jsonresume-theme-professional", False),  # no version at all
+        ("lodash", False),  # no version at all
+        (f"github:owner/repo#{'a' * 40}", True),  # full 40-char commit sha
+        ("github:owner/repo#main", False),  # branch, not a sha
+        ("github:owner/repo#abc123", False),  # short/abbreviated sha
+        ("github:owner/repo", False),  # no ref at all
+    ],
+)
+def test_theme_looks_pinned(theme_spec: str, expected: bool) -> None:
+    """Verify the pin-format check matches settings.yaml's documented rules."""
+    assert _theme_looks_pinned(theme_spec) is expected
+
+
+@pytest.mark.parametrize(
+    ("theme_spec", "expected_bare_name"),
+    [
+        (
+            "@jsonresume/jsonresume-theme-professional@1.0.22",
+            "@jsonresume/jsonresume-theme-professional",
+        ),
+        ("jsonresume-theme-elegant@1.16.1", "jsonresume-theme-elegant"),
+        ("lodash@4.0.0", "lodash"),
+        # No version suffix at all -- must not be truncated to "" by
+        # mistaking the scope-marker "@" for a version separator.
+        (
+            "@jsonresume/jsonresume-theme-professional",
+            "@jsonresume/jsonresume-theme-professional",
+        ),
+        ("lodash", "lodash"),
+    ],
+)
+def test_theme_bare_name_npm_specs(theme_spec: str, expected_bare_name: str) -> None:
+    """Verify bare-name extraction for npm-style specs, including edge cases."""
+    assert _theme_bare_name(theme_spec) == expected_bare_name
+
+
+def test_theme_bare_name_github_spec_is_unknown_until_installed() -> None:
+    """Verify a github: spec's bare name can't be derived from the spec alone."""
+    assert _theme_bare_name("github:owner/repo#" + "a" * 40) is None
+
+
+@pytest.mark.parametrize(
+    ("bun_stdout", "expected_name"),
+    [
+        (
+            "installed jsonresume-theme-stackoverflow@3.3.0\n\n1 package installed",
+            "jsonresume-theme-stackoverflow",
+        ),
+        ("installed resumed@7.0.0 with binaries:\n - resumed\n", "resumed"),
+        (
+            "installed jsonresume-theme-stackoverflow"
+            "@github:phoinixi/jsonresume-theme-stackoverflow#868d6db",
+            "jsonresume-theme-stackoverflow",
+        ),
+        (
+            "installed @jsonresume/jsonresume-theme-professional@1.0.22",
+            "@jsonresume/jsonresume-theme-professional",
+        ),
+    ],
+)
+def test_parse_installed_theme_name(bun_stdout: str, expected_name: str) -> None:
+    """Verify bun's own install confirmation line is parsed correctly.
+
+    Exact formats (including the github-spec case) confirmed by hands-on
+    testing against real `bun add -g` output while building this task.
+    """
+    assert _parse_installed_theme_name(bun_stdout, "irrelevant-spec") == expected_name
+
+
+def test_parse_installed_theme_name_raises_if_no_installed_line() -> None:
+    """Verify a clear error when bun's output doesn't contain the expected line."""
+    with pytest.raises(ThemeInstallError, match="Could not determine"):
+        _parse_installed_theme_name("Resolving dependencies\n", "some-spec")
+
+
+def test_ensure_theme_installed_skips_install_when_already_present() -> None:
+    """Verify no install subprocess runs for an already-installed npm theme.
+
+    The interface check still runs even on this fast path (see
+    test_ensure_theme_installed_still_validates_already_installed_theme) --
+    this test only asserts that `bun add -g` itself is skipped.
+    """
+    with (
+        mock.patch("jobgitops.renderer._theme_is_installed", return_value=True),
+        mock.patch(
+            "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+        ) as mock_run,
+    ):
+        result = ensure_theme_installed(
+            "@jsonresume/jsonresume-theme-professional@1.0.22"
+        )
+
+    assert result == "@jsonresume/jsonresume-theme-professional"
+    mock_run.assert_called_once()
+    argv = mock_run.call_args.args[0]
+    assert argv[:2] == [_BUN_BIN, "-e"]  # the interface check, not install
+
+
+def test_ensure_theme_installed_still_validates_already_installed_theme() -> None:
+    """Verify a bad already-installed theme is still caught, not skipped.
+
+    A directory merely existing (e.g. a corrupted image layer, a partial
+    install left over from a previous run) is not proof the package is
+    usable -- confirmed as a real gap during review, since the fast path
+    used to return before validation ever ran.
+    """
+    validate_failure = _fake_completed_process(returncode=1)
+    with (
+        mock.patch("jobgitops.renderer._theme_is_installed", return_value=True),
+        mock.patch("jobgitops.renderer.subprocess.run", return_value=validate_failure),
+        pytest.raises(ThemeInstallError, match="does not export a usable"),
+    ):
+        ensure_theme_installed("@jsonresume/jsonresume-theme-professional@1.0.22")
+
+
+def test_ensure_theme_installed_installs_npm_spec_when_missing() -> None:
+    """Verify a missing npm theme is installed, then interface-validated."""
+    install_result = _fake_completed_process(
+        stdout="installed some-theme@2.0.0\n\n1 package installed"
+    )
+    validate_result = _fake_completed_process()
+
+    with (
+        mock.patch("jobgitops.renderer._theme_is_installed", return_value=False),
+        mock.patch(
+            "jobgitops.renderer.subprocess.run",
+            side_effect=[install_result, validate_result],
+        ) as mock_run,
+    ):
+        result = ensure_theme_installed("some-theme@2.0.0")
+
+    assert result == "some-theme"
+    assert mock_run.call_count == 2
+    install_argv = mock_run.call_args_list[0].args[0]
+    assert install_argv == [_BUN_BIN, "add", "-g", "some-theme@2.0.0"]
+
+
+def test_ensure_theme_installed_uses_filtered_env_for_install_and_validate(
+    monkeypatch,
+) -> None:
+    """Verify install/validate subprocesses don't inherit unfiltered secrets.
+
+    _validate_theme_interface actually import()s the theme package's own
+    module-level code -- an unfiltered environment there would hand every
+    secret in the process to that third-party code, running as root, before
+    privilege is ever dropped -- confirmed as a real gap during review.
+    """
+    monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
+    install_result = _fake_completed_process(stdout="installed some-theme@2.0.0")
+    validate_result = _fake_completed_process()
+
+    with (
+        mock.patch("jobgitops.renderer._theme_is_installed", return_value=False),
+        mock.patch(
+            "jobgitops.renderer.subprocess.run",
+            side_effect=[install_result, validate_result],
+        ) as mock_run,
+    ):
+        ensure_theme_installed("some-theme@2.0.0")
+
+    for call in mock_run.call_args_list:
+        assert "GITHUB_TOKEN" not in call.kwargs["env"]
+
+
+def test_ensure_theme_installed_resolves_github_spec_name_from_output() -> None:
+    """Verify a github: spec's real name is discovered from bun's own report."""
+    theme_spec = f"github:owner/some-theme#{'a' * 40}"
+    install_result = _fake_completed_process(
+        stdout=f"installed some-theme@{theme_spec.removeprefix('github:')}"
+    )
+    validate_result = _fake_completed_process()
+
+    with mock.patch(
+        "jobgitops.renderer.subprocess.run",
+        side_effect=[install_result, validate_result],
+    ):
+        # No _theme_is_installed mock needed: a github spec's bare name is
+        # unknown up front, so ensure_theme_installed can't check presence
+        # before installing -- it always attempts the install for these.
+        result = ensure_theme_installed(theme_spec)
+
+    assert result == "some-theme"
+
+
+def test_ensure_theme_installed_raises_on_install_failure(caplog) -> None:
+    """Verify a failed bun add -g raises without leaking raw output.
+
+    The full stderr is logged (for operators reading Actions run logs), but
+    the exception message itself stays generic, since callers (triage.py)
+    post exception messages verbatim as GitHub issue comments -- mirrors
+    compile_resume_pdf's identical error-handling pattern.
+    """
+    failure = _fake_completed_process(
+        returncode=1, stderr="GET https://registry.npmjs.org/some-theme - 404"
+    )
+    with (
+        mock.patch("jobgitops.renderer._theme_is_installed", return_value=False),
+        mock.patch("jobgitops.renderer.subprocess.run", return_value=failure),
+        pytest.raises(ThemeInstallError) as exc_info,
+    ):
+        ensure_theme_installed("some-theme@9.9.9")
+
+    assert "404" not in str(exc_info.value)
+    assert "workflow run logs" in str(exc_info.value)
+    assert "404" in caplog.text
+
+
+def test_ensure_theme_installed_raises_on_non_conforming_package() -> None:
+    """Verify an installed package without a render() export is rejected."""
+    install_result = _fake_completed_process(stdout="installed left-pad@1.3.0")
+    validate_failure = _fake_completed_process(returncode=1)
+
+    with (
+        mock.patch("jobgitops.renderer._theme_is_installed", return_value=False),
+        mock.patch(
+            "jobgitops.renderer.subprocess.run",
+            side_effect=[install_result, validate_failure],
+        ),
+        pytest.raises(ThemeInstallError, match="does not export a usable"),
+    ):
+        ensure_theme_installed("left-pad@1.3.0")
+
+
+def test_ensure_theme_installed_warns_on_unpinned_spec(caplog) -> None:
+    """Verify an unpinned theme spec logs a warning before installing."""
+    with (
+        mock.patch("jobgitops.renderer._theme_is_installed", return_value=True),
+        mock.patch(
+            "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+        ),
+    ):
+        ensure_theme_installed("@jsonresume/jsonresume-theme-professional")
+
+    assert "not pinned" in caplog.text
+
+
 def test_compile_resume_pdf_invokes_resumed_as_pptruser(
     sample_resume_data, tmp_path
 ) -> None:
@@ -176,7 +424,7 @@ def test_compile_resume_pdf_invokes_resumed_as_pptruser(
     assert argv[:5] == ["su", "-s", "/bin/sh", "pptruser", "-c"]
 
     inner_command = argv[5]
-    assert "/usr/local/bin/bun" in inner_command
+    assert _BUN_BIN in inner_command
     assert "/opt/bun/bin/resumed" in inner_command
     assert "export" in inner_command
     assert str(resume_json.resolve()) in inner_command

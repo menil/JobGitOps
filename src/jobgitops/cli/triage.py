@@ -28,7 +28,7 @@ from jobgitops.git_ops import (
 from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings, render_resume_yaml
-from jobgitops.renderer import compile_resume
+from jobgitops.renderer import compile_resume, ensure_theme_installed
 from jobgitops.status_model import FIT_CATEGORY_MISMATCH_LABELS, LABEL_TO_STATUS
 from jobgitops.web import WebClient
 
@@ -42,9 +42,9 @@ EXIT_QUOTA_EXCEEDED = 75
 
 # TODO(JobGitOps-4dk): read this from the repo's settings.yaml `theme` key
 # instead of hardcoding it. Kept in sync with settings.yaml's pinned default
-# for now; JobGitOps-4dk resolves the pinned "name@version" spec down to the
-# bare package name compile_resume actually needs.
-_DEFAULT_RESUME_THEME = "@jsonresume/jsonresume-theme-professional"
+# for now. This is the pinned install spec, not the bare package name --
+# ensure_theme_installed() resolves it to the bare name compile_resume needs.
+_DEFAULT_RESUME_THEME = "@jsonresume/jsonresume-theme-professional@1.0.22"
 
 type ExitCode = EXIT_SUCCESS | EXIT_ERROR | EXIT_QUOTA_EXCEEDED
 
@@ -543,9 +543,10 @@ def _create_tailored_application_branch(
             f.write(yaml_content)
 
         # 2. Compile JSON & PDF
+        theme_name = ensure_theme_installed(_DEFAULT_RESUME_THEME)
         compile_resume(
             tailored_resume,
-            _DEFAULT_RESUME_THEME,
+            theme_name,
             resumes_dir / "resume.pdf",
             resumes_dir / "resume.json",
         )
