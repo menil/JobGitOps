@@ -596,6 +596,20 @@ class Profile:
         return res
 
 
+def _set_array(
+    res: dict[str, Any], key: str, items: list[Any], *, include_empty_arrays: bool
+) -> None:
+    """Set ``res[key] = items`` unless items is empty and include_empty_arrays is False.
+
+    Shared by every to_dict() below to keep the emit-vs-omit rule for optional
+    array fields (profiles, highlights, courses, keywords, work, education,
+    skills, projects) in one place -- see Basics.to_dict's docstring for why
+    the rule exists.
+    """
+    if items or include_empty_arrays:
+        res[key] = items
+
+
 @dataclass
 class Basics:
     """Basic profile information for JSON Resume."""
@@ -683,9 +697,12 @@ class Basics:
             res["summary"] = self.summary
         if self.location is not None:
             res["location"] = self.location.to_dict()
-        profiles = [p.to_dict() for p in self.profiles]
-        if profiles or include_empty_arrays:
-            res["profiles"] = profiles
+        _set_array(
+            res,
+            "profiles",
+            [p.to_dict() for p in self.profiles],
+            include_empty_arrays=include_empty_arrays,
+        )
         return res
 
 
@@ -764,8 +781,12 @@ class Work:
             res["endDate"] = self.end_date
         if self.summary is not None:
             res["summary"] = self.summary
-        if self.highlights or include_empty_arrays:
-            res["highlights"] = self.highlights
+        _set_array(
+            res,
+            "highlights",
+            self.highlights,
+            include_empty_arrays=include_empty_arrays,
+        )
         return res
 
 
@@ -847,8 +868,9 @@ class Education:
             res["endDate"] = self.end_date
         if self.score is not None:
             res["score"] = self.score
-        if self.courses or include_empty_arrays:
-            res["courses"] = self.courses
+        _set_array(
+            res, "courses", self.courses, include_empty_arrays=include_empty_arrays
+        )
         return res
 
 
@@ -901,8 +923,9 @@ class Skill:
         res: dict[str, Any] = {
             "name": self.name,
         }
-        if self.keywords or include_empty_arrays:
-            res["keywords"] = self.keywords
+        _set_array(
+            res, "keywords", self.keywords, include_empty_arrays=include_empty_arrays
+        )
         return res
 
 
@@ -979,10 +1002,15 @@ class Project:
         }
         if self.description is not None:
             res["description"] = self.description
-        if self.highlights or include_empty_arrays:
-            res["highlights"] = self.highlights
-        if self.keywords or include_empty_arrays:
-            res["keywords"] = self.keywords
+        _set_array(
+            res,
+            "highlights",
+            self.highlights,
+            include_empty_arrays=include_empty_arrays,
+        )
+        _set_array(
+            res, "keywords", self.keywords, include_empty_arrays=include_empty_arrays
+        )
         if self.start_date is not None:
             res["startDate"] = self.start_date
         if self.end_date is not None:
@@ -1079,22 +1107,34 @@ class Resume:
         res: dict[str, Any] = {
             "basics": self.basics.to_dict(include_empty_arrays=include_empty_arrays),
         }
-        work = [w.to_dict(include_empty_arrays=include_empty_arrays) for w in self.work]
-        if work or include_empty_arrays:
-            res["work"] = work
-        education = [
-            e.to_dict(include_empty_arrays=include_empty_arrays) for e in self.education
-        ]
-        if education or include_empty_arrays:
-            res["education"] = education
-        skills = [
-            s.to_dict(include_empty_arrays=include_empty_arrays) for s in self.skills
-        ]
-        if skills or include_empty_arrays:
-            res["skills"] = skills
-        projects = [
-            p.to_dict(include_empty_arrays=include_empty_arrays) for p in self.projects
-        ]
-        if projects or include_empty_arrays:
-            res["projects"] = projects
+        _set_array(
+            res,
+            "work",
+            [w.to_dict(include_empty_arrays=include_empty_arrays) for w in self.work],
+            include_empty_arrays=include_empty_arrays,
+        )
+        _set_array(
+            res,
+            "education",
+            [
+                e.to_dict(include_empty_arrays=include_empty_arrays)
+                for e in self.education
+            ],
+            include_empty_arrays=include_empty_arrays,
+        )
+        _set_array(
+            res,
+            "skills",
+            [s.to_dict(include_empty_arrays=include_empty_arrays) for s in self.skills],
+            include_empty_arrays=include_empty_arrays,
+        )
+        _set_array(
+            res,
+            "projects",
+            [
+                p.to_dict(include_empty_arrays=include_empty_arrays)
+                for p in self.projects
+            ],
+            include_empty_arrays=include_empty_arrays,
+        )
         return res
