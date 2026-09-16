@@ -22,12 +22,13 @@ from jobgitops.llm import (
     QuotaExceededError,
     ToolCall,
     TriageResult,
+    _backfill_basics,
     _build_job_details_prompt,
     clean_json_string,
     format_triage_prompt,
     get_llm_client,
 )
-from jobgitops.schema import Resume, ValidationError
+from jobgitops.schema import Basics, Location, Profile, Resume, ValidationError
 
 
 @pytest.fixture
@@ -37,6 +38,7 @@ def sample_resume() -> Resume:
         {
             "basics": {
                 "name": "Martin Livne",
+                "label": "Principal Software Engineer",
                 "email": "martin@example.com",
                 "summary": "Experienced python developer.",
                 "location": {"city": "Seattle", "region": "WA", "countryCode": "US"},
@@ -548,6 +550,83 @@ def test_gemini_client_tailor(
     assert tailored_resume.basics.name == "Martin Livne"
 
 
+def test_backfill_basics_restores_all_dropped_optional_fields() -> None:
+    """Every optional basics field falls back to the original when tailored omits it."""
+    original = Basics(
+        name="Original Name",
+        label="Original Label",
+        email="orig@example.com",
+        phone="555-0100",
+        url="https://orig.example",
+        summary="Original summary",
+        location=Location(city="Seattle", state="WA", country_code="US"),
+        profiles=[Profile(network="github", username="orig")],
+    )
+    tailored = Basics(name="Original Name")
+
+    result = _backfill_basics(tailored, original)
+
+    assert result.label == "Original Label"
+    assert result.email == "orig@example.com"
+    assert result.phone == "555-0100"
+    assert result.url == "https://orig.example"
+    assert result.summary == "Original summary"
+    assert result.location == Location(city="Seattle", state="WA", country_code="US")
+    assert result.profiles == [Profile(network="github", username="orig")]
+
+
+def test_backfill_basics_preserves_tailored_values_when_present() -> None:
+    """A field the model did set is kept, not clobbered by the original's value."""
+    original = Basics(
+        name="Original Name",
+        label="Original Label",
+        email="orig@example.com",
+        phone="555-0100",
+        url="https://orig.example",
+        summary="Original summary",
+        location=Location(city="Seattle", state="WA", country_code="US"),
+        profiles=[Profile(network="github", username="orig")],
+    )
+    tailored = Basics(
+        name="Original Name",
+        label="New Label",
+        email="new@example.com",
+        phone="555-0200",
+        url="https://new.example",
+        summary="New summary",
+        location=Location(city="Austin", state="TX", country_code="US"),
+        profiles=[Profile(network="linkedin", username="new")],
+    )
+
+    result = _backfill_basics(tailored, original)
+
+    assert result.label == "New Label"
+    assert result.email == "new@example.com"
+    assert result.phone == "555-0200"
+    assert result.url == "https://new.example"
+    assert result.summary == "New summary"
+    assert result.location == Location(city="Austin", state="TX", country_code="US")
+    assert result.profiles == [Profile(network="linkedin", username="new")]
+
+
+@_patch_gemini_sdk
+def test_gemini_client_tailor_backfills_dropped_label(
+    mock_configure: MagicMock, mock_model_cls: MagicMock, sample_resume: Resume
+) -> None:
+    """A tailored response that omits basics.label keeps the original label."""
+    mock_model = mock_model_cls.return_value
+    mock_response = MagicMock()
+    tailored_data = sample_resume.to_dict()
+    del tailored_data["basics"]["label"]
+    mock_response.text = json.dumps(tailored_data)
+    mock_model.generate_content.return_value = mock_response
+
+    client = GeminiClient(api_key="key")
+    tailored_resume = client.tailor_resume("Python role", sample_resume)
+
+    assert tailored_resume.basics.label == "Principal Software Engineer"
+
+
 @_patch_gemini_sdk
 def test_gemini_client_tailor_retries_once_on_malformed_json(
     mock_configure: MagicMock, mock_model_cls: MagicMock, sample_resume: Resume
@@ -700,6 +779,25 @@ def test_openrouter_client_tailor(
     tailored_resume = client.tailor_resume("Python role", sample_resume)
 
     assert tailored_resume.basics.summary == "Tailored via OpenRouter."
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_client_tailor_backfills_dropped_label(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """A tailored response that omits basics.label keeps the original label."""
+    mock_response = MagicMock()
+    tailored_data = sample_resume.to_dict()
+    del tailored_data["basics"]["label"]
+    mock_response.read.return_value = json.dumps(
+        {"choices": [{"message": {"content": json.dumps(tailored_data)}}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+    tailored_resume = client.tailor_resume("Python role", sample_resume)
+
+    assert tailored_resume.basics.label == "Principal Software Engineer"
 
 
 @patch("urllib.request.urlopen")
@@ -1618,6 +1716,25 @@ def test_claude_client_tailor(mock_urlopen: MagicMock, sample_resume: Resume) ->
     tailored_resume = client.tailor_resume("Python role", sample_resume)
 
     assert tailored_resume.basics.summary == "Tailored via Claude."
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_tailor_backfills_dropped_label(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """A tailored response that omits basics.label keeps the original label."""
+    mock_response = MagicMock()
+    tailored_data = sample_resume.to_dict()
+    del tailored_data["basics"]["label"]
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": json.dumps(tailored_data)}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="sk-ant-oat01-key")
+    tailored_resume = client.tailor_resume("Python role", sample_resume)
+
+    assert tailored_resume.basics.label == "Principal Software Engineer"
 
 
 @patch("urllib.request.urlopen")

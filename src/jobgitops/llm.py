@@ -7,12 +7,12 @@ import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import yaml
 
-from jobgitops.schema import Resume, ValidationError
+from jobgitops.schema import Basics, Resume, ValidationError
 
 logger = logging.getLogger("jobgitops.llm")
 
@@ -148,8 +148,31 @@ _RETRY_OUTPUT_HINT = (
 _MAX_LOG_DETAIL_CHARS = 200
 
 
+def _backfill_basics(tailored: Basics, original: Basics) -> Basics:
+    """Restore optional basics fields the model dropped from its tailored output.
+
+    The tailoring prompt asks the model to adjust ``basics.summary``, work
+    highlights, and skills keywords -- it never mentions other ``basics``
+    fields like ``label``, ``email``, ``phone``, ``url``, ``location``, or
+    ``profiles``. But the model returns a full JSON resume rather than a
+    targeted patch, so a compliant-but-imperfect response can still omit those
+    untouched fields entirely. Any such field left empty in the tailored
+    output falls back to the original resume's value.
+    """
+    return replace(
+        tailored,
+        label=tailored.label or original.label,
+        email=tailored.email or original.email,
+        phone=tailored.phone or original.phone,
+        url=tailored.url or original.url,
+        summary=tailored.summary or original.summary,
+        location=tailored.location or original.location,
+        profiles=tailored.profiles or original.profiles,
+    )
+
+
 def _parse_tailored_resume(
-    fetch_text: Callable[[str], str], provider_label: str
+    fetch_text: Callable[[str], str], provider_label: str, original: Resume
 ) -> Resume:
     """Fetch and parse a tailored resume, retrying once on malformed output.
 
@@ -162,6 +185,8 @@ def _parse_tailored_resume(
         fetch_text: Callable performing one LLM call. Receives the corrective
             prompt suffix for this attempt and returns the raw response text.
         provider_label: Provider name used in log and error messages.
+        original: The pre-tailoring resume, used to backfill optional
+            ``basics`` fields the model's output dropped.
 
     Returns:
         The parsed tailored Resume.
@@ -176,7 +201,9 @@ def _parse_tailored_resume(
         try:
             clean_text = clean_json_string(fetch_text(hint))
             data = json.loads(clean_text)
-            return Resume.from_dict(data)
+            tailored = Resume.from_dict(data)
+            tailored.basics = _backfill_basics(tailored.basics, original.basics)
+            return tailored
         except (json.JSONDecodeError, ValidationError) as e:
             last_error = e
             logger.warning(
@@ -776,7 +803,7 @@ class GeminiClient(LLMClient):
             return response.text
 
         try:
-            return _parse_tailored_resume(generate_text, "Gemini")
+            return _parse_tailored_resume(generate_text, "Gemini", resume)
         except google.api_core.exceptions.ResourceExhausted as e:
             raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
         except google.api_core.exceptions.GoogleAPICallError as e:
@@ -943,7 +970,7 @@ class OpenRouterClient(LLMClient):
             resume_yaml=resume_yaml, job_description=job_description
         )
         return _parse_tailored_resume(
-            lambda hint: self._call_openrouter(prompt + hint), "OpenRouter"
+            lambda hint: self._call_openrouter(prompt + hint), "OpenRouter", resume
         )
 
     def extract_job_details(
@@ -1112,7 +1139,7 @@ class ClaudeClient(LLMClient):
             resume_yaml=resume_yaml, job_description=job_description
         )
         return _parse_tailored_resume(
-            lambda hint: self._call_claude(prompt + hint), "Claude"
+            lambda hint: self._call_claude(prompt + hint), "Claude", resume
         )
 
     def extract_job_details(
