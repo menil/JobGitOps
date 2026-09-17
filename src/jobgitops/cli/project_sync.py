@@ -18,6 +18,7 @@ from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_loggi
 from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.loader import load_settings
 from jobgitops.status_model import (
+    CLOSURE_LABELS,
     LABEL_TO_STATUS,
     LIFECYCLE_LABELS,
     MISMATCH_REASON_LABELS,
@@ -228,6 +229,17 @@ def _run_event(
         )
         sys.exit(1)
 
+    if target_label in CLOSURE_LABELS:
+        try:
+            gh_client.close_issue(issue_number)
+            logger.info(
+                "Closed issue #%d for terminal status %s.",
+                issue_number,
+                target_label,
+            )
+        except Exception as e:
+            logger.error("Failed to close issue #%d: %s", issue_number, e)
+
 
 def _extract_status_name(val: Any) -> str | None:
     """Extract a string status name from a string or dictionary representation.
@@ -282,9 +294,16 @@ def _run_backfill(gh_client: GitHubClient, reverse: bool) -> None:
     board_statuses = gh_client.list_project_items()
     labels_by_number = _collect_labels(issues)
 
+    issues_by_number = {
+        int(issue["number"]): issue
+        for issue in issues
+        if issue.get("number") is not None
+    }
     failed = 0
     if reverse:
-        failed += _reverse_reconcile(gh_client, labels_by_number, board_statuses)
+        failed += _reverse_reconcile(
+            gh_client, labels_by_number, board_statuses, issues_by_number
+        )
 
     processed = 0
     moved = 0
@@ -299,7 +318,7 @@ def _run_backfill(gh_client: GitHubClient, reverse: bool) -> None:
         status = _target_status(issue_number, issue.get("state"), labels)
         if not status:
             continue
-        if board_statuses.get(issue_number) == status:
+        if board_statuses.get(int(issue_number)) == status:
             continue
         try:
             gh_client.update_project_status(issue_node_id, status)
@@ -357,13 +376,15 @@ def _reverse_reconcile(
     gh_client: GitHubClient,
     labels_by_number: dict[int, set[str]],
     board_statuses: dict[int, str | None],
+    issues_by_number: dict[int, dict[str, Any]] | None = None,
 ) -> int:
     """Make issue labels match their board column for lifecycle statuses.
 
     Only ``REVERSE_SYNC_STATUSES`` columns are acted on (Triage Pending is
     excluded, matching the event handler, so a card dragged back never
     re-triggers an AI re-triage). Issues whose labels already match, or that
-    are not on the board, are skipped. Failures are logged per issue instead of
+    are not on the board, are skipped. Terminal lifecycle statuses (CLOSURE_LABELS)
+    additionally close the issue. Failures are logged per issue instead of
     aborting the run. The passed-in ``labels_by_number`` map is updated in
     place, so the forward pass that follows sees the reconciled labels instead
     of stale snapshots.
@@ -378,10 +399,25 @@ def _reverse_reconcile(
             continue
         target_label = STATUS_TO_LABEL[status]
         current = labels_by_number.get(int(issue_number))
+        issue_record = (
+            issues_by_number.get(int(issue_number)) if issues_by_number else None
+        )
+        issue_state = issue_record.get("state") if issue_record else None
         if current is None or is_lifecycle_label_satisfied(target_label, current):
             continue
         try:
             sync_lifecycle_label(gh_client, int(issue_number), target_label, current)
+            if target_label in CLOSURE_LABELS and issue_state != "closed":
+                try:
+                    gh_client.close_issue(int(issue_number))
+                    if issue_record:
+                        issue_record["state"] = "closed"
+                except Exception as e:
+                    logger.error(
+                        "Failed to close issue #%d during reverse reconcile: %s",
+                        issue_number,
+                        e,
+                    )
             labels_by_number[int(issue_number)] = get_updated_lifecycle_labels(
                 target_label, current
             )

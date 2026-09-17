@@ -6,14 +6,16 @@ Responds to ``issue_comment`` (created) and ``issues`` (opened) webhook events
 - **Comment flow:** skips bot authors, empty comments, and the assistant's own
   confirmation marker; loads the issue thread context; runs the agent loop
   (``assistant.run_agent``); executes the returned side effect (reply comment,
-  status label + marker-prefixed confirmation, triage, or nothing).
+  status label + marker-prefixed confirmation, triage, or nothing). Terminal
+  status updates (``rejected``) additionally close the issue directly.
 - **Opened-issue flow:** auto-detects bare job-URL submissions, fetches the
   posting, builds the canonical job body, and runs the shared triage core
   directly. Issues already labeled ``triage-pending`` are left to the
   ``triage-issue.yml`` webhook.
 
-Projects V2 column moves are never performed here: the ``status_update`` action
-only adds the label, and ``status-transition.yml`` owns the column (§4.3).
+Direct Projects V2 status updates are performed for low-latency synchronization
+when configured, with ``status-transition.yml`` remaining the eventual
+consistency owner.
 """
 
 import argparse
@@ -41,6 +43,7 @@ from jobgitops.llm import QuotaExceededError, get_llm_client
 from jobgitops.loader import load_resume, load_settings
 from jobgitops.schema import Resume, Settings
 from jobgitops.status_model import (
+    CLOSURE_LABELS,
     LABEL_TO_STATUS,
     LIFECYCLE_LABELS,
     sync_lifecycle_label,
@@ -234,6 +237,7 @@ def execute_action(
 
     Directly updates the Projects V2 status when config is available to minimize
     latency, while status-transition.yml remains the eventual consistency owner.
+    Terminal lifecycle labels (CLOSURE_LABELS) additionally close the issue.
     """
     if action.action == ACTION_SKIP:
         return
@@ -251,9 +255,25 @@ def execute_action(
             label,
             current_labels=set(current_labels) if current_labels is not None else None,
         )
+        close_failed = False
+        if label in CLOSURE_LABELS:
+            try:
+                gh_client.close_issue(issue_number)
+                logger.info(
+                    "Closed issue #%d for terminal status %s.",
+                    issue_number,
+                    label,
+                )
+            except GitHubClientError as e:
+                close_failed = True
+                logger.error("Failed to close issue #%d: %s", issue_number, e)
+        applied = False
         if issue_node_id and settings.projects_v2 and settings.projects_v2.project_id:
             try:
-                gh_client.update_project_status(issue_node_id, LABEL_TO_STATUS[label])
+                res = gh_client.update_project_status(
+                    issue_node_id, LABEL_TO_STATUS[label]
+                )
+                applied = res is not False
                 logger.info(
                     "Directly updated Projects V2 status to %s for issue #%d.",
                     LABEL_TO_STATUS[label],
@@ -265,7 +285,10 @@ def execute_action(
                     issue_number,
                     e,
                 )
+        # Post confirmation comment immediately so user is not blocked by settle delay
         gh_client.post_comment(issue_number, _confirmation_comment(action.reply))
+        if applied and issue_node_id and label in CLOSURE_LABELS and not close_failed:
+            gh_client.ensure_project_status(issue_node_id, LABEL_TO_STATUS[label])
         return
 
     if action.action == ACTION_TRIAGE:
