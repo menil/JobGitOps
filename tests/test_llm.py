@@ -162,14 +162,14 @@ def test_triage_result_from_dict_structured_reasoning() -> None:
     """Verify TriageResult preserves multi-line structured reasoning strings."""
     structured_reasoning = (
         "Strong overall alignment with principal requirements.\n\n"
-        "**Tech Stack Match:** Direct experience with Python, FastAPI, "
+        "- **Tech Stack Match:** Direct experience with Python, FastAPI, "
         "and Kubernetes.\n"
-        "**Experience & Years Fit:** 10+ years backend aligns with Staff/Principal "
+        "- **Experience & Years Fit:** 10+ years backend aligns with Staff/Principal "
         "scope.\n"
-        "**Location & Timezone Suitability:** Hybrid in Seattle is local to "
+        "- **Location & Timezone Suitability:** Hybrid in Seattle is local to "
         "your residence.\n"
-        "**Salary Alignment:** Stated comp range is well above target minimum.\n"
-        "**Industry Domain Familiarity:** Deep background in developer tools.\n\n"
+        "- **Salary Alignment:** Stated comp range is well above target minimum.\n"
+        "- **Industry Domain Familiarity:** Deep background in developer tools.\n\n"
         "Overall, an outstanding technical and cultural match."
     )
     data = {
@@ -183,6 +183,19 @@ def test_triage_result_from_dict_structured_reasoning() -> None:
     }
     result = TriageResult.from_dict(data)
     assert result.reasoning == structured_reasoning
+
+
+def test_triage_prompt_requests_bulleted_reasoning() -> None:
+    """Verify TRIAGE_PROMPT contains instructions for paragraphs and bullet points."""
+    from jobgitops.llm import TRIAGE_PROMPT
+
+    assert "markdown paragraphs and bullet points" in TRIAGE_PROMPT
+    assert "- **Tech Stack Match:**" in TRIAGE_PROMPT
+    assert "- **Experience & Years Fit:**" in TRIAGE_PROMPT
+    assert "- **Location & Timezone Suitability:**" in TRIAGE_PROMPT
+    assert "- **Salary Alignment:**" in TRIAGE_PROMPT
+    assert "- **Industry Domain Familiarity:**" in TRIAGE_PROMPT
+    assert "CRITICAL: Use actual newlines" in TRIAGE_PROMPT
 
 
 def test_triage_result_from_dict_missing_reasoning_default() -> None:
@@ -1693,7 +1706,8 @@ def test_format_triage_prompt_structured_reasoning_instructions(
     assert "**Location & Timezone Suitability:**" in prompt
     assert "**Salary Alignment:**" in prompt
     assert "**Industry Domain Familiarity:**" in prompt
-    assert "Use bold labels rather than markdown headers" in prompt
+    assert "markdown paragraphs and bullet points" in prompt
+    assert "rather than markdown headers" in prompt
     assert "Do not return any other text, markdown code fences, or preamble" in prompt
 
 
