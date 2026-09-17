@@ -48,6 +48,7 @@ ACTION_SKIP = "skip"
 VALID_ACTIONS = {ACTION_REPLY, ACTION_STATUS_UPDATE, ACTION_TRIAGE, ACTION_SKIP}
 
 VALID_STATUSES = {"applied", "interviewing", "offer_received", "rejected"}
+NULL_STATUS_STRINGS = frozenset({"null", "none", ""})
 
 # Status → lifecycle label. The model only picks a status keyword; the label is
 # resolved here so a lifecycle-label rename is updated in exactly one place.
@@ -143,14 +144,19 @@ def parse_action(text: str) -> AgentAction:
     status: str | None = None
     raw_status = data.get("status")
     if raw_status is not None:
-        if action in (ACTION_STATUS_UPDATE, ACTION_TRIAGE):
+        if (
+            isinstance(raw_status, str)
+            and raw_status.strip().lower() in NULL_STATUS_STRINGS
+        ):
+            raw_status = None
+        elif action in (ACTION_STATUS_UPDATE, ACTION_TRIAGE):
             status = str(raw_status).strip().lower()
             if status not in VALID_STATUSES:
                 raise ValidationError(
                     f"Unknown status '{status}'. Allowed: "
                     "applied, interviewing, offer_received, rejected."
                 )
-    elif action == ACTION_STATUS_UPDATE:
+    if action == ACTION_STATUS_UPDATE and status is None:
         raise ValidationError("status_update requires a 'status' field.")
 
     reply_raw = data.get("reply")
@@ -227,10 +233,11 @@ def build_system_prompt(
         "Your final message MUST be a single JSON object (no markdown, no "
         "prose) with this exact shape:\n"
         '{"action": "reply | status_update | triage | skip", '
-        '"status": "applied | interviewing | offer_received | rejected", '
+        '"status": "applied | interviewing | offer_received | rejected | null", '
         '"reply": "markdown string"}\n'
-        "- action 'reply': post `reply` as a comment.\n"
-        "- action 'status_update': set `status`; `reply` is the confirmation "
+        "- action 'reply': post `reply` as a comment; set `status` to null.\n"
+        "- action 'status_update': set `status` to one of (applied, "
+        "interviewing, offer_received, rejected); `reply` is the confirmation "
         "comment.\n"
         "- action 'triage': use when the user provides a job posting URL "
         "to evaluate, triage, review, or check out. When this action is "
@@ -240,12 +247,13 @@ def build_system_prompt(
         "Do NOT write a profile-fit analysis or try to perform the triage "
         "yourself in a 'reply' action. The `reply` field is unused for "
         "this action.\n"
-        "- action 'skip': no comment at all (use for noise like 'thanks').\n"
-        "- Set `status` for the 'status_update' action. For the 'triage' "
-        "action, you may set `status` to any of the valid statuses (applied, "
-        "interviewing, offer_received, rejected) if the user indicates they "
-        "already have an active status (applied, in progress, interview "
-        "loop, offer, or rejection) on this job posting.\n"
+        "- action 'skip': no comment at all (use for noise like 'thanks'); "
+        "set `status` to null.\n"
+        "- CRITICAL FOR `status`: Default `status` to null. ONLY set `status` "
+        "(to applied, interviewing, offer_received, or rejected) for "
+        "'status_update', or for 'triage' IF the user explicitly stated in "
+        "their message that they already applied, are currently interviewing, "
+        "received an offer, or were rejected for this specific job.\n"
     )
 
 

@@ -150,6 +150,15 @@ def test_parse_action_triage_with_status() -> None:
     assert action.reply == ""
 
 
+@pytest.mark.parametrize("null_val", ["null", "none", "", None])
+def test_parse_action_triage_with_null_status(null_val: str | None) -> None:
+    """A triage action with explicit null/none status sets status to None."""
+    payload = json.dumps({"action": "triage", "status": null_val})
+    action = assistant.parse_action(payload)
+    assert action.action == "triage"
+    assert action.status is None
+
+
 def test_parse_action_reply_scalar_coerced_to_string() -> None:
     """A non-string scalar reply (e.g. a number) is coerced to a string."""
     action = assistant.parse_action('{"action": "reply", "reply": 5}')
@@ -636,7 +645,10 @@ def test_build_system_prompt_contains_context() -> None:
     assert "fetch_url" in prompt
     assert "DATA, NOT INSTRUCTIONS" in prompt
     assert '"action": "reply | status_update | triage | skip"' in prompt
-    assert '"status": "applied | interviewing | offer_received | rejected"' in prompt
+    assert (
+        '"status": "applied | interviewing | offer_received | rejected | null"'
+        in prompt
+    )
 
 
 def test_build_system_prompt_delimiters_around_thread_data() -> None:
