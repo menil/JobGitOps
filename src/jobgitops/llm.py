@@ -284,13 +284,18 @@ TRIAGE_PROMPT = (
     '  "location_fit": float,\n'
     '  "salary_fit": float,\n'
     '  "industry_fit": float,\n'
-    '  "reasoning": "A concise, developer-focused explanation of the '
-    "evaluation and any gaps. Address the candidate directly in the "
-    "second person (e.g., use 'you' and 'your' instead of "
-    "'the candidate' or 'their') to keep it personal.\"\n"
+    '  "reasoning": "A structured developer-focused explanation formatted as: '
+    "(1) a short opening summary line, (2) one short line per fit-score dimension "
+    "using bold labels matching the categories (e.g. **Tech Stack Match:**, "
+    "**Experience & Years Fit:**, **Location & Timezone Suitability:**, "
+    "**Salary Alignment:**, **Industry Domain Familiarity:**), and (3) a closing "
+    "summary line. Use bold labels rather than markdown headers (#/##) or horizontal "
+    "rules (---) to avoid visual collisions. Address the candidate directly in the "
+    "second person (e.g., use 'you' and 'your' instead of 'the candidate' or 'their') "
+    'to keep it personal."\n'
     "}}\n\n"
-    "Do not return any other text, markdown formatting, or preamble. "
-    "Return ONLY the JSON object.\n"
+    "Do not return any other text, markdown code fences, or preamble outside the "
+    "JSON object. Return ONLY the JSON object.\n"
 )
 
 
