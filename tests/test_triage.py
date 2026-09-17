@@ -1993,11 +1993,11 @@ def test_run_triage_mismatch_structured_reasoning(
     """Verify mismatch comments render structured multi-line reasoning cleanly."""
     structured_reasoning = (
         "Strong technical background with gaps in compensation and location fit.\n\n"
-        "**Tech Stack Match:** Strong overlap with Python, FastAPI, and Postgres.\n"
-        "**Experience & Years Fit:** Seniority matches the role requirements.\n"
-        "**Location & Timezone Suitability:** Role requires relocation to London.\n"
-        "**Salary Alignment:** Offered compensation is below acceptable threshold.\n"
-        "**Industry Domain Familiarity:** Experience in adjacent SaaS domains.\n\n"
+        "- **Tech Stack Match:** Strong overlap with Python, FastAPI, and Postgres.\n"
+        "- **Experience & Years Fit:** Seniority matches the role requirements.\n"
+        "- **Location & Timezone Suitability:** Role requires relocation to London.\n"
+        "- **Salary Alignment:** Offered compensation is below acceptable threshold.\n"
+        "- **Industry Domain Familiarity:** Experience in adjacent SaaS domains.\n\n"
         "Overall, location and compensation constraints prevent a strong match."
     )
     mock_llm_client = mock.MagicMock(spec=LLMClient)
@@ -2031,12 +2031,12 @@ def test_run_triage_mismatch_structured_reasoning(
     mock_gh_client.post_comment.assert_called_once()
     comment = mock_gh_client.post_comment.call_args[0][1]
 
-    # Assert structured lines are preserved
-    assert "**Tech Stack Match:** Strong overlap" in comment
-    assert "**Experience & Years Fit:** Seniority matches" in comment
-    assert "**Location & Timezone Suitability:** Role requires" in comment
-    assert "**Salary Alignment:** Offered compensation" in comment
-    assert "**Industry Domain Familiarity:** Experience in adjacent" in comment
+    # Assert structured lines and bullets are preserved
+    assert "- **Tech Stack Match:** Strong overlap" in comment
+    assert "- **Experience & Years Fit:** Seniority matches" in comment
+    assert "- **Location & Timezone Suitability:** Role requires" in comment
+    assert "- **Salary Alignment:** Offered compensation" in comment
+    assert "- **Industry Domain Familiarity:** Experience in adjacent" in comment
     assert "Strong technical background with gaps" in comment
     assert "Overall, location and compensation constraints" in comment
 
@@ -2062,13 +2062,13 @@ def test_run_triage_match_approved_structured_reasoning(
     mock_run_git.side_effect = make_run_git_stub()
     structured_reasoning = (
         "Exceptional alignment across all primary role dimensions.\n\n"
-        "**Tech Stack Match:** Direct mastery of Python, Distributed Systems, GCP.\n"
-        "**Experience & Years Fit:** 10+ years aligns with Principal Staff "
+        "- **Tech Stack Match:** Direct mastery of Python, Distributed Systems, GCP.\n"
+        "- **Experience & Years Fit:** 10+ years aligns with Principal Staff "
         "expectations.\n"
-        "**Location & Timezone Suitability:** Remote-friendly policy matches "
+        "- **Location & Timezone Suitability:** Remote-friendly policy matches "
         "preferences.\n"
-        "**Salary Alignment:** Compensation exceeds target minimum.\n"
-        "**Industry Domain Familiarity:** Deep background in Developer Tooling.\n\n"
+        "- **Salary Alignment:** Compensation exceeds target minimum.\n"
+        "- **Industry Domain Familiarity:** Deep background in Developer Tooling.\n\n"
         "Recommended for immediate application."
     )
     mock_llm_client = mock.MagicMock(spec=LLMClient)
@@ -2103,12 +2103,12 @@ def test_run_triage_match_approved_structured_reasoning(
     mock_gh_client.post_comment.assert_called_once()
     comment = mock_gh_client.post_comment.call_args[0][1]
 
-    # Assert structured lines are preserved
-    assert "**Tech Stack Match:** Direct mastery" in comment
-    assert "**Experience & Years Fit:** 10+ years" in comment
-    assert "**Location & Timezone Suitability:** Remote-friendly" in comment
-    assert "**Salary Alignment:** Compensation exceeds" in comment
-    assert "**Industry Domain Familiarity:** Deep background" in comment
+    # Assert structured lines and bullets are preserved
+    assert "- **Tech Stack Match:** Direct mastery" in comment
+    assert "- **Experience & Years Fit:** 10+ years" in comment
+    assert "- **Location & Timezone Suitability:** Remote-friendly" in comment
+    assert "- **Salary Alignment:** Compensation exceeds" in comment
+    assert "- **Industry Domain Familiarity:** Deep background" in comment
     assert "Exceptional alignment across all primary" in comment
     assert "Recommended for immediate application." in comment
 
