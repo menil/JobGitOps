@@ -155,6 +155,67 @@ def test_sync_event_applies_reverse_label(
     )
     mock_client.resolve_issue_number.assert_called_once_with("ND_EVENT_999")
     mock_client.add_labels.assert_called_once_with(42, ["applied"])
+    mock_client.close_issue.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("status_name", "expected_label"),
+    [
+        ("Rejected", "rejected"),
+        ("Mismatched/Closed", "triage-mismatched"),
+    ],
+)
+@patch("jobgitops.cli.project_sync.GitHubClient")
+def test_sync_event_closes_issue_on_terminal_status(
+    mock_github_client_class,
+    status_name: str,
+    expected_label: str,
+) -> None:
+    """Verify moving a card to a terminal status adds the label and closes the issue."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.resolve_issue_number.return_value = 42
+    mock_client.get_labels.return_value = ["applied"]
+    mock_client.project_id = "PVT_TEST_123"
+
+    with (
+        in_memory_event(project_item_event(status_name)),
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", DEFAULT_ARGV),
+    ):
+        main()
+
+    mock_client.remove_label.assert_called_once_with(42, "applied")
+    mock_client.add_labels.assert_called_once_with(42, [expected_label])
+    mock_client.close_issue.assert_called_once_with(42)
+
+
+@patch("jobgitops.cli.project_sync.GitHubClient")
+def test_sync_event_close_failure_is_resilient(
+    mock_github_client_class,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify close_issue failure in event sync is logged and does not abort."""
+    from jobgitops.github_client import GitHubClientError
+
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.resolve_issue_number.return_value = 42
+    mock_client.get_labels.return_value = ["applied"]
+    mock_client.project_id = "PVT_TEST_123"
+    mock_client.close_issue.side_effect = GitHubClientError("403 write denied")
+
+    with (
+        in_memory_event(project_item_event("Rejected")),
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", DEFAULT_ARGV),
+    ):
+        main()
+
+    mock_client.remove_label.assert_called_once_with(42, "applied")
+    mock_client.add_labels.assert_called_once_with(42, ["rejected"])
+    mock_client.close_issue.assert_called_once_with(42)
+    assert "Failed to close issue #42" in caplog.text
 
 
 @patch("jobgitops.cli.project_sync.GitHubClient")
@@ -706,8 +767,86 @@ def test_sync_backfill_reverse_reconciles_labels(
         main()
 
     mock_client.add_labels.assert_called_once_with(1, ["applied"])
+    mock_client.close_issue.assert_not_called()
     # The reconciled label now matches the board, so the forward pass skips.
     mock_client.update_project_status.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("status_name", "expected_label"),
+    [
+        ("Rejected", "rejected"),
+        ("Mismatched/Closed", "triage-mismatched"),
+    ],
+)
+@patch("jobgitops.cli.project_sync.GitHubClient")
+def test_sync_backfill_reverse_closes_issue_on_terminal_status(
+    mock_github_client_class,
+    status_name: str,
+    expected_label: str,
+) -> None:
+    """Verify --reverse closes the issue when reconciling to a terminal status."""
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.list_issues.side_effect = [
+        [
+            {
+                "number": 1,
+                "node_id": "ND_1",
+                "state": "open",
+                "labels": [{"name": "applied"}],
+            },
+        ],
+        [],
+    ]
+    mock_client.list_project_items.return_value = {1: status_name}
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", ["project_sync.py", "backfill", "--reverse"]),
+    ):
+        main()
+
+    mock_client.remove_label.assert_called_once_with(1, "applied")
+    mock_client.add_labels.assert_called_once_with(1, [expected_label])
+    mock_client.close_issue.assert_called_once_with(1)
+    mock_client.update_project_status.assert_not_called()
+
+
+@patch("jobgitops.cli.project_sync.GitHubClient")
+def test_sync_backfill_reverse_close_failure_is_resilient(
+    mock_github_client_class,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify close_issue failure during reverse backfill logs error and continues."""
+    from jobgitops.github_client import GitHubClientError
+
+    mock_client = MagicMock()
+    mock_github_client_class.return_value = mock_client
+    mock_client.list_issues.side_effect = [
+        [
+            {
+                "number": 1,
+                "node_id": "ND_1",
+                "state": "open",
+                "labels": [{"name": "applied"}],
+            },
+        ],
+        [],
+    ]
+    mock_client.list_project_items.return_value = {1: "Rejected"}
+    mock_client.close_issue.side_effect = GitHubClientError("403 write denied")
+
+    with (
+        patch.dict(os.environ, DEFAULT_ENV, clear=True),
+        patch("sys.argv", ["project_sync.py", "backfill", "--reverse"]),
+    ):
+        main()
+
+    mock_client.remove_label.assert_called_once_with(1, "applied")
+    mock_client.add_labels.assert_called_once_with(1, ["rejected"])
+    mock_client.close_issue.assert_called_once_with(1)
+    assert "Failed to close issue #1 during reverse reconcile" in caplog.text
 
 
 @patch("jobgitops.cli.project_sync.GitHubClient")

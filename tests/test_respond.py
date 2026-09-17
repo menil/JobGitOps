@@ -11,6 +11,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -98,6 +99,8 @@ class FakeGitHubClient:
         self.added_labels: list[tuple[int, list[str]]] = []
         self.removed_labels: list[tuple[int, str]] = []
         self.project_statuses: list[tuple[str, str]] = []
+        self.closed_issues: list[int] = []
+        self.ensured_project_statuses: list[tuple[str, str]] = []
 
     def get_labels(self, issue_number: int) -> list[str]:
         return list(self.labels)
@@ -120,10 +123,24 @@ class FakeGitHubClient:
         self.removed_labels.append((issue_number, label))
 
     def close_issue(self, issue_number: int) -> dict:
+        self.closed_issues.append(issue_number)
         return {}
 
-    def update_project_status(self, issue_node_id: str, status_name: str) -> None:
+    def update_project_status(self, issue_node_id: str, status_name: str) -> bool:
         self.project_statuses.append((issue_node_id, status_name))
+        return True
+
+    def ensure_project_status(
+        self,
+        issue_node_id: str,
+        status_name: str,
+        *,
+        settle_seconds: float = 5.0,
+        attempts: int = 3,
+        _sleep: Any = None,
+    ) -> bool:
+        self.ensured_project_statuses.append((issue_node_id, status_name))
+        return True
 
 
 def write_event(tmp_path: Path, data: dict) -> str:
@@ -420,7 +437,9 @@ def test_execute_action_reply_empty_is_noop() -> None:
     assert gh.posted_comments == []
 
 
-@pytest.mark.parametrize("status", ["applied", "interviewing", "rejected"])
+@pytest.mark.parametrize(
+    "status", ["applied", "interviewing", "offer_received", "rejected"]
+)
 def test_execute_action_status_update(status: str) -> None:
     """A status_update adds the label, updates the project, and posts confirmation."""
     gh = FakeGitHubClient()
@@ -441,13 +460,54 @@ def test_execute_action_status_update(status: str) -> None:
         llm_client=MagicMock(),
         web_client=MagicMock(),
     )
-    assert gh.added_labels == [(5, [STATUS_LABELS[status]])]
+    label = STATUS_LABELS[status]
+    assert gh.added_labels == [(5, [label])]
     assert len(gh.posted_comments) == 1
     body = gh.posted_comments[0][1]
     assert body.startswith(STATUS_CONFIRMATION_MARKER)
     assert "Marked." in body
-    expected_status = respond.LABEL_TO_STATUS[STATUS_LABELS[status]]
+    expected_status = respond.LABEL_TO_STATUS[label]
     assert gh.project_statuses == [("ND", expected_status)]
+
+    if label in respond.CLOSURE_LABELS:
+        assert gh.closed_issues == [5]
+        assert gh.ensured_project_statuses == [("ND", expected_status)]
+    else:
+        assert gh.closed_issues == []
+        assert gh.ensured_project_statuses == []
+
+
+def test_execute_action_status_update_closure_failure_resilient(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify failed close_issue does not abort project update or confirmation."""
+    gh = FakeGitHubClient()
+    gh.close_issue = MagicMock(  # type: ignore[method-assign]
+        side_effect=GitHubClientError("403: write denied")
+    )
+    settings = sample_settings()
+    settings.projects_v2 = ProjectsV2Config(
+        project_id="PVT_123", status_field_name="Status"
+    )
+    respond.execute_action(
+        AgentAction(action="status_update", status="rejected", reply="Closed."),
+        issue_number=5,
+        issue_title="t",
+        issue_body="b",
+        issue_node_id="ND",
+        repo_path=Path(),
+        gh_client=gh,
+        settings=settings,
+        resume=sample_resume(),
+        llm_client=MagicMock(),
+        web_client=MagicMock(),
+    )
+    gh.close_issue.assert_called_once_with(5)
+    assert gh.added_labels == [(5, ["rejected"])]
+    assert gh.project_statuses == [("ND", "Rejected")]
+    assert gh.ensured_project_statuses == []
+    assert len(gh.posted_comments) == 1
+    assert "Failed to close issue #5" in caplog.text
 
 
 def test_execute_action_status_update_fallback_without_projects() -> None:
@@ -472,6 +532,30 @@ def test_execute_action_status_update_fallback_without_projects() -> None:
     assert body.startswith(STATUS_CONFIRMATION_MARKER)
     assert "Marked." in body
     assert gh.project_statuses == []
+    assert gh.closed_issues == []
+
+
+def test_execute_action_status_update_terminal_fallback_without_projects() -> None:
+    """Verify terminal status closes the issue even when Projects V2 is unconfigured."""
+    gh = FakeGitHubClient()
+    respond.execute_action(
+        AgentAction(action="status_update", status="rejected", reply="Closed."),
+        issue_number=5,
+        issue_title="t",
+        issue_body="b",
+        issue_node_id="ND",
+        repo_path=Path(),
+        gh_client=gh,
+        settings=sample_settings(),
+        resume=sample_resume(),
+        llm_client=MagicMock(),
+        web_client=MagicMock(),
+    )
+    assert gh.added_labels == [(5, ["rejected"])]
+    assert len(gh.posted_comments) == 1
+    assert gh.project_statuses == []
+    assert gh.closed_issues == [5]
+    assert gh.ensured_project_statuses == []
 
 
 def test_execute_action_status_update_warning_on_project_failure(
