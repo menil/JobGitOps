@@ -158,6 +158,33 @@ def test_triage_result_from_dict_success() -> None:
     assert result.reasoning == "Strong match with Python and backend design."
 
 
+def test_triage_result_from_dict_structured_reasoning() -> None:
+    """Verify TriageResult preserves multi-line structured reasoning strings."""
+    structured_reasoning = (
+        "Strong overall alignment with principal requirements.\n\n"
+        "**Tech Stack Match:** Direct experience with Python, FastAPI, "
+        "and Kubernetes.\n"
+        "**Experience & Years Fit:** 10+ years backend aligns with Staff/Principal "
+        "scope.\n"
+        "**Location & Timezone Suitability:** Hybrid in Seattle is local to "
+        "your residence.\n"
+        "**Salary Alignment:** Stated comp range is well above target minimum.\n"
+        "**Industry Domain Familiarity:** Deep background in developer tools.\n\n"
+        "Overall, an outstanding technical and cultural match."
+    )
+    data = {
+        "fit_score": 4.8,
+        "tech_stack_fit": 5.0,
+        "experience_fit": 5.0,
+        "location_fit": 5.0,
+        "salary_fit": 4.5,
+        "industry_fit": 4.5,
+        "reasoning": structured_reasoning,
+    }
+    result = TriageResult.from_dict(data)
+    assert result.reasoning == structured_reasoning
+
+
 def test_triage_result_from_dict_missing_reasoning_default() -> None:
     """Verify that a missing or null reasoning field defaults to empty string."""
     data = {
@@ -1654,6 +1681,20 @@ def test_format_triage_prompt_desired_salary_min(sample_resume: Resume) -> None:
         "scale the grade down proportionally based on how far below the "
         "minimum it falls, not a hard cliff)"
     ) in prompt_with_min
+
+
+def test_format_triage_prompt_structured_reasoning_instructions(
+    sample_resume: Resume,
+) -> None:
+    """Verify format_triage_prompt includes structured reasoning guidelines."""
+    prompt = format_triage_prompt("Desc", sample_resume, "remote")
+    assert "**Tech Stack Match:**" in prompt
+    assert "**Experience & Years Fit:**" in prompt
+    assert "**Location & Timezone Suitability:**" in prompt
+    assert "**Salary Alignment:**" in prompt
+    assert "**Industry Domain Familiarity:**" in prompt
+    assert "Use bold labels rather than markdown headers" in prompt
+    assert "Do not return any other text, markdown code fences, or preamble" in prompt
 
 
 @patch("urllib.request.urlopen")
