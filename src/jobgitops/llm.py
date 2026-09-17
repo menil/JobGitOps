@@ -203,6 +203,8 @@ def _parse_tailored_resume(
             data = json.loads(clean_text)
             tailored = Resume.from_dict(data)
             tailored.basics = _backfill_basics(tailored.basics, original.basics)
+            if tailored.meta is None:
+                tailored.meta = original.meta
             return tailored
         except (json.JSONDecodeError, ValidationError) as e:
             last_error = e
