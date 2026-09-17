@@ -18,10 +18,13 @@ from jobgitops.cli.triage import (
     INLINE_DIFF_MAX_CHARS,
     JobFetchError,
     _build_inline_diff_section,
+    _create_tailored_application_branch,
     build_canonical_body,
     extract_job_from_url,
     get_category_mismatch_labels,
     get_fit_grade_label,
+    get_resume_filenames,
+    get_resume_prefix,
     infer_job_details_from_page,
     main,
     parse_job_details,
@@ -620,7 +623,11 @@ def test_run_triage_match_approved(
     assert mock_compile.call_args.args[1] == mock_ensure_theme_installed.return_value
     mock_commit.assert_called_once_with(
         tmp_path,
-        ["resumes/resume.yaml", "resumes/resume.json", "resumes/resume.pdf"],
+        [
+            "resumes/jane_doe_resume.yaml",
+            "resumes/jane_doe_resume.json",
+            "resumes/jane_doe_resume.pdf",
+        ],
         "Google",
         "Senior Py Dev",
     )
@@ -636,12 +643,13 @@ def test_run_triage_match_approved(
     assert "Perfect alignment" in comment_arg
     assert "applications/google-senior-py-dev-" in comment_arg
     assert "https://github.com/my-owner/my-repo/blob/applications/" in comment_arg
+    assert "resumes/jane_doe_resume.pdf" in comment_arg
     assert "https://github.com/my-owner/my-repo/tree/applications/" in comment_arg
     assert (
         "https://github.com/my-owner/my-repo/compare/main...applications/"
         in comment_arg
     )
-    expected_yaml_hash = hashlib.sha256(b"resumes/resume.yaml").hexdigest()
+    expected_yaml_hash = hashlib.sha256(b"resumes/jane_doe_resume.yaml").hexdigest()
     assert f"#diff-{expected_yaml_hash}" in comment_arg
     assert (
         '<a href="https://google.com/apply" '
@@ -656,7 +664,15 @@ def test_run_triage_match_approved(
         "https://github.com/my-owner/my-repo/compare/main..."
     ) < comment_arg.index("<details>")
     mock_run_git.assert_any_call(
-        ["diff", mock.ANY, "--", "resumes/resume.yaml"], cwd=tmp_path
+        [
+            "diff",
+            "-M",
+            mock.ANY,
+            "--",
+            "resumes/jane_doe_resume.yaml",
+            "resumes/resume.yaml",
+        ],
+        cwd=tmp_path,
     )
 
     mock_gh_client.remove_label.assert_called_once_with(15, "triage-pending")
@@ -2103,4 +2119,169 @@ def test_run_triage_match_approved_structured_reasoning(
     assert not any(
         line.strip().startswith(("#", "##", "###", "---"))
         for line in reasoning_block.strip().splitlines()
+    )
+
+
+@pytest.mark.parametrize(
+    ("input_name", "expected_prefix"),
+    [
+        ("Jane Doe", "jane_doe_resume"),
+        ("Meni Livne", "meni_livne_resume"),
+        ("Martin Livne", "martin_livne_resume"),
+        ("john", "john_resume"),
+        ("Méni Lîvné & Co.", "m_ni_l_vn_co_resume"),
+        ("", "resume"),
+        (None, "resume"),
+        ("---", "resume"),
+        ("   ", "resume"),
+        ("🚀 Super Dev", "super_dev_resume"),
+    ],
+)
+def test_get_resume_prefix(input_name: str | None, expected_prefix: str) -> None:
+    """Verify get_resume_prefix slugifies candidate names and handles edge cases."""
+    assert get_resume_prefix(input_name) == expected_prefix
+
+
+def test_get_resume_filenames() -> None:
+    """Verify get_resume_filenames returns the expected yaml, json, pdf tuple."""
+    assert get_resume_filenames("Jane Doe") == (
+        "jane_doe_resume.yaml",
+        "jane_doe_resume.json",
+        "jane_doe_resume.pdf",
+    )
+    assert get_resume_filenames(None) == (
+        "resume.yaml",
+        "resume.json",
+        "resume.pdf",
+    )
+
+
+@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("jobgitops.cli.triage.commit_changes")
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
+def test_create_tailored_application_branch_slugged_filenames(
+    mock_run_git: mock.MagicMock,
+    mock_checkout_branch: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
+    mock_compile: mock.MagicMock,
+    mock_commit: mock.MagicMock,
+    mock_push_branch: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verify application branch generation writes candidate-slugged files."""
+    mock_run_git.side_effect = make_run_git_stub()
+    mock_ensure_theme_installed.return_value = "theme-pkg"
+
+    job_details = {
+        "company": "Anthropic",
+        "role": "Prompt Engineer",
+        "apply_url": "https://anthropic.com/jobs/1",
+        "description": "LLM prompting role.",
+    }
+
+    # Pre-create legacy resume.yaml, resume.json, resume.pdf in
+    # resumes_dir to test unlinking
+    resumes_dir = tmp_path / "resumes"
+    resumes_dir.mkdir(parents=True, exist_ok=True)
+    legacy_yaml = resumes_dir / "resume.yaml"
+    legacy_yaml.write_text("legacy: true", encoding="utf-8")
+    legacy_json = resumes_dir / "resume.json"
+    legacy_json.write_text("{}", encoding="utf-8")
+    legacy_pdf = resumes_dir / "resume.pdf"
+    legacy_pdf.write_bytes(b"%PDF-1.4 mock")
+
+    _create_tailored_application_branch(
+        repo_path=tmp_path,
+        branch_name="applications/anthropic-prompt-engineer-12345",
+        tailored_resume=mock_resume,
+        job_details=job_details,
+        settings=mock_settings,
+    )
+
+    # Verify compile_resume called with jane_doe_resume paths
+    mock_compile.assert_called_once_with(
+        mock_resume,
+        "theme-pkg",
+        tmp_path / "resumes" / "jane_doe_resume.pdf",
+        tmp_path / "resumes" / "jane_doe_resume.json",
+    )
+
+    # Verify commit_changes received jane_doe_resume files and unlinked legacy files
+    mock_commit.assert_called_once_with(
+        tmp_path,
+        [
+            "resumes/jane_doe_resume.yaml",
+            "resumes/jane_doe_resume.json",
+            "resumes/jane_doe_resume.pdf",
+            "resumes/resume.yaml",
+            "resumes/resume.json",
+            "resumes/resume.pdf",
+        ],
+        "Anthropic",
+        "Prompt Engineer",
+    )
+    assert not legacy_yaml.exists()
+    assert not legacy_json.exists()
+    assert not legacy_pdf.exists()
+    assert (tmp_path / "resumes" / "jane_doe_resume.yaml").exists()
+
+
+@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("jobgitops.cli.triage.commit_changes")
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
+def test_create_tailored_application_branch_fallback_when_name_missing(
+    mock_run_git: mock.MagicMock,
+    mock_checkout_branch: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
+    mock_compile: mock.MagicMock,
+    mock_commit: mock.MagicMock,
+    mock_push_branch: mock.MagicMock,
+    mock_settings: Settings,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verify fallback to resume.pdf/json/yaml when candidate name is missing."""
+    mock_run_git.side_effect = make_run_git_stub()
+    mock_ensure_theme_installed.return_value = "theme-pkg"
+
+    resume_no_name = Resume.from_dict({"basics": {"name": "---"}})
+
+    job_details = {
+        "company": "OpenAI",
+        "role": "Research Scientist",
+        "apply_url": "https://openai.com/jobs/1",
+        "description": "Research role.",
+    }
+
+    _create_tailored_application_branch(
+        repo_path=tmp_path,
+        branch_name="applications/openai-research-scientist-12345",
+        tailored_resume=resume_no_name,
+        job_details=job_details,
+        settings=mock_settings,
+    )
+
+    mock_compile.assert_called_once_with(
+        resume_no_name,
+        "theme-pkg",
+        tmp_path / "resumes" / "resume.pdf",
+        tmp_path / "resumes" / "resume.json",
+    )
+
+    mock_commit.assert_called_once_with(
+        tmp_path,
+        [
+            "resumes/resume.yaml",
+            "resumes/resume.json",
+            "resumes/resume.pdf",
+        ],
+        "OpenAI",
+        "Research Scientist",
     )

@@ -24,6 +24,7 @@ from jobgitops.git_ops import (
     mask_value,
     push_branch,
     run_git,
+    slugify,
 )
 from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
@@ -69,6 +70,35 @@ INLINE_DIFF_MAX_CHARS = 20000
 
 # Path of the tailored resume whose changes are shown inline.
 RESUME_YAML_PATH = "resumes/resume.yaml"
+
+
+def get_resume_prefix(name: str | None) -> str:
+    """Return the candidate-specific filename prefix for resume artifacts.
+
+    Args:
+        name: The candidate's full name from resume basics.
+
+    Returns:
+        An underscore-separated prefix (e.g. 'jane_doe_resume') or 'resume'
+        if name is empty.
+    """
+    slug = slugify(name) if name else ""
+    if not slug:
+        return "resume"
+    return f"{slug.replace('-', '_')}_resume"
+
+
+def get_resume_filenames(name: str | None) -> tuple[str, str, str]:
+    """Return the (yaml, json, pdf) filenames for a candidate's resume.
+
+    Args:
+        name: The candidate's full name from resume basics.
+
+    Returns:
+        Tuple of (yaml_filename, json_filename, pdf_filename).
+    """
+    prefix = get_resume_prefix(name)
+    return f"{prefix}.yaml", f"{prefix}.json", f"{prefix}.pdf"
 
 
 # Pre-compiled regex patterns for robust job detail parsing
@@ -540,9 +570,15 @@ def _create_tailored_application_branch(
         resumes_dir = repo_path / "resumes"
         resumes_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Overwrite resume.yaml
+        candidate_name = tailored_resume.basics.name if tailored_resume.basics else None
+        yaml_filename, json_filename, pdf_filename = get_resume_filenames(
+            candidate_name
+        )
+        prefix = get_resume_prefix(candidate_name)
+
+        # 1. Overwrite/write candidate resume.yaml
         yaml_content = render_resume_yaml(tailored_resume)
-        with (resumes_dir / "resume.yaml").open("w", encoding="utf-8") as f:
+        with (resumes_dir / yaml_filename).open("w", encoding="utf-8") as f:
             f.write(yaml_content)
 
         # 2. Compile JSON & PDF
@@ -550,18 +586,27 @@ def _create_tailored_application_branch(
         compile_resume(
             tailored_resume,
             theme_name,
-            resumes_dir / "resume.pdf",
-            resumes_dir / "resume.json",
+            resumes_dir / pdf_filename,
+            resumes_dir / json_filename,
         )
 
         # Commit and push
+        files_to_commit = [
+            f"resumes/{yaml_filename}",
+            f"resumes/{json_filename}",
+            f"resumes/{pdf_filename}",
+        ]
+        if prefix != "resume":
+            legacy_files = ["resume.yaml", "resume.json", "resume.pdf"]
+            for legacy in legacy_files:
+                legacy_path = resumes_dir / legacy
+                if legacy_path.exists():
+                    legacy_path.unlink()
+                    files_to_commit.append(f"resumes/{legacy}")
+
         commit_changes(
             repo_path,
-            [
-                "resumes/resume.yaml",
-                "resumes/resume.json",
-                "resumes/resume.pdf",
-            ],
+            files_to_commit,
             job_details["company"],
             job_details["role"],
         )
@@ -582,26 +627,43 @@ def _create_tailored_application_branch(
                 )
 
 
-def _get_resume_yaml_diff(repo_path: pathlib.Path, branch_name: str) -> str:
+def _get_resume_yaml_diff(
+    repo_path: pathlib.Path,
+    branch_name: str,
+    yaml_rel_path: str = RESUME_YAML_PATH,
+) -> str:
     """Return the unified diff of the resume YAML between main and branch.
 
     Uses the three-dot form so the comparison matches GitHub's compare view
     (merge-base of main and the branch, up to the branch tip).
     """
+    # Pass both paths to ensure rename detection works reliably:
+    # - yaml_rel_path: new candidate-specific file on branch
+    # - RESUME_YAML_PATH: legacy file on main
+    # The -M flag enables rename detection between these paths.
+    path_args = (
+        [yaml_rel_path, RESUME_YAML_PATH]
+        if yaml_rel_path != RESUME_YAML_PATH
+        else [RESUME_YAML_PATH]
+    )
     return run_git(
-        ["diff", f"main...{branch_name}", "--", RESUME_YAML_PATH],
+        ["diff", "-M", f"main...{branch_name}", "--", *path_args],
         cwd=repo_path,
     )
 
 
-def _build_inline_diff_section(repo_path: pathlib.Path, branch_name: str) -> str:
+def _build_inline_diff_section(
+    repo_path: pathlib.Path,
+    branch_name: str,
+    yaml_rel_path: str = RESUME_YAML_PATH,
+) -> str:
     """Build a collapsible <details> section with the resume YAML diff.
 
     Returns an empty string when the diff cannot be computed or shows no
     changes, so this optional enhancement never breaks comment posting.
     """
     try:
-        raw_diff = _get_resume_yaml_diff(repo_path, branch_name)
+        raw_diff = _get_resume_yaml_diff(repo_path, branch_name, yaml_rel_path)
     except GitOpsError as e:
         logger.warning("Could not generate inline resume diff: %s", e)
         return ""
@@ -698,11 +760,13 @@ def _handle_approved_match(
             settings=settings,
         )
 
+        candidate_name = tailored_resume.basics.name if tailored_resume.basics else None
+        yaml_filename, _, pdf_filename = get_resume_filenames(candidate_name)
+        yaml_rel_path = f"resumes/{yaml_filename}"
+
         # Post approval comment
-        pdf_blob_url = (
-            f"https://github.com/{gh_client.repo}/blob/{branch_name}/resumes/resume.pdf"
-        )
-        yaml_hash = hashlib.sha256(RESUME_YAML_PATH.encode("utf-8")).hexdigest()
+        pdf_blob_url = f"https://github.com/{gh_client.repo}/blob/{branch_name}/resumes/{pdf_filename}"
+        yaml_hash = hashlib.sha256(yaml_rel_path.encode("utf-8")).hexdigest()
         if initial_status:
             status_text = status_to_header.get(initial_status, "Status Updated")
             header = (
@@ -738,7 +802,9 @@ def _handle_approved_match(
             f'- **Apply URL:** <a href="{job_details["apply_url"]}" '
             f'target="_blank">Link to Posting</a>\n'
         )
-        inline_diff_section = _build_inline_diff_section(repo_path, branch_name)
+        inline_diff_section = _build_inline_diff_section(
+            repo_path, branch_name, yaml_rel_path
+        )
         if inline_diff_section:
             comment_body += f"\n{inline_diff_section}"
         gh_client.post_comment(issue_number, comment_body)
