@@ -102,6 +102,7 @@ search:
   enabled: true                         # Enable or disable daily scraping
   work_preference: "hybrid"             # remote | onsite | hybrid
   job_type: "fulltime"                  # fulltime | contract | parttime | internship
+  desired_salary_min: 180000            # Optional: minimum annual USD salary for AI triage scoring
   platforms:
     - linkedin                          # Job boards to search
   hours_old: 24                         # Only jobs posted in the last N hours
@@ -124,6 +125,7 @@ search:
 ```
 
 - **`theme`**: Selects the [JSON Resume theme](https://jsonresume.org/themes) used to render `resume.pdf` — browse [npm](https://www.npmjs.com/search?q=jsonresume-theme) or GitHub for options. Accepts either an npm package pinned to an exact version (`"<package>@<version>"`) or a GitHub-only theme pinned to a full 40-character commit SHA (`"github:<owner>/<repo>#<sha>"`). JobGitOps installs the theme package — running its own code in the process — and later renders with it, so always pin to an exact version or commit SHA, never a floating branch, tag, or dist-tag like `latest`. Omit this key to fall back to a pinned default theme.
+- **`search.desired_salary_min`**: Optional minimum acceptable annual salary (positive integer in USD) passed to the AI triage prompt. When configured, jobs at or above your minimum receive top salary alignment scores (4.5–5.0), while jobs below it are scaled down proportionally. If omitted, the triage LLM evaluates compensation fit against market rates for your seniority level alone.
 - **`custom_queries`**: When non-empty, the scraper uses these queries instead of auto-generating them from your resume — useful for targeting new stacks or domains.
 - **`projects_v2`**: When configured, issue cards move through your Projects V2 board automatically and column moves are reflected back as labels. Without it (or while the placeholder is in place), the system falls back to repository labels (`ready-to-apply`, `applied`, `in-loop`, `rejected`).
 

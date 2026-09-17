@@ -972,3 +972,42 @@ def test_search_config_enabled_parsing() -> None:
     # Test string 'true' coercion
     s6 = Settings.from_dict({"search": {"enabled": "true"}})
     assert s6.search.enabled is True
+
+
+def test_search_config_desired_salary_min() -> None:
+    """Test desired_salary_min parsing and validation in SearchConfig."""
+    # Default is None when omitted
+    s1 = Settings.from_dict({"search": {}})
+    assert s1.search.desired_salary_min is None
+
+    # Explicit None
+    s2 = Settings.from_dict({"search": {"desired_salary_min": None}})
+    assert s2.search.desired_salary_min is None
+
+    # Valid integer
+    s3 = Settings.from_dict({"search": {"desired_salary_min": 180000}})
+    assert s3.search.desired_salary_min == 180000
+
+    # Valid string-coerced integer
+    s4 = Settings.from_dict({"search": {"desired_salary_min": "200000"}})
+    assert s4.search.desired_salary_min == 200000
+
+    # Boolean rejection
+    msg_int = "search.desired_salary_min must be an integer."
+    with pytest.raises(ValidationError, match=msg_int):
+        Settings.from_dict({"search": {"desired_salary_min": True}})
+    with pytest.raises(ValidationError, match=msg_int):
+        Settings.from_dict({"search": {"desired_salary_min": False}})
+
+    # Non-numeric string rejection
+    with pytest.raises(ValidationError, match=msg_int):
+        Settings.from_dict({"search": {"desired_salary_min": "invalid"}})
+
+    # Zero rejection
+    msg_pos = "search.desired_salary_min must be greater than zero."
+    with pytest.raises(ValidationError, match=msg_pos):
+        Settings.from_dict({"search": {"desired_salary_min": 0}})
+
+    # Negative integer rejection
+    with pytest.raises(ValidationError, match=msg_pos):
+        Settings.from_dict({"search": {"desired_salary_min": -50000}})
