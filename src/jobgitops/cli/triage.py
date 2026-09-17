@@ -91,6 +91,10 @@ def get_resume_prefix(name: str | None) -> str:
 def get_resume_filenames(name: str | None) -> tuple[str, str, str]:
     """Return the (yaml, json, pdf) filenames for a candidate's resume.
 
+    The YAML resume always remains 'resume.yaml' to ensure seamless,
+    in-place Git diff tracking against the base resume on main. The JSON
+    and PDF files use the candidate-specific prefix when available.
+
     Args:
         name: The candidate's full name from resume basics.
 
@@ -98,7 +102,7 @@ def get_resume_filenames(name: str | None) -> tuple[str, str, str]:
         Tuple of (yaml_filename, json_filename, pdf_filename).
     """
     prefix = get_resume_prefix(name)
-    return f"{prefix}.yaml", f"{prefix}.json", f"{prefix}.pdf"
+    return "resume.yaml", f"{prefix}.json", f"{prefix}.pdf"
 
 
 # Pre-compiled regex patterns for robust job detail parsing
@@ -597,7 +601,7 @@ def _create_tailored_application_branch(
             f"resumes/{pdf_filename}",
         ]
         if prefix != "resume":
-            legacy_files = ["resume.yaml", "resume.json", "resume.pdf"]
+            legacy_files = ["resume.json", "resume.pdf", f"{prefix}.yaml"]
             for legacy in legacy_files:
                 legacy_path = resumes_dir / legacy
                 if legacy_path.exists():

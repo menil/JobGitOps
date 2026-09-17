@@ -624,7 +624,7 @@ def test_run_triage_match_approved(
     mock_commit.assert_called_once_with(
         tmp_path,
         [
-            "resumes/jane_doe_resume.yaml",
+            "resumes/resume.yaml",
             "resumes/jane_doe_resume.json",
             "resumes/jane_doe_resume.pdf",
         ],
@@ -649,7 +649,7 @@ def test_run_triage_match_approved(
         "https://github.com/my-owner/my-repo/compare/main...applications/"
         in comment_arg
     )
-    expected_yaml_hash = hashlib.sha256(b"resumes/jane_doe_resume.yaml").hexdigest()
+    expected_yaml_hash = hashlib.sha256(b"resumes/resume.yaml").hexdigest()
     assert f"#diff-{expected_yaml_hash}" in comment_arg
     assert (
         '<a href="https://google.com/apply" '
@@ -669,7 +669,6 @@ def test_run_triage_match_approved(
             "-M",
             mock.ANY,
             "--",
-            "resumes/jane_doe_resume.yaml",
             "resumes/resume.yaml",
         ],
         cwd=tmp_path,
@@ -2145,7 +2144,7 @@ def test_get_resume_prefix(input_name: str | None, expected_prefix: str) -> None
 def test_get_resume_filenames() -> None:
     """Verify get_resume_filenames returns the expected yaml, json, pdf tuple."""
     assert get_resume_filenames("Jane Doe") == (
-        "jane_doe_resume.yaml",
+        "resume.yaml",
         "jane_doe_resume.json",
         "jane_doe_resume.pdf",
     )
@@ -2184,16 +2183,15 @@ def test_create_tailored_application_branch_slugged_filenames(
         "description": "LLM prompting role.",
     }
 
-    # Pre-create legacy resume.yaml, resume.json, resume.pdf in
-    # resumes_dir to test unlinking
+    # Pre-create legacy files in resumes_dir to test unlinking
     resumes_dir = tmp_path / "resumes"
     resumes_dir.mkdir(parents=True, exist_ok=True)
-    legacy_yaml = resumes_dir / "resume.yaml"
-    legacy_yaml.write_text("legacy: true", encoding="utf-8")
     legacy_json = resumes_dir / "resume.json"
     legacy_json.write_text("{}", encoding="utf-8")
     legacy_pdf = resumes_dir / "resume.pdf"
     legacy_pdf.write_bytes(b"%PDF-1.4 mock")
+    old_slug_yaml = resumes_dir / "jane_doe_resume.yaml"
+    old_slug_yaml.write_text("old: true", encoding="utf-8")
 
     _create_tailored_application_branch(
         repo_path=tmp_path,
@@ -2211,24 +2209,25 @@ def test_create_tailored_application_branch_slugged_filenames(
         tmp_path / "resumes" / "jane_doe_resume.json",
     )
 
-    # Verify commit_changes received jane_doe_resume files and unlinked legacy files
+    # Verify commit_changes received resume.yaml, slugged json/pdf
+    # and unlinked legacy files
     mock_commit.assert_called_once_with(
         tmp_path,
         [
-            "resumes/jane_doe_resume.yaml",
+            "resumes/resume.yaml",
             "resumes/jane_doe_resume.json",
             "resumes/jane_doe_resume.pdf",
-            "resumes/resume.yaml",
             "resumes/resume.json",
             "resumes/resume.pdf",
+            "resumes/jane_doe_resume.yaml",
         ],
         "Anthropic",
         "Prompt Engineer",
     )
-    assert not legacy_yaml.exists()
     assert not legacy_json.exists()
     assert not legacy_pdf.exists()
-    assert (tmp_path / "resumes" / "jane_doe_resume.yaml").exists()
+    assert not old_slug_yaml.exists()
+    assert (tmp_path / "resumes" / "resume.yaml").exists()
 
 
 @mock.patch("jobgitops.cli.triage.push_branch")
