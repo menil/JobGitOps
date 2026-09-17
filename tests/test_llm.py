@@ -2410,3 +2410,40 @@ def test_claude_client_triage_forwards_desired_salary_min(
     payload = json.loads(called_req.data.decode("utf-8"))
     user_prompt = payload["messages"][0]["content"]
     assert "$180,000/year" in user_prompt
+
+
+def test_parse_tailored_resume_preserves_original_meta() -> None:
+    """Verify _parse_tailored_resume preserves the original resume's meta section."""
+    from jobgitops.llm import _parse_tailored_resume
+
+    original = Resume.from_dict(
+        {
+            "basics": {"name": "Jane Doe", "summary": "Original summary"},
+            "meta": {
+                "version": "v1.0.0",
+                "themeOptions": {"fitPages": "auto"},
+            },
+        }
+    )
+
+    tailored_json = json.dumps(
+        {
+            "basics": {"name": "Jane Doe", "summary": "Tailored summary"},
+            "work": [],
+            "education": [],
+            "skills": [],
+            "projects": [],
+        }
+    )
+
+    tailored_result = _parse_tailored_resume(
+        fetch_text=lambda hint: tailored_json,
+        provider_label="TestProvider",
+        original=original,
+    )
+
+    assert tailored_result.basics.summary == "Tailored summary"
+    assert tailored_result.meta == {
+        "version": "v1.0.0",
+        "themeOptions": {"fitPages": "auto"},
+    }

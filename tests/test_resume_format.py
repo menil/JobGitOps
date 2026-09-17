@@ -128,3 +128,17 @@ def test_format_skips_if_setup_pending(tmp_path) -> None:
 
     assert format_resume.main([str(resume_file)]) == 0
     assert resume_file.read_text(encoding="utf-8") == content
+
+
+def test_canonical_preserves_meta_section(tmp_path: pathlib.Path) -> None:
+    """Canonical serialization preserves top-level meta sections (themeOptions)."""
+    content = "basics:\n  name: Jane Doe\nmeta:\n  themeOptions:\n    fitPages: auto\n"
+    resume_file = tmp_path / "resume.yaml"
+    resume_file.write_text(content, encoding="utf-8")
+
+    loaded = load_resume(resume_file)
+    assert loaded.meta == {"themeOptions": {"fitPages": "auto"}}
+    rendered = render_resume_yaml(loaded)
+    assert "meta:" in rendered
+    assert "fitPages: auto" in rendered
+    assert resume_yaml_is_canonical(resume_file)

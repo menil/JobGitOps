@@ -1011,3 +1011,37 @@ def test_search_config_desired_salary_min() -> None:
     # Negative integer rejection
     with pytest.raises(ValidationError, match=msg_pos):
         Settings.from_dict({"search": {"desired_salary_min": -50000}})
+
+
+def test_resume_meta_parsing_and_serialization() -> None:
+    """Test parsing and serialization of optional top-level meta dictionary."""
+    data = {
+        "basics": {"name": "Jane Doe"},
+        "meta": {
+            "version": "v1.0.0",
+            "themeOptions": {
+                "fitPages": "auto",
+            },
+        },
+    }
+    resume = Resume.from_dict(data)
+    assert resume.meta == {
+        "version": "v1.0.0",
+        "themeOptions": {"fitPages": "auto"},
+    }
+    serialized = resume.to_dict()
+    assert "meta" in serialized
+    assert serialized["meta"] == data["meta"]
+
+    # When meta is not provided, it defaults to None and is omitted from to_dict
+    resume_no_meta = Resume.from_dict({"basics": {"name": "Jane Doe"}})
+    assert resume_no_meta.meta is None
+    assert "meta" not in resume_no_meta.to_dict()
+
+
+def test_resume_meta_invalid_type_raises() -> None:
+    """Test that non-dict meta values raise ValidationError."""
+    msg = "meta section must be a dictionary."
+    for invalid in ["not-a-dict", [1, 2, 3], True, False, 123]:
+        with pytest.raises(ValidationError, match=msg):
+            Resume.from_dict({"basics": {"name": "Jane"}, "meta": invalid})

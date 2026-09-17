@@ -1040,6 +1040,7 @@ class Resume:
     education: list[Education] = field(default_factory=list)
     skills: list[Skill] = field(default_factory=list)
     projects: list[Project] = field(default_factory=list)
+    meta: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Resume":
@@ -1093,12 +1094,18 @@ class Resume:
                 raise ValidationError("projects section must be a list.")
             projects = [Project.from_dict(p) for p in projects_data]
 
+            meta_data = data.get("meta")
+            if meta_data is not None and not isinstance(meta_data, dict):
+                raise ValidationError("meta section must be a dictionary.")
+            meta = meta_data
+
             return cls(
                 basics=basics,
                 work=work,
                 education=education,
                 skills=skills,
                 projects=projects,
+                meta=meta,
             )
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse Resume: {e}") from e
@@ -1148,4 +1155,6 @@ class Resume:
             ],
             include_empty_arrays=include_empty_arrays,
         )
+        if self.meta is not None:
+            res["meta"] = self.meta
         return res
