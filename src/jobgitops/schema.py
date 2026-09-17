@@ -138,6 +138,7 @@ class SearchConfig:
     )
     hours_old: int = 24
     enabled: bool = True
+    desired_salary_min: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SearchConfig":
@@ -200,6 +201,15 @@ class SearchConfig:
             if hours_old <= 0:
                 raise ValidationError("search.hours_old must be greater than zero.")
 
+            desired_salary_min_raw = data.get("desired_salary_min")
+            desired_salary_min = (
+                _parse_positive_int(
+                    "search.desired_salary_min", desired_salary_min_raw, 1
+                )
+                if desired_salary_min_raw is not None
+                else None
+            )
+
             enabled_val = data.get("enabled")
             if enabled_val is None:
                 enabled = True
@@ -214,6 +224,7 @@ class SearchConfig:
                 platforms=platforms,
                 hours_old=hours_old,
                 enabled=enabled,
+                desired_salary_min=desired_salary_min,
             )
         except (ValueError, TypeError, ValidationError) as e:
             raise ValidationError(f"Failed to parse SearchConfig: {e}") from e

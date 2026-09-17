@@ -1630,6 +1630,32 @@ def test_format_triage_prompt() -> None:
     assert "Stated Work Location: Kirkland, WA" in prompt_multiline
 
 
+def test_format_triage_prompt_desired_salary_min(sample_resume: Resume) -> None:
+    """Verify format_triage_prompt conditionally formats the salary rubric."""
+    # Omitted / None retains the standard default phrasing
+    prompt_default = format_triage_prompt("Desc", sample_resume, "remote")
+    assert (
+        "4. Salary Alignment (assess if salary matches; if unspecified, grade 5.0 "
+        "unless seniority/market fit is poor)"
+    ) in prompt_default
+
+    # Explicit desired_salary_min formats the specific rubric
+    prompt_with_min = format_triage_prompt(
+        "Desc", sample_resume, "remote", desired_salary_min=180000
+    )
+    assert (
+        "4. Salary Alignment (candidate's minimum target salary is $180,000/year. "
+        "If the job's salary is unspecified in the posting, grade 5.0 unless "
+        "seniority/market fit is poor. "
+        "If the job's salary is at or near the candidate's minimum, grade "
+        "around 4.5. "
+        "If the job's salary is well above the minimum, grade 5.0. "
+        "If the job's salary is below the minimum, do not default to 1.0—"
+        "scale the grade down proportionally based on how far below the "
+        "minimum it falls, not a hard cliff)"
+    ) in prompt_with_min
+
+
 @patch("urllib.request.urlopen")
 def test_claude_client_triage_oauth_token(
     mock_urlopen: MagicMock, sample_resume: Resume
@@ -2241,3 +2267,91 @@ def test_claude_client_triage_forwards_job_location(
     payload = json.loads(called_req.data.decode("utf-8"))
     user_prompt = payload["messages"][0]["content"]
     assert "Stated Work Location: Bellevue, WA" in user_prompt
+
+
+@patch("google.generativeai.GenerativeModel")
+@patch("google.generativeai.configure")
+def test_gemini_client_triage_forwards_desired_salary_min(
+    mock_configure: MagicMock, mock_model_cls: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify GeminiClient forwards desired_salary_min into prompt payload."""
+    mock_model = mock_model_cls.return_value
+    mock_response = MagicMock()
+    mock_response.text = json.dumps(
+        {
+            "fit_score": 4.5,
+            "tech_stack_fit": 4.5,
+            "experience_fit": 4.5,
+            "location_fit": 4.5,
+            "salary_fit": 4.5,
+            "industry_fit": 4.5,
+            "reasoning": "Fits salary expectation.",
+        }
+    )
+    mock_model.generate_content.return_value = mock_response
+
+    client = GeminiClient(api_key="key")
+    res = client.triage_job("Python role", sample_resume, desired_salary_min=180000)
+    assert res.fit_score == 4.5
+    prompt_arg = mock_model.generate_content.call_args[0][0]
+    assert "$180,000/year" in prompt_arg
+
+
+@patch("urllib.request.urlopen")
+def test_openrouter_client_triage_forwards_desired_salary_min(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify OpenRouterClient forwards desired_salary_min into prompt payload."""
+    mock_response = MagicMock()
+    triage_payload = {
+        "fit_score": 4.5,
+        "tech_stack_fit": 4.5,
+        "experience_fit": 4.5,
+        "location_fit": 4.5,
+        "salary_fit": 4.5,
+        "industry_fit": 4.5,
+        "reasoning": "Fits salary expectation.",
+    }
+    mock_response.read.return_value = json.dumps(
+        {"choices": [{"message": {"content": json.dumps(triage_payload)}}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = OpenRouterClient(api_key="key")
+    res = client.triage_job("Python role", sample_resume, desired_salary_min=180000)
+    assert res.fit_score == 4.5
+
+    called_req = mock_urlopen.call_args[0][0]
+    payload = json.loads(called_req.data.decode("utf-8"))
+    user_prompt = payload["messages"][0]["content"]
+    assert "$180,000/year" in user_prompt
+
+
+@patch("urllib.request.urlopen")
+def test_claude_client_triage_forwards_desired_salary_min(
+    mock_urlopen: MagicMock, sample_resume: Resume
+) -> None:
+    """Verify ClaudeClient forwards desired_salary_min into prompt payload."""
+    mock_response = MagicMock()
+    triage_payload = {
+        "fit_score": 4.5,
+        "tech_stack_fit": 4.5,
+        "experience_fit": 4.5,
+        "location_fit": 4.5,
+        "salary_fit": 4.5,
+        "industry_fit": 4.5,
+        "reasoning": "Fits salary expectation.",
+    }
+    mock_response.read.return_value = json.dumps(
+        {"content": [{"type": "text", "text": json.dumps(triage_payload)}]}
+    ).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    client = ClaudeClient(api_key="key")
+    res = client.triage_job("Python role", sample_resume, desired_salary_min=180000)
+    assert res.fit_score == 4.5
+
+    called_req = mock_urlopen.call_args[0][0]
+    payload = json.loads(called_req.data.decode("utf-8"))
+    user_prompt = payload["messages"][0]["content"]
+    assert "$180,000/year" in user_prompt

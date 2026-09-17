@@ -271,8 +271,7 @@ TRIAGE_PROMPT = (
     "for onsite/hybrid roles; do not heavily penalize them. If location is "
     "unspecified in the posting, grade 5.0 unless the role clearly requires "
     "relocation or incompatible hours)\n"
-    "4. Salary Alignment (assess if salary matches; if unspecified, grade 5.0 "
-    "unless seniority/market fit is poor)\n"
+    "4. Salary Alignment ({salary_criterion})\n"
     "5. Industry Domain Familiarity (overlap with domains such as SaaS, "
     "FinTech, DevTools, etc.)\n\n"
     "Calculate the overall `fit_score` as the average or weighted score of "
@@ -379,11 +378,32 @@ def _parse_job_details_response(response_text: str) -> dict[str, str]:
     return _normalize_job_details(data)
 
 
+def _build_salary_criterion(desired_salary_min: int | None) -> str:
+    """Build the salary alignment evaluation text for the triage prompt."""
+    if desired_salary_min is not None:
+        return (
+            f"candidate's minimum target salary is ${desired_salary_min:,}/year. "
+            "If the job's salary is unspecified in the posting, grade 5.0 unless "
+            "seniority/market fit is poor. "
+            "If the job's salary is at or near the candidate's minimum, grade "
+            "around 4.5. "
+            "If the job's salary is well above the minimum, grade 5.0. "
+            "If the job's salary is below the minimum, do not default to 1.0—"
+            "scale the grade down proportionally based on how far below the "
+            "minimum it falls, not a hard cliff"
+        )
+    return (
+        "assess if salary matches; if unspecified, grade 5.0 "
+        "unless seniority/market fit is poor"
+    )
+
+
 def format_triage_prompt(
     job_description: str,
     resume: Resume,
     work_preference: str,
     job_location: str | None = None,
+    desired_salary_min: int | None = None,
 ) -> str:
     """Format the LLM triage prompt with resume and location attributes.
 
@@ -392,6 +412,7 @@ def format_triage_prompt(
         resume: The parsed candidate resume.
         work_preference: Candidate's target work style.
         job_location: The stated work location for the job posting.
+        desired_salary_min: Candidate's target minimum annual salary (USD).
 
     Returns:
         The formatted prompt string for LLM evaluation.
@@ -422,6 +443,7 @@ def format_triage_prompt(
         work_preference=work_preference,
         candidate_location=candidate_location,
         job_location=loc_str,
+        salary_criterion=_build_salary_criterion(desired_salary_min),
     )
 
 
@@ -435,6 +457,7 @@ class LLMClient(ABC):
         resume: Resume,
         work_preference: str = "remote",
         job_location: str | None = None,
+        desired_salary_min: int | None = None,
     ) -> TriageResult:
         """Evaluate a job description against the resume across 5 dimensions.
 
@@ -443,6 +466,7 @@ class LLMClient(ABC):
             resume: Parsed candidate base resume.
             work_preference: Candidate's target work style ("remote", "hybrid").
             job_location: Optional stated job location for commute/geographic fit.
+            desired_salary_min: Candidate's target minimum annual salary (USD).
 
         Returns:
             TriageResult containing dimensional scores (1.0-5.0) and reasoning text.
@@ -761,6 +785,7 @@ class GeminiClient(LLMClient):
         resume: Resume,
         work_preference: str = "remote",
         job_location: str | None = None,
+        desired_salary_min: int | None = None,
     ) -> TriageResult:
         import google.api_core.exceptions
 
@@ -769,6 +794,7 @@ class GeminiClient(LLMClient):
             resume,
             work_preference,
             job_location=job_location,
+            desired_salary_min=desired_salary_min,
         )
         try:
             response = self.model.generate_content(
@@ -949,12 +975,14 @@ class OpenRouterClient(LLMClient):
         resume: Resume,
         work_preference: str = "remote",
         job_location: str | None = None,
+        desired_salary_min: int | None = None,
     ) -> TriageResult:
         prompt = format_triage_prompt(
             job_description,
             resume,
             work_preference,
             job_location=job_location,
+            desired_salary_min=desired_salary_min,
         )
         try:
             response_text = self._call_openrouter(prompt)
@@ -1118,12 +1146,14 @@ class ClaudeClient(LLMClient):
         resume: Resume,
         work_preference: str = "remote",
         job_location: str | None = None,
+        desired_salary_min: int | None = None,
     ) -> TriageResult:
         prompt = format_triage_prompt(
             job_description,
             resume,
             work_preference,
             job_location=job_location,
+            desired_salary_min=desired_salary_min,
         )
         try:
             response_text = self._call_claude(prompt)

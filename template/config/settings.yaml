@@ -31,6 +31,10 @@ search:
   # Employment type: "fulltime", "contract", "parttime", "internship"
   job_type: "fulltime"
 
+  # Minimum acceptable annual salary (positive integer in USD) used to guide AI triage scoring.
+  # Optional: comment out or omit to let the LLM evaluate salary based on seniority/market fit alone.
+  # desired_salary_min: 180000
+
   # Job boards to search on
   platforms:
     - linkedin

@@ -31,7 +31,7 @@ from jobgitops.cli.triage import (
 from jobgitops.git_ops import GitOpsError
 from jobgitops.github_client import GitHubClient
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
-from jobgitops.schema import Resume, Settings, ValidationError
+from jobgitops.schema import Resume, SearchConfig, Settings, ValidationError
 from jobgitops.web import PageContent
 
 
@@ -453,6 +453,7 @@ def test_run_triage_mismatch(
         mock_resume,
         work_preference="hybrid",
         job_location="Remote",
+        desired_salary_min=None,
     )
     mock_llm_client.tailor_resume.assert_not_called()
 
@@ -953,6 +954,7 @@ def test_run_triage_bare_url_body_fetches_and_substitutes(
         mock_resume,
         work_preference="hybrid",
         job_location="Remote",
+        desired_salary_min=None,
     )
 
     # The approved-match comment uses the LLM-inferred company/role.
@@ -1054,6 +1056,7 @@ def test_run_triage_bare_url_without_web_client_skips_fetch(
         mock_resume,
         work_preference="hybrid",
         job_location="Remote",
+        desired_salary_min=None,
     )
 
 
@@ -1112,6 +1115,7 @@ def test_run_triage_full_body_skips_fetch(
         mock_resume,
         work_preference="hybrid",
         job_location="Remote",
+        desired_salary_min=None,
     )
 
 
@@ -1908,5 +1912,59 @@ def test_run_triage_forwards_header_location(
         mock_resume,
         work_preference="hybrid",
         job_location="Kirkland, WA",
+        desired_salary_min=None,
+    )
+    mock_create_branch.assert_called_once()
+
+
+@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("jobgitops.cli.triage._create_tailored_application_branch")
+def test_run_triage_passes_desired_salary_min(
+    mock_create_branch: mock.MagicMock,
+    mock_run_git: mock.MagicMock,
+    mock_resume: Resume,
+) -> None:
+    """Test run_triage passes settings.search.desired_salary_min to triage_job."""
+    mock_run_git.side_effect = make_run_git_stub()
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=4.8,
+        tech_stack_fit=5.0,
+        experience_fit=5.0,
+        location_fit=5.0,
+        salary_fit=4.5,
+        industry_fit=4.5,
+        reasoning="Strong alignment with salary minimum.",
+    )
+    mock_llm_client.tailor_resume.return_value = mock_resume
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "owner/repo"
+    mock_gh_client.project_id = "proj_123"
+
+    settings = Settings(
+        fit_threshold=3.5,
+        search=SearchConfig(desired_salary_min=180000),
+    )
+
+    run_triage(
+        issue_number=52,
+        issue_title="[Acme] Principal Engineer",
+        issue_body="## Job Description\nHigh scale distributed systems.",
+        issue_node_id="node_52",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path(),
+        gh_client=mock_gh_client,
+        settings=settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    mock_llm_client.triage_job.assert_called_once_with(
+        "High scale distributed systems.",
+        mock_resume,
+        work_preference="hybrid",
+        job_location="Remote",
+        desired_salary_min=180000,
     )
     mock_create_branch.assert_called_once()
