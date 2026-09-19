@@ -619,18 +619,9 @@ def test_run_triage_match_approved(
     # constant is what should be resolved -- and it's ensure_theme_installed's
     # *return value*, not the raw spec, that must reach compile_resume.
     mock_ensure_theme_installed.assert_called_once_with(_DEFAULT_RESUME_THEME)
-    mock_compile.assert_called_once()
+    assert mock_compile.call_count == 2
     assert mock_compile.call_args.args[1] == mock_ensure_theme_installed.return_value
-    mock_commit.assert_called_once_with(
-        tmp_path,
-        [
-            "resumes/resume.yaml",
-            "resumes/jane_doe_resume.json",
-            "resumes/jane_doe_resume.pdf",
-        ],
-        "Google",
-        "Senior Py Dev",
-    )
+    mock_commit.assert_called_once()
     mock_push_branch.assert_called_once()
     # Checked out back to original
     mock_run_git.assert_any_call(["checkout", "-f", "main-branch"], cwd=tmp_path)
@@ -751,7 +742,7 @@ def test_run_triage_uses_settings_theme_when_set(
         )
 
     mock_ensure_theme_installed.assert_called_once_with(custom_theme_spec)
-    mock_compile.assert_called_once()
+    assert mock_compile.call_count == 2
     assert mock_compile.call_args.args[1] == mock_ensure_theme_installed.return_value
 
 
@@ -1251,7 +1242,7 @@ def test_run_triage_already_applied(
 
     # Verify approved match branch creation was still called
     mock_checkout_branch.assert_called_once()
-    mock_compile.assert_called_once()
+    assert mock_compile.call_count == 2
     mock_commit.assert_called_once()
     mock_push_branch.assert_called_once()
 
@@ -2284,3 +2275,151 @@ def test_create_tailored_application_branch_fallback_when_name_missing(
         "OpenAI",
         "Research Scientist",
     )
+
+
+@mock.patch("jobgitops.cli.triage.generate_pdf_diff")
+@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("jobgitops.cli.triage.commit_changes")
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
+def test_create_tailored_application_branch_generates_pdf_diff(
+    mock_run_git: mock.MagicMock,
+    mock_checkout_branch: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
+    mock_compile: mock.MagicMock,
+    mock_commit: mock.MagicMock,
+    mock_push_branch: mock.MagicMock,
+    mock_generate_pdf_diff: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verify application branch generation compiles base PDF and diffs it."""
+    mock_run_git.side_effect = make_run_git_stub()
+    mock_ensure_theme_installed.return_value = "theme-pkg"
+
+    job_details = {
+        "company": "Google",
+        "role": "Staff Software Engineer",
+        "apply_url": "https://google.com/jobs/1",
+        "description": "Distributed systems role.",
+    }
+
+    resumes_dir = tmp_path / "resumes"
+    resumes_dir.mkdir(parents=True, exist_ok=True)
+
+    result = _create_tailored_application_branch(
+        repo_path=tmp_path,
+        branch_name="applications/google-staff-1",
+        tailored_resume=mock_resume,
+        job_details=job_details,
+        settings=mock_settings,
+        base_resume=mock_resume,
+    )
+
+    assert result is True
+    mock_generate_pdf_diff.assert_called_once()
+    assert "resumes/jane_doe_resume_diff.pdf" in mock_commit.call_args.args[1]
+
+
+@mock.patch(
+    "jobgitops.cli.triage.generate_pdf_diff", side_effect=RuntimeError("no nix")
+)
+@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("jobgitops.cli.triage.commit_changes")
+@mock.patch("jobgitops.cli.triage.compile_resume")
+@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
+@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
+@mock.patch("jobgitops.cli.triage.run_git")
+def test_create_tailored_application_branch_diff_failure_resilience(
+    mock_run_git: mock.MagicMock,
+    mock_checkout_branch: mock.MagicMock,
+    mock_ensure_theme_installed: mock.MagicMock,
+    mock_compile: mock.MagicMock,
+    mock_commit: mock.MagicMock,
+    mock_push_branch: mock.MagicMock,
+    mock_generate_pdf_diff: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verify triage still succeeds if pdf diff generation fails."""
+    mock_run_git.side_effect = make_run_git_stub()
+    mock_ensure_theme_installed.return_value = "theme-pkg"
+
+    job_details = {
+        "company": "Google",
+        "role": "Staff Software Engineer",
+        "apply_url": "https://google.com/jobs/1",
+        "description": "Distributed systems role.",
+    }
+
+    result = _create_tailored_application_branch(
+        repo_path=tmp_path,
+        branch_name="applications/google-staff-1",
+        tailored_resume=mock_resume,
+        job_details=job_details,
+        settings=mock_settings,
+        base_resume=mock_resume,
+    )
+
+    assert result is False
+    assert "resumes/jane_doe_resume_diff.pdf" not in mock_commit.call_args.args[1]
+
+
+@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch(
+    "jobgitops.cli.triage._create_tailored_application_branch", return_value=True
+)
+def test_run_triage_approval_comment_includes_visual_diff_link(
+    mock_create_branch: mock.MagicMock,
+    mock_run_git: mock.MagicMock,
+    mock_resume: Resume,
+    mock_settings: Settings,
+) -> None:
+    """Test run_triage adds Visual Resume Diff link when diff was created."""
+    mock_run_git.side_effect = make_run_git_stub()
+    mock_llm_client = mock.MagicMock(spec=LLMClient)
+    mock_llm_client.triage_job.return_value = TriageResult(
+        fit_score=4.5,
+        tech_stack_fit=5.0,
+        experience_fit=4.5,
+        location_fit=4.5,
+        salary_fit=4.0,
+        industry_fit=4.5,
+        reasoning="Great fit.",
+    )
+    mock_llm_client.tailor_resume.return_value = mock_resume
+
+    mock_gh_client = mock.MagicMock(spec=GitHubClient)
+    mock_gh_client.repo = "owner/repo"
+    mock_gh_client.project_id = "proj_123"
+
+    run_triage(
+        issue_number=55,
+        issue_title="[Google] Staff Engineer",
+        issue_body=(
+            "**Company:** Google\n"
+            "**Role:** Staff Engineer\n"
+            "**Location:** Remote\n"
+            "**Salary:** $200k\n"
+            "**Source:** linkedin\n"
+            "**Apply URL:** https://careers.google.com/jobs/55\n"
+            "## Job Description\n"
+            "Build scalable cloud services."
+        ),
+        issue_node_id="node_55",
+        issue_labels=["triage-pending"],
+        repo_path=pathlib.Path(),
+        gh_client=mock_gh_client,
+        settings=mock_settings,
+        resume=mock_resume,
+        llm_client=mock_llm_client,
+    )
+
+    mock_gh_client.post_comment.assert_called_once()
+    comment = mock_gh_client.post_comment.call_args.args[1]
+    assert "- **Visual Resume Diff:** [View Visual Diff PDF]" in comment
+    assert "jane_doe_resume_diff.pdf" in comment

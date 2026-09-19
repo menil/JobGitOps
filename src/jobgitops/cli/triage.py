@@ -12,6 +12,7 @@ import os
 import pathlib
 import re
 import sys
+import tempfile
 from typing import Any
 
 from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
@@ -29,7 +30,7 @@ from jobgitops.git_ops import (
 from jobgitops.github_client import GitHubClient, extract_label_names
 from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
 from jobgitops.loader import load_resume, load_settings, render_resume_yaml
-from jobgitops.renderer import compile_resume, ensure_theme_installed
+from jobgitops.renderer import compile_resume, ensure_theme_installed, generate_pdf_diff
 from jobgitops.schema import Resume, Settings
 from jobgitops.status_model import FIT_CATEGORY_MISMATCH_LABELS, LABEL_TO_STATUS
 from jobgitops.web import WebClient
@@ -552,8 +553,14 @@ def _create_tailored_application_branch(
     tailored_resume: Resume,
     job_details: dict[str, str],
     settings: Settings,
-) -> None:
-    """Checkout tailored branch, write, compile, commit, and push changes."""
+    base_resume: Resume | None = None,
+) -> bool:
+    """Checkout tailored branch, write, compile, commit, and push changes.
+
+    Returns:
+        True if visual PDF diff was successfully generated and committed,
+        False otherwise.
+    """
     # Track the original branch to return back cleanly
     try:
         original_branch = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_path)
@@ -565,6 +572,7 @@ def _create_tailored_application_branch(
         original_branch = "main"
 
     branch_switched = False
+    diff_generated = False
     try:
         # Checkout/create target branch
         create_or_checkout_branch(repo_path, branch_name)
@@ -594,12 +602,38 @@ def _create_tailored_application_branch(
             resumes_dir / json_filename,
         )
 
+        # 3. Generate Visual Diff PDF
+        diff_filename = f"{prefix}_diff.pdf"
+        if base_resume:
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_path = pathlib.Path(tmpdir)
+                    base_pdf_path = tmp_path / "base.pdf"
+                    base_json_path = tmp_path / "base.json"
+                    compile_resume(
+                        base_resume,
+                        theme_name,
+                        base_pdf_path,
+                        base_json_path,
+                    )
+                    generate_pdf_diff(
+                        base_pdf_path=base_pdf_path,
+                        tailored_pdf_path=resumes_dir / pdf_filename,
+                        output_diff_pdf_path=resumes_dir / diff_filename,
+                    )
+                    diff_generated = True
+            except Exception as e:
+                logger.warning("Could not generate visual PDF diff: %s", e)
+
         # Commit and push
         files_to_commit = [
             f"resumes/{yaml_filename}",
             f"resumes/{json_filename}",
             f"resumes/{pdf_filename}",
         ]
+        if diff_generated:
+            files_to_commit.append(f"resumes/{diff_filename}")
+
         if prefix != "resume":
             legacy_files = ["resume.json", "resume.pdf", f"{prefix}.yaml"]
             for legacy in legacy_files:
@@ -615,6 +649,7 @@ def _create_tailored_application_branch(
             job_details["role"],
         )
         push_branch(repo_path, branch_name)
+        return diff_generated
 
     finally:
         # Only revert checkout if branch was actually switched
@@ -756,20 +791,29 @@ def _handle_approved_match(
         )
         logger.info("Target application branch: %s", mask_value(branch_name))
 
-        _create_tailored_application_branch(
+        diff_generated = _create_tailored_application_branch(
             repo_path=repo_path,
             branch_name=branch_name,
             tailored_resume=tailored_resume,
             job_details=job_details,
             settings=settings,
+            base_resume=resume,
         )
 
         candidate_name = tailored_resume.basics.name if tailored_resume.basics else None
         yaml_filename, _, pdf_filename = get_resume_filenames(candidate_name)
         yaml_rel_path = f"resumes/{yaml_filename}"
+        diff_filename = f"{get_resume_prefix(candidate_name)}_diff.pdf"
 
         # Post approval comment
-        pdf_blob_url = f"https://github.com/{gh_client.repo}/blob/{branch_name}/resumes/{pdf_filename}"
+        pdf_blob_url = (
+            f"https://github.com/{gh_client.repo}/blob/{branch_name}/"
+            f"resumes/{pdf_filename}"
+        )
+        diff_blob_url = (
+            f"https://github.com/{gh_client.repo}/blob/{branch_name}/"
+            f"resumes/{diff_filename}"
+        )
         yaml_hash = hashlib.sha256(yaml_rel_path.encode("utf-8")).hexdigest()
         if initial_status:
             status_text = status_to_header.get(initial_status, "Status Updated")
@@ -803,6 +847,12 @@ def _handle_approved_match(
             f"(https://github.com/{gh_client.repo}/compare/main...{branch_name}"
             f"#diff-{yaml_hash})\n"
             f"- **Tailored Resume PDF:** [View/Download PDF]({pdf_blob_url})\n"
+        )
+        if diff_generated:
+            comment_body += (
+                f"- **Visual Resume Diff:** [View Visual Diff PDF]({diff_blob_url})\n"
+            )
+        comment_body += (
             f'- **Apply URL:** <a href="{job_details["apply_url"]}" '
             f'target="_blank">Link to Posting</a>\n'
         )
