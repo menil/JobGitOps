@@ -73,12 +73,13 @@ jobs:
       # `pptruser`, `--puppeteer-arg=--no-sandbox`, the apt-installed
       # Chromium path). `docker build` succeeding proves none of that; only
       # actually running `resumed export` does.
-      - name: Smoke-test resumed export in built image
+      - name: Smoke-test tools in built image
         run: |
           docker run --rm \
             -v "$PWD/.github/fixtures:/work" -w /work \
             "${{ steps.image-name.outputs.image }}:ci-smoke-test" \
             sh -c '
+              su -s /bin/sh pptruser -c "pdf-vdiff --help" &&
               su -s /bin/sh pptruser -c "bun /opt/bun/bin/resumed export resume.json -t @jsonresume/jsonresume-theme-professional -o /tmp/resume.pdf --puppeteer-arg=--no-sandbox" &&
               [ -s /tmp/resume.pdf ]
             '
