@@ -1,5 +1,6 @@
 # Stage 1: Build pdf-vdiff Rust CLI and download pdfium shared library
-FROM rust:1.85-slim-bookworm AS rust-builder
+# Uses the official rust:1-slim-bookworm (Rust 1.x stable) to satisfy MSRV for crates.io dependencies
+FROM rust:1-slim-bookworm AS rust-builder
 ARG TARGETARCH
 ARG PDFIUM_VERSION=7881
 WORKDIR /build
