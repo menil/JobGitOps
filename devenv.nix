@@ -18,6 +18,7 @@ in
     pkgs.git
     pkgs.just
     pkgs.shellcheck
+    inputs.pdf-vdiff.packages.${pkgs.stdenv.system}.default
     pkgs.dejavu_fonts
     pkgs.liberation_ttf
   ];
