@@ -6,6 +6,7 @@ import logging
 import os
 import pathlib
 import shlex
+import shutil
 import subprocess
 
 from jobgitops.schema import Resume, theme_looks_pinned
@@ -61,6 +62,13 @@ _ALLOWED_ENV_VARS = frozenset(
         "BUN_INSTALL",
         "PUPPETEER_EXECUTABLE_PATH",
         "PUPPETEER_SKIP_DOWNLOAD",
+        "FONTCONFIG_FILE",
+        "NIX_SSL_CERT_FILE",
+        "SSL_CERT_FILE",
+        "NIX_CONFIG",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
     }
 )
 
@@ -382,3 +390,99 @@ def compile_resume(
     """
     compile_resume_json(resume, output_json_path)
     compile_resume_pdf(output_json_path, theme_name, output_pdf_path)
+
+
+def generate_pdf_diff(
+    base_pdf_path: str | pathlib.Path,
+    tailored_pdf_path: str | pathlib.Path,
+    output_diff_pdf_path: str | pathlib.Path,
+    theme: str = "github",
+    granularity: str = "word",
+) -> pathlib.Path:
+    """Generate a visual side-by-side diff PDF comparing base and tailored PDFs.
+
+    Uses `pdf-vdiff` if present in PATH, or falls back to
+    `nix run github:menil/pdf-vdiff`.
+
+    Exit codes from pdf-vdiff:
+        0: Documents are identical (diff PDF generated without highlights).
+        1: Differences detected (diff PDF generated with highlights).
+        2+: Fatal error (e.g. invalid arguments or missing input).
+
+    Args:
+        base_pdf_path: Path to the original base resume PDF.
+        tailored_pdf_path: Path to the tailored resume PDF.
+        output_diff_pdf_path: Target path for the generated diff PDF.
+        theme: Highlight theme ('github', 'intellij', 'classic', 'high-contrast').
+        granularity: Diff granularity ('word', 'line', 'character').
+
+    Returns:
+        The output diff PDF path as a pathlib.Path.
+
+    Raises:
+        FileNotFoundError: If base_pdf_path or tailored_pdf_path does not exist.
+        RuntimeError: If neither runner is found or pdf-vdiff fails.
+    """
+    base = pathlib.Path(base_pdf_path)
+    tailored = pathlib.Path(tailored_pdf_path)
+    output = pathlib.Path(output_diff_pdf_path)
+
+    if not base.is_file():
+        raise FileNotFoundError(f"Base PDF not found: {base}")
+    if not tailored.is_file():
+        raise FileNotFoundError(f"Tailored PDF not found: {tailored}")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    pdf_vdiff_bin = shutil.which("pdf-vdiff")
+    if pdf_vdiff_bin:
+        cmd = [
+            pdf_vdiff_bin,
+            str(base.resolve()),
+            str(tailored.resolve()),
+            "-o",
+            str(output.resolve()),
+            "--force",
+            "--theme",
+            theme,
+            "--granularity",
+            granularity,
+        ]
+    elif shutil.which("nix"):
+        cmd = [
+            "nix",
+            "run",
+            "github:menil/pdf-vdiff",
+            "--",
+            str(base.resolve()),
+            str(tailored.resolve()),
+            "-o",
+            str(output.resolve()),
+            "--force",
+            "--theme",
+            theme,
+            "--granularity",
+            granularity,
+        ]
+    else:
+        raise RuntimeError(
+            "Neither 'pdf-vdiff' nor 'nix' executable found in PATH to "
+            "generate PDF diff."
+        )
+
+    logger.info("Running visual PDF diff: %s", " ".join(cmd))
+    result = subprocess.run(
+        cmd,
+        env=_filtered_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    # 0 = identical documents, 1 = differences found (both successfully generate output)
+    if result.returncode not in (0, 1):
+        err_msg = result.stderr.strip() or result.stdout.strip()
+        logger.error("pdf-vdiff failed (exit %d): %s", result.returncode, err_msg)
+        raise RuntimeError(f"pdf-vdiff failed (exit {result.returncode}): {err_msg}")
+
+    return output
