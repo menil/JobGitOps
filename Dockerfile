@@ -1,3 +1,26 @@
+# Stage 1: Build pdf-vdiff Rust CLI and download pdfium shared library
+FROM rust:1.80-slim-bookworm AS rust-builder
+ARG TARGETARCH
+ARG PDFIUM_VERSION=7881
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    ca-certificates \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cargo install --git https://github.com/menil/pdf-vdiff.git --root /opt/pdf-vdiff
+
+RUN mkdir -p /opt/pdf-vdiff/lib && \
+    case "${TARGETARCH:-amd64}" in \
+      "arm64") PDFIUM_FILE="pdfium-linux-arm64.tgz" ;; \
+      *)       PDFIUM_FILE="pdfium-linux-x64.tgz" ;; \
+    esac && \
+    curl -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/${PDFIUM_VERSION}/${PDFIUM_FILE}" | tar -xz -C /opt/pdf-vdiff/lib/
+
+# Stage 2: Runner image
 # Use python:3.12-slim-bookworm as the base image for a lightweight runner
 FROM python:3.12-slim-bookworm
 
@@ -33,6 +56,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # CLI. Bun is npm-registry-compatible and ships its own npx equivalent, so no
 # separate Node/npm is needed.
 COPY --from=oven/bun:latest /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
+
+# Install pdf-vdiff binary and pdfium library from builder stage
+COPY --from=rust-builder /opt/pdf-vdiff/bin/pdf-vdiff /usr/local/bin/pdf-vdiff
+COPY --from=rust-builder /opt/pdf-vdiff/lib/lib/libpdfium.so /usr/local/lib/libpdfium.so
+RUN ldconfig
+
 
 # Point Puppeteer (used by `resumed export`) at the apt-installed Chromium
 # above instead of downloading its own bundled copy. This sidesteps
