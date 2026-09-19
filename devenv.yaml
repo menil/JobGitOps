@@ -6,3 +6,9 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
+  pdf-vdiff:
+    url: github:menil/pdf-vdiff
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+
