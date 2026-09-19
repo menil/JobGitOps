@@ -17,6 +17,7 @@ from jobgitops.renderer import (
     compile_resume_json,
     compile_resume_pdf,
     ensure_theme_installed,
+    generate_pdf_diff,
 )
 from jobgitops.schema import Resume
 
@@ -715,3 +716,128 @@ def test_compile_resume_full_pipeline(sample_resume_data, tmp_path) -> None:
     inner_command = mock_run.call_args.args[0][5]
     assert str(output_json.resolve()) in inner_command
     assert str(output_pdf.resolve()) in inner_command
+
+
+def test_generate_pdf_diff_missing_files(tmp_path) -> None:
+    """Verify generate_pdf_diff raises FileNotFoundError when input missing."""
+    base_pdf = tmp_path / "base.pdf"
+    tailored_pdf = tmp_path / "tailored.pdf"
+    out_pdf = tmp_path / "diff.pdf"
+
+    with pytest.raises(FileNotFoundError, match="Base PDF not found"):
+        generate_pdf_diff(base_pdf, tailored_pdf, out_pdf)
+
+    base_pdf.write_bytes(b"%PDF-1.4 base")
+    with pytest.raises(FileNotFoundError, match="Tailored PDF not found"):
+        generate_pdf_diff(base_pdf, tailored_pdf, out_pdf)
+
+
+def test_generate_pdf_diff_pdf_vdiff_binary(tmp_path) -> None:
+    """Verify generate_pdf_diff invokes pdf-vdiff when found in PATH."""
+    base_pdf = tmp_path / "base.pdf"
+    tailored_pdf = tmp_path / "tailored.pdf"
+    out_pdf = tmp_path / "out" / "diff.pdf"
+
+    base_pdf.write_bytes(b"%PDF-1.4 base")
+    tailored_pdf.write_bytes(b"%PDF-1.4 tailored")
+
+    with (
+        mock.patch(
+            "shutil.which",
+            side_effect=lambda cmd: (
+                "/usr/bin/pdf-vdiff" if cmd == "pdf-vdiff" else None
+            ),
+        ),
+        mock.patch(
+            "jobgitops.renderer.subprocess.run",
+            return_value=_fake_completed_process(returncode=1),
+        ) as mock_run,
+    ):
+        result = generate_pdf_diff(
+            base_pdf, tailored_pdf, out_pdf, theme="github", granularity="word"
+        )
+        assert result == out_pdf
+        assert out_pdf.parent.exists()
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == "/usr/bin/pdf-vdiff"
+        assert str(base_pdf.resolve()) in cmd
+        assert str(tailored_pdf.resolve()) in cmd
+        assert str(out_pdf.resolve()) in cmd
+        assert "--theme" in cmd
+        assert "github" in cmd
+
+
+def test_generate_pdf_diff_nix_fallback(tmp_path) -> None:
+    """Verify generate_pdf_diff falls back to nix run when binary missing."""
+    base_pdf = tmp_path / "base.pdf"
+    tailored_pdf = tmp_path / "tailored.pdf"
+    out_pdf = tmp_path / "diff.pdf"
+
+    base_pdf.write_bytes(b"%PDF-1.4 base")
+    tailored_pdf.write_bytes(b"%PDF-1.4 tailored")
+
+    with (
+        mock.patch(
+            "shutil.which",
+            side_effect=lambda cmd: "/usr/bin/nix" if cmd == "nix" else None,
+        ),
+        mock.patch(
+            "jobgitops.renderer.subprocess.run",
+            return_value=_fake_completed_process(returncode=0),
+        ) as mock_run,
+    ):
+        result = generate_pdf_diff(base_pdf, tailored_pdf, out_pdf)
+        assert result == out_pdf
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args.args[0]
+        assert cmd[:3] == ["nix", "run", "github:menil/pdf-vdiff"]
+
+
+def test_generate_pdf_diff_no_runner_error(tmp_path) -> None:
+    """Verify generate_pdf_diff raises RuntimeError when no runner is found."""
+    base_pdf = tmp_path / "base.pdf"
+    tailored_pdf = tmp_path / "tailored.pdf"
+    out_pdf = tmp_path / "diff.pdf"
+
+    base_pdf.write_bytes(b"%PDF-1.4 base")
+    tailored_pdf.write_bytes(b"%PDF-1.4 tailored")
+
+    with (
+        mock.patch("shutil.which", return_value=None),
+        pytest.raises(
+            RuntimeError,
+            match="Neither 'pdf-vdiff' nor 'nix' executable found",
+        ),
+    ):
+        generate_pdf_diff(base_pdf, tailored_pdf, out_pdf)
+
+
+def test_generate_pdf_diff_fatal_error(tmp_path) -> None:
+    """Verify generate_pdf_diff raises RuntimeError on exit code >= 2."""
+    base_pdf = tmp_path / "base.pdf"
+    tailored_pdf = tmp_path / "tailored.pdf"
+    out_pdf = tmp_path / "diff.pdf"
+
+    base_pdf.write_bytes(b"%PDF-1.4 base")
+    tailored_pdf.write_bytes(b"%PDF-1.4 tailored")
+
+    with (
+        mock.patch(
+            "shutil.which",
+            side_effect=lambda cmd: (
+                "/usr/bin/pdf-vdiff" if cmd == "pdf-vdiff" else None
+            ),
+        ),
+        mock.patch(
+            "jobgitops.renderer.subprocess.run",
+            return_value=_fake_completed_process(returncode=2, stderr="syntax error"),
+        ),
+        pytest.raises(
+            RuntimeError,
+            match="pdf-vdiff failed \\(exit 2\\): syntax error",
+        ),
+    ):
+        generate_pdf_diff(base_pdf, tailored_pdf, out_pdf)
