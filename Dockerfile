@@ -1,5 +1,5 @@
 # Stage 1: Build pdf-vdiff Rust CLI and download pdfium shared library
-FROM rust:1.80-slim-bookworm AS rust-builder
+FROM rust:1.85-slim-bookworm AS rust-builder
 ARG TARGETARCH
 ARG PDFIUM_VERSION=7881
 WORKDIR /build
