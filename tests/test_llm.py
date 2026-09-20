@@ -1403,3 +1403,19 @@ def test_job_details_pydantic_serialization() -> None:
     assert dumped["company"] == "Acme Corp"
     reloaded = JobDetails.model_validate(dumped)
     assert reloaded == details
+
+
+def test_chat_message_pydantic_serialization() -> None:
+    """Verify ChatMessage serialization round-trip with Pydantic model methods."""
+    msg = ChatMessage(
+        role="assistant",
+        content="Searching now",
+        tool_calls=[
+            ToolCall(name="web_search", arguments={"query": "JobGitOps"}, id="call_123")
+        ],
+    )
+    dumped = msg.model_dump()
+    assert dumped["role"] == "assistant"
+    assert dumped["tool_calls"][0]["name"] == "web_search"
+    reloaded = ChatMessage.model_validate(dumped)
+    assert reloaded == msg
