@@ -23,11 +23,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 import trafilatura
 from ddgs import DDGS
+from pydantic import BaseModel, ConfigDict
 
 from jobgitops.schema import ResearchConfig, ValidationError
 
@@ -76,8 +76,7 @@ def _error(message: str) -> dict[str, str]:
     return {"error": message}
 
 
-@dataclass(frozen=True)
-class Tool:
+class Tool(BaseModel):
     """A tool schema the agent can call.
 
     Attributes:
@@ -86,23 +85,27 @@ class Tool:
         parameters: JSON Schema object (OpenAI-style: type, properties, required).
     """
 
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
     name: str
     description: str
     parameters: dict[str, Any]
 
 
-@dataclass(frozen=True)
-class SearchResult:
+class SearchResult(BaseModel):
     """A single web search result."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
     title: str
     url: str
     snippet: str
 
 
-@dataclass(frozen=True)
-class PageContent:
+class PageContent(BaseModel):
     """Extracted readable content from a fetched page."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
     url: str
     title: str

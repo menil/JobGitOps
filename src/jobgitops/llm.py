@@ -3,16 +3,20 @@
 import json
 import logging
 import os
-import urllib.error
-import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, replace
 from typing import Any
 
+import litellm
+import litellm.exceptions
+import pydantic
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from jobgitops.schema import Basics, Resume, ValidationError
+
+litellm.telemetry = False
+litellm.suppress_debug_info = True
 
 logger = logging.getLogger("jobgitops.llm")
 
@@ -23,8 +27,7 @@ class QuotaExceededError(Exception):
     pass
 
 
-@dataclass
-class ToolCall:
+class ToolCall(BaseModel):
     """A tool/function invocation requested by the model.
 
     Args:
@@ -34,13 +37,28 @@ class ToolCall:
             which correlates tool results by function name.
     """
 
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
     name: str
-    arguments: dict[str, Any]
+    arguments: dict[str, Any] = Field(default_factory=dict)
     id: str | None = None
 
+    def __init__(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        id: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            name=name,
+            arguments=arguments if arguments is not None else {},
+            id=id,
+            **kwargs,
+        )
 
-@dataclass
-class ChatMessage:
+
+class ChatMessage(BaseModel):
     """A single message in a multi-turn chat conversation.
 
     Args:
@@ -52,23 +70,106 @@ class ChatMessage:
             the function name).
     """
 
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
     role: str
     content: str = ""
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
 
+    def __init__(
+        self,
+        role: str,
+        content: str = "",
+        tool_calls: list[ToolCall] | None = None,
+        tool_call_id: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            role=role,
+            content=content,
+            tool_calls=tool_calls,
+            tool_call_id=tool_call_id,
+            **kwargs,
+        )
 
-@dataclass
-class TriageResult:
+
+class TriageResult(BaseModel):
     """Evaluation result from the job description triage stage."""
 
-    fit_score: float
-    tech_stack_fit: float
-    experience_fit: float
-    location_fit: float
-    salary_fit: float
-    industry_fit: float
-    reasoning: str
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
+    fit_score: float = Field(..., ge=1.0, le=5.0)
+    tech_stack_fit: float = Field(..., ge=1.0, le=5.0)
+    experience_fit: float = Field(..., ge=1.0, le=5.0)
+    location_fit: float = Field(..., ge=1.0, le=5.0)
+    salary_fit: float = Field(..., ge=1.0, le=5.0)
+    industry_fit: float = Field(..., ge=1.0, le=5.0)
+    reasoning: str = ""
+
+    def __init__(
+        self,
+        fit_score: float,
+        tech_stack_fit: float,
+        experience_fit: float,
+        location_fit: float,
+        salary_fit: float,
+        industry_fit: float,
+        reasoning: str = "",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            fit_score=fit_score,
+            tech_stack_fit=tech_stack_fit,
+            experience_fit=experience_fit,
+            location_fit=location_fit,
+            salary_fit=salary_fit,
+            industry_fit=industry_fit,
+            reasoning=reasoning,
+            **kwargs,
+        )
+
+    @field_validator(
+        "fit_score",
+        "tech_stack_fit",
+        "experience_fit",
+        "location_fit",
+        "salary_fit",
+        "industry_fit",
+        mode="before",
+    )
+    @classmethod
+    def _validate_score(cls, val: Any, info: ValidationInfo) -> float:
+        if val is None:
+            raise ValidationError(
+                f"Missing required field in triage result: {info.field_name}"
+            )
+        if isinstance(val, bool):
+            raise ValidationError(
+                f"Field {info.field_name} must be a number, not a boolean."
+            )
+        try:
+            score = float(val)
+        except (ValueError, TypeError) as e:
+            raise ValidationError(
+                f"Field {info.field_name} must be a number: {e}"
+            ) from e
+        if not (1.0 <= score <= 5.0):
+            raise ValidationError(
+                f"Field {info.field_name} must be between 1.0 and 5.0"
+            )
+        return score
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _validate_reasoning(cls, val: Any) -> str:
+        if val is None:
+            return ""
+        if isinstance(val, bool):
+            raise ValidationError("reasoning must be a string, not a boolean.")
+        if isinstance(val, (list, dict, set, tuple)):
+            raise ValidationError("reasoning must be a string, not a collection.")
+        return str(val)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TriageResult":
@@ -80,48 +181,29 @@ class TriageResult:
         if not isinstance(data, dict):
             raise ValidationError("Triage result must be a dictionary.")
 
-        fit_score = _parse_score_field(data, "fit_score")
-        tech_stack_fit = _parse_score_field(data, "tech_stack_fit")
-        experience_fit = _parse_score_field(data, "experience_fit")
-        location_fit = _parse_score_field(data, "location_fit")
-        salary_fit = _parse_score_field(data, "salary_fit")
-        industry_fit = _parse_score_field(data, "industry_fit")
-
-        reasoning_val = data.get("reasoning")
-        if reasoning_val is None:
-            reasoning = ""
-        elif isinstance(reasoning_val, bool):
-            raise ValidationError("reasoning must be a string, not a boolean.")
-        elif isinstance(reasoning_val, (list, dict, set, tuple)):
-            raise ValidationError("reasoning must be a string, not a collection.")
-        else:
-            reasoning = str(reasoning_val)
-
-        return cls(
-            fit_score=fit_score,
-            tech_stack_fit=tech_stack_fit,
-            experience_fit=experience_fit,
-            location_fit=location_fit,
-            salary_fit=salary_fit,
-            industry_fit=industry_fit,
-            reasoning=reasoning,
+        # Check required fields
+        required_fields = (
+            "fit_score",
+            "tech_stack_fit",
+            "experience_fit",
+            "location_fit",
+            "salary_fit",
+            "industry_fit",
         )
+        for field_name in required_fields:
+            if field_name not in data:
+                raise ValidationError(
+                    f"Missing required field in triage result: {field_name}"
+                )
 
-
-def _parse_score_field(data: dict[str, Any], field_name: str) -> float:
-    """Validate and parse a score field from a dictionary."""
-    val = data.get(field_name)
-    if val is None:
-        raise ValidationError(f"Missing required field in triage result: {field_name}")
-    if isinstance(val, bool):
-        raise ValidationError(f"Field {field_name} must be a number, not a boolean.")
-    try:
-        score = float(val)
-    except (ValueError, TypeError) as e:
-        raise ValidationError(f"Field {field_name} must be a number: {e}") from e
-    if not (1.0 <= score <= 5.0):
-        raise ValidationError(f"Field {field_name} must be between 1.0 and 5.0")
-    return score
+        try:
+            return cls.model_validate(data)
+        except pydantic.ValidationError as e:
+            err = e.errors()[0]
+            msg = err.get("msg", "")
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, ") :]
+            raise ValidationError(msg) from e
 
 
 def clean_json_string(s: str) -> str:
@@ -168,9 +250,7 @@ def _backfill_basics(tailored: Basics, original: Basics) -> Basics:
         "location": tailored.location or original.location,
         "profiles": tailored.profiles or original.profiles,
     }
-    if hasattr(tailored, "model_copy"):
-        return tailored.model_copy(update=updates)
-    return replace(tailored, **updates)
+    return tailored.model_copy(update=updates)
 
 
 def _parse_tailored_resume(
@@ -203,6 +283,21 @@ def _parse_tailored_resume(
         try:
             clean_text = clean_json_string(fetch_text(hint))
             data = json.loads(clean_text)
+            if isinstance(data, dict) and isinstance(data.get("basics"), dict):
+                orig_basics_dict = original.basics.to_dict()
+                tailored_basics_dict = data["basics"]
+                for k, v in orig_basics_dict.items():
+                    if k not in tailored_basics_dict or tailored_basics_dict[k] is None:
+                        tailored_basics_dict[k] = v
+                    elif isinstance(v, dict) and isinstance(
+                        tailored_basics_dict[k], dict
+                    ):
+                        for sub_k, sub_v in v.items():
+                            if (
+                                sub_k not in tailored_basics_dict[k]
+                                or tailored_basics_dict[k][sub_k] is None
+                            ):
+                                tailored_basics_dict[k][sub_k] = sub_v
             tailored = Resume.from_dict(data)
             tailored.basics = _backfill_basics(tailored.basics, original.basics)
             if tailored.meta is None:
@@ -222,6 +317,60 @@ def _parse_tailored_resume(
     ) from last_error
 
 
+class JobDetails(BaseModel):
+    """Extracted job posting metadata."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
+    company: str = ""
+    role: str = ""
+    location: str = ""
+    salary: str = ""
+
+    @field_validator("company", "role", "location", "salary", mode="before")
+    @classmethod
+    def _validate_string_field(cls, val: Any, info: ValidationInfo) -> str:
+        if val is None:
+            return ""
+        if isinstance(val, bool):
+            raise ValidationError(
+                f"Field {info.field_name} must be a string, not a boolean."
+            )
+        if isinstance(val, (list, dict, set, tuple)):
+            raise ValidationError(
+                f"Field {info.field_name} must be a string, not a collection."
+            )
+        return str(val)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "JobDetails":
+        """Parse JobDetails from a dictionary, enforcing string types.
+
+        Raises:
+            ValidationError: If the input is not a dictionary or contains
+                invalid field types.
+        """
+        if not isinstance(data, dict):
+            raise ValidationError("Job details extraction must return a JSON object.")
+        try:
+            return cls.model_validate(data)
+        except pydantic.ValidationError as e:
+            err = e.errors()[0]
+            msg = err.get("msg", "")
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, ") :]
+            raise ValidationError(msg) from e
+
+    def to_dict(self) -> dict[str, str]:
+        """Convert JobDetails to a normalized dictionary."""
+        return {
+            "company": self.company,
+            "role": self.role,
+            "location": self.location,
+            "salary": self.salary,
+        }
+
+
 def _normalize_job_details(data: Any) -> dict[str, str]:
     """Coerce an LLM extraction response into string job detail fields.
 
@@ -233,20 +382,7 @@ def _normalize_job_details(data: Any) -> dict[str, str]:
         ValidationError: If the response is not a JSON object or a field is a
             boolean or a collection.
     """
-    if not isinstance(data, dict):
-        raise ValidationError("Job details extraction must return a JSON object.")
-    coerced: dict[str, str] = {}
-    for key in ("company", "role", "location", "salary"):
-        value = data.get(key)
-        if value is None:
-            coerced[key] = ""
-        elif isinstance(value, bool):
-            raise ValidationError(f"Field {key} must be a string, not a boolean.")
-        elif isinstance(value, (list, dict, set, tuple)):
-            raise ValidationError(f"Field {key} must be a string, not a collection.")
-        else:
-            coerced[key] = str(value)
-    return coerced
+    return JobDetails.from_dict(data).to_dict()
 
 
 TRIAGE_PROMPT = (
@@ -389,7 +525,10 @@ def _parse_job_details_response(response_text: str) -> dict[str, str]:
         ValidationError: When the response is not a JSON object or a field is
             a boolean or a collection.
     """
-    data = json.loads(clean_json_string(response_text))
+    try:
+        data = json.loads(clean_json_string(response_text))
+    except (json.JSONDecodeError, ValueError) as e:
+        raise ValidationError(f"Invalid JSON response: {e}") from e
     return _normalize_job_details(data)
 
 
@@ -531,93 +670,30 @@ class LLMClient(ABC):
         pass
 
 
-def _openai_tools_to_gemini(tools: list[dict]) -> dict:
-    """Convert OpenAI-style tool schemas to a Gemini tools payload.
+def _fold_system_into_first_message(
+    system_text: str, messages: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Prepend ``system_text`` into the first user turn instead of ``system``.
 
-    Each tool must follow the OpenAI schema
-    ``{"type": "function", "function": {name, description, parameters}}``.
+    A Claude Code OAuth token (``sk-ant-oat...``) only accepts the stock
+    Claude Code identity string in the ``system`` field verbatim; any other
+    content there is rejected outright, surfaced as a generic 429
+    ``rate_limit_error`` regardless of the added content's size. Real
+    system-prompt content is therefore carried in the conversation instead,
+    ahead of the first user turn.
     """
-    declarations = []
-    for tool in tools:
-        function = tool.get("function")
-        if not isinstance(function, dict):
-            raise ValidationError(
-                f"Tool must follow the OpenAI schema with a 'function' object: {tool}"
-            )
-        declarations.append(
-            {
-                "name": function.get("name"),
-                "description": function.get("description", ""),
-                "parameters": function.get("parameters", {}),
-            }
-        )
-    return {"function_declarations": declarations}
-
-
-def _message_to_gemini_content(message: ChatMessage, protos: Any) -> Any:
-    """Convert a ChatMessage to a Gemini ``protos.Content`` turn."""
-    if message.role == "assistant":
-        parts = []
-        if message.content:
-            parts.append(protos.Part(text=message.content))
-        for call in message.tool_calls or []:
-            parts.append(
-                protos.Part(
-                    function_call=protos.FunctionCall(
-                        name=call.name, args=call.arguments
-                    )
-                )
-            )
-        return protos.Content(role="model", parts=parts)
-    if message.role == "tool":
-        response = message.content
-        if isinstance(response, str):
-            response = {"result": response}
-        return protos.Content(
-            role="user",
-            parts=[
-                protos.Part(
-                    function_response=protos.FunctionResponse(
-                        name=message.tool_call_id or "", response=response
-                    )
-                )
-            ],
-        )
-    return protos.Content(role="user", parts=[protos.Part(text=message.content)])
-
-
-def _gemini_response_to_chat_message(response: Any, protos: Any) -> ChatMessage:
-    """Parse a Gemini ``GenerateContentResponse`` into a ChatMessage.
-
-    Raises ValidationError when the response carries neither text nor tool
-    calls (e.g. a blocked/empty generation), so callers never mistake a
-    failed reply for a blank assistant message.
-    """
-    content = ""
-    tool_calls: list[ToolCall] = []
-    parts = response.candidates[0].content.parts if response.candidates else []
-    for part in parts:
-        if part.function_call:
-            tool_calls.append(
-                ToolCall(
-                    name=part.function_call.name,
-                    arguments=dict(part.function_call.args.items()),
-                )
-            )
-        elif part.text:
-            content += part.text
-    if not content and not tool_calls:
-        feedback = getattr(response, "prompt_feedback", None)
-        block_reason = getattr(feedback, "block_reason", None)
-        detail = f"; blocked: {block_reason}" if block_reason else ""
-        raise ValidationError(
-            f"Gemini chat returned an empty response (no text or tool calls){detail}"
-        )
-    return ChatMessage(role="assistant", content=content, tool_calls=tool_calls or None)
+    if not messages or messages[0].get("role") != "user":
+        return [{"role": "user", "content": system_text}, *messages]
+    first_content = messages[0].get("content")
+    if isinstance(first_content, str):
+        folded: Any = f"{system_text}\n\n---\n\n{first_content}"
+    else:
+        folded = [{"type": "text", "text": system_text}, *(first_content or [])]
+    return [{"role": "user", "content": folded}, *messages[1:]]
 
 
 def _messages_to_openai(messages: list[ChatMessage]) -> list[dict[str, Any]]:
-    """Convert ChatMessages to the OpenAI chat-completion format."""
+    """Convert ChatMessages to the OpenAI chat-completion format for litellm."""
     converted: list[dict[str, Any]] = []
     for message in messages:
         if message.role == "assistant":
@@ -628,18 +704,18 @@ def _messages_to_openai(messages: list[ChatMessage]) -> list[dict[str, Any]]:
             if message.tool_calls:
                 serialized_calls = []
                 for call in message.tool_calls:
-                    if not call.id:
-                        raise ValidationError(
-                            f"OpenRouter chat tool call '{call.name}' is missing "
-                            "an id; tool results cannot reference it"
-                        )
+                    call_id = call.id or call.name
                     serialized_calls.append(
                         {
-                            "id": call.id,
+                            "id": call_id,
                             "type": "function",
                             "function": {
                                 "name": call.name,
-                                "arguments": json.dumps(call.arguments),
+                                "arguments": (
+                                    json.dumps(call.arguments)
+                                    if isinstance(call.arguments, dict)
+                                    else str(call.arguments)
+                                ),
                             },
                         }
                     )
@@ -658,141 +734,138 @@ def _messages_to_openai(messages: list[ChatMessage]) -> list[dict[str, Any]]:
     return converted
 
 
-def _openai_message_to_chat_message(message: dict[str, Any]) -> ChatMessage:
-    """Convert an OpenAI chat-completion response message to a ChatMessage."""
-    content = message.get("content") or ""
+def _response_to_chat_message(response: Any) -> ChatMessage:
+    """Convert a litellm completion response message to a ChatMessage."""
+    if not response or not getattr(response, "choices", None):
+        raise ValidationError("LLM returned an empty response with no choices")
+    choice = response.choices[0]
+    message = getattr(choice, "message", None)
+    if message is None:
+        raise ValidationError("LLM response choice contains no message")
+
+    content = getattr(message, "content", "") or ""
     tool_calls: list[ToolCall] = []
-    for call in message.get("tool_calls") or []:
-        try:
-            arguments = json.loads(call["function"]["arguments"] or "{}")
-        except json.JSONDecodeError as e:
-            raise ValidationError(
-                f"OpenRouter chat returned malformed tool call arguments: {e}"
-            ) from e
-        tool_calls.append(
-            ToolCall(
-                name=call["function"]["name"],
-                arguments=arguments,
-                id=call.get("id"),
+    raw_calls = getattr(message, "tool_calls", None) or []
+    for call in raw_calls:
+        func = getattr(call, "function", None)
+        if func:
+            name = getattr(func, "name", "")
+            arguments_raw = getattr(func, "arguments", "{}")
+            if isinstance(arguments_raw, str):
+                try:
+                    arguments = json.loads(arguments_raw or "{}")
+                except json.JSONDecodeError as e:
+                    raise ValidationError(
+                        f"LLM returned malformed tool call arguments: {e}"
+                    ) from e
+            elif isinstance(arguments_raw, dict):
+                arguments = arguments_raw
+            else:
+                arguments = {}
+            tool_calls.append(
+                ToolCall(
+                    name=name,
+                    arguments=arguments,
+                    id=getattr(call, "id", None),
+                )
             )
+    if not content and not tool_calls:
+        raise ValidationError(
+            "LLM chat returned an empty response (no text or tool calls)"
         )
     return ChatMessage(role="assistant", content=content, tool_calls=tool_calls or None)
 
 
-def _openai_tools_to_anthropic(tools: list[dict]) -> list[dict]:
-    """Convert OpenAI-style tool schemas to Anthropic tools payload.
-
-    Each tool must follow the OpenAI schema
-    ``{"type": "function", "function": {name, description, parameters}}``.
-    """
-    declarations = []
-    for tool in tools:
-        function = tool.get("function")
-        if not isinstance(function, dict):
-            raise ValidationError(
-                f"Tool must follow the OpenAI schema with a 'function' object: {tool}"
-            )
-        declarations.append(
-            {
-                "name": function.get("name"),
-                "description": function.get("description", ""),
-                "input_schema": function.get("parameters", {}),
-            }
-        )
-    return declarations
-
-
-def _messages_to_anthropic(
-    messages: list[ChatMessage],
-) -> tuple[str | None, list[dict[str, Any]]]:
-    """Convert ChatMessages into a top-level system prompt and Anthropic messages."""
-    system_parts: list[str] = []
-    converted: list[dict[str, Any]] = []
-    for message in messages:
-        if message.role == "system":
-            if message.content:
-                system_parts.append(message.content)
-        elif message.role == "assistant":
-            blocks: list[dict[str, Any]] = []
-            if message.content:
-                blocks.append({"type": "text", "text": message.content})
-            for call in message.tool_calls or []:
-                if not call.id:
-                    raise ValidationError(
-                        f"Claude chat tool call '{call.name}' is missing "
-                        "an id; tool results cannot reference it"
-                    )
-                blocks.append(
-                    {
-                        "type": "tool_use",
-                        "id": call.id,
-                        "name": call.name,
-                        "input": call.arguments,
-                    }
-                )
-            converted.append({"role": "assistant", "content": blocks})
-        elif message.role == "tool":
-            tool_result_block: dict[str, Any] = {
-                "type": "tool_result",
-                "tool_use_id": message.tool_call_id or "",
-                "content": (
-                    message.content
-                    if isinstance(message.content, str)
-                    else json.dumps(message.content)
-                ),
-            }
-            if (
-                converted
-                and converted[-1]["role"] == "user"
-                and isinstance(converted[-1]["content"], list)
-            ):
-                converted[-1]["content"].append(tool_result_block)
-            else:
-                converted.append({"role": "user", "content": [tool_result_block]})
-        elif message.role == "user":
-            converted.append({"role": "user", "content": message.content})
-        else:
-            raise ValidationError(f"Unknown message role: {message.role}")
-    system_prompt = "\n".join(system_parts) if system_parts else None
-    return system_prompt, converted
-
-
-def _fold_system_into_first_message(
-    system_text: str, messages: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """Prepend ``system_text`` into the first user turn instead of ``system``.
-
-    A Claude Code OAuth token (``sk-ant-oat...``) only accepts the stock
-    Claude Code identity string in the ``system`` field verbatim; any other
-    content there is rejected outright, surfaced as a generic 429
-    ``rate_limit_error`` regardless of the added content's size — confirmed
-    empirically by sending the identical string with and without a single
-    extra trailing character. Real system-prompt content is therefore carried
-    in the conversation instead, ahead of the first user turn.
-    """
-    if not messages or messages[0].get("role") != "user":
-        return [{"role": "user", "content": system_text}, *messages]
-    first_content = messages[0].get("content")
-    if isinstance(first_content, str):
-        folded: Any = f"{system_text}\n\n---\n\n{first_content}"
-    else:
-        folded = [{"type": "text", "text": system_text}, *(first_content or [])]
-    return [{"role": "user", "content": folded}, *messages[1:]]
-
-
-class GeminiClient(LLMClient):
-    """LLM client implementation utilizing the official Google Generative AI SDK."""
+class LiteLLMClient(LLMClient):
+    """Unified LLM client implementation wrapping litellm.completion."""
 
     def __init__(
-        self, api_key: str, model_name: str = "models/gemini-2.5-flash"
+        self,
+        api_key: str | None = None,
+        model_name: str = "",
+        provider: str | None = None,
     ) -> None:
         self.api_key = api_key
+        self.provider = provider
         self.model_name = model_name
+        self.litellm_model = self._resolve_litellm_model(model_name, provider)
 
-        import google.generativeai as genai
+    @staticmethod
+    def _resolve_litellm_model(model_name: str, provider: str | None = None) -> str:
+        """Resolve model name into litellm provider/model format."""
+        provider_lower = (provider or "").lower()
+        if (
+            provider_lower == "gemini"
+            or model_name.startswith("models/")
+            or model_name.startswith("gemini-")
+        ):
+            if not model_name.startswith("gemini/"):
+                return f"gemini/{model_name}"
+            return model_name
+        if provider_lower == "openrouter":
+            return f"openrouter/{model_name}"
+        if provider_lower in ("claude", "anthropic") or model_name.startswith(
+            "claude-"
+        ):
+            if not (model_name.startswith("anthropic/") or "/" in model_name):
+                return f"anthropic/{model_name}"
+            return model_name
+        if "/" in model_name and not model_name.startswith("gemini/"):
+            return f"openrouter/{model_name}"
+        return model_name
 
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(self.model_name)
+    def _call_litellm(
+        self,
+        messages: list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Any:
+        """Invoke litellm.completion with error handling and provider kwargs."""
+        kwargs: dict[str, Any] = {
+            "model": self.litellm_model,
+            "messages": messages,
+        }
+        if self.api_key:
+            kwargs["api_key"] = self.api_key
+
+        if response_format:
+            kwargs["response_format"] = response_format
+
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        # Special handling for Claude OAuth tokens
+        if self.api_key and self.api_key.startswith("sk-ant-oat"):
+            kwargs["extra_headers"] = {
+                "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+                "Authorization": f"Bearer {self.api_key}",
+            }
+            kwargs["system"] = _CLAUDE_CODE_SYSTEM_PREFIX
+            system_msgs = [m for m in messages if m.get("role") == "system"]
+            non_system_msgs = [m for m in messages if m.get("role") != "system"]
+            if system_msgs:
+                sys_text = "\n".join(
+                    m.get("content", "") for m in system_msgs if m.get("content")
+                )
+                if sys_text and sys_text != _CLAUDE_CODE_SYSTEM_PREFIX:
+                    non_system_msgs = _fold_system_into_first_message(
+                        sys_text, non_system_msgs
+                    )
+            kwargs["messages"] = non_system_msgs
+
+        try:
+            return litellm.completion(**kwargs)
+        except (
+            litellm.exceptions.RateLimitError,
+            litellm.exceptions.BudgetExceededError,
+            litellm.exceptions.ContextWindowExceededError,
+        ) as e:
+            raise QuotaExceededError(f"LLM API quota exceeded: {e}") from e
+        except Exception as e:
+            if isinstance(e, (QuotaExceededError, ValidationError)):
+                raise
+            raise ValidationError(f"LLM request failed: {e}") from e
 
     def triage_job(
         self,
@@ -802,8 +875,6 @@ class GeminiClient(LLMClient):
         job_location: str | None = None,
         desired_salary_min: int | None = None,
     ) -> TriageResult:
-        import google.api_core.exceptions
-
         prompt = format_triage_prompt(
             job_description,
             resume,
@@ -811,391 +882,81 @@ class GeminiClient(LLMClient):
             job_location=job_location,
             desired_salary_min=desired_salary_min,
         )
+        response = self._call_litellm(
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        )
+        choice = response.choices[0]
+        content = getattr(choice.message, "content", "") or ""
+        clean_text = clean_json_string(content)
         try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config={"response_mime_type": "application/json"},
-            )
-            clean_text = clean_json_string(response.text)
             data = json.loads(clean_text)
-            return TriageResult.from_dict(data)
-        except google.api_core.exceptions.ResourceExhausted as e:
-            raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
-        except (
-            json.JSONDecodeError,
-            ValidationError,
-            google.api_core.exceptions.GoogleAPICallError,
-        ) as e:
-            raise ValidationError(f"Gemini triage evaluation failed: {e}") from e
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValidationError(f"Invalid JSON response: {e}") from e
+        return TriageResult.from_dict(data)
 
     def tailor_resume(self, job_description: str, resume: Resume) -> Resume:
-        import google.api_core.exceptions
-
         resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
         prompt = TAILOR_PROMPT.format(
             resume_yaml=resume_yaml, job_description=job_description
         )
 
         def generate_text(hint: str) -> str:
-            response = self.model.generate_content(
-                prompt + hint,
-                generation_config={"response_mime_type": "application/json"},
+            resp = self._call_litellm(
+                messages=[{"role": "user", "content": prompt + hint}],
+                response_format={"type": "json_object"},
             )
-            return response.text
+            choice = resp.choices[0]
+            return getattr(choice.message, "content", "") or ""
 
-        try:
-            return _parse_tailored_resume(generate_text, "Gemini", resume)
-        except google.api_core.exceptions.ResourceExhausted as e:
-            raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
-        except google.api_core.exceptions.GoogleAPICallError as e:
-            raise ValidationError(f"Gemini resume tailoring failed: {e}") from e
+        return _parse_tailored_resume(generate_text, self.provider or "LiteLLM", resume)
 
     def extract_job_details(
         self, fetched_text: str, page_title: str, url: str
     ) -> dict[str, str]:
-        import google.api_core.exceptions
-
         prompt = _build_job_details_prompt(fetched_text, page_title, url)
-        try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config={"response_mime_type": "application/json"},
-            )
-            return _parse_job_details_response(response.text)
-        except google.api_core.exceptions.ResourceExhausted as e:
-            raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
-        except (
-            json.JSONDecodeError,
-            ValidationError,
-            google.api_core.exceptions.GoogleAPICallError,
-        ) as e:
-            raise ValidationError(f"Gemini job details extraction failed: {e}") from e
+        response = self._call_litellm(
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        )
+        choice = response.choices[0]
+        content = getattr(choice.message, "content", "") or ""
+        return _parse_job_details_response(content)
 
     def chat(
         self,
         messages: list[ChatMessage],
         tools: list[dict] | None = None,
     ) -> ChatMessage:
-        import google.api_core.exceptions
-        import google.generativeai as genai
-        from google.generativeai import protos
-
-        system_instruction = (
-            "\n".join(m.content for m in messages if m.role == "system" and m.content)
-            or None
+        openai_messages = _messages_to_openai(messages)
+        response = self._call_litellm(
+            messages=openai_messages,
+            tools=tools,
         )
-        contents = [
-            _message_to_gemini_content(m, protos)
-            for m in messages
-            if m.role != "system"
-        ]
-        model = self.model
-        if system_instruction:
-            model = genai.GenerativeModel(
-                self.model_name, system_instruction=system_instruction
-            )
-        request_kwargs: dict[str, Any] = {"contents": contents}
-        if tools:
-            request_kwargs["tools"] = [_openai_tools_to_gemini(tools)]
-            request_kwargs["tool_config"] = {
-                "function_calling_config": {"mode": "AUTO"}
-            }
-        try:
-            response = model.generate_content(**request_kwargs)
-        except google.api_core.exceptions.ResourceExhausted as e:
-            raise QuotaExceededError(f"Gemini API quota exceeded: {e}") from e
-        except google.api_core.exceptions.GoogleAPICallError as e:
-            raise ValidationError(f"Gemini chat failed: {e}") from e
-        return _gemini_response_to_chat_message(response, protos)
+        return _response_to_chat_message(response)
 
 
-class OpenRouterClient(LLMClient):
-    """LLM client implementation utilizing standard HTTP requests."""
+class GeminiClient(LiteLLMClient):
+    """LLM client implementation for Gemini models via LiteLLM."""
+
+    def __init__(
+        self, api_key: str, model_name: str = "models/gemini-2.5-flash"
+    ) -> None:
+        super().__init__(api_key=api_key, model_name=model_name, provider="Gemini")
+
+
+class OpenRouterClient(LiteLLMClient):
+    """LLM client implementation for OpenRouter models via LiteLLM."""
 
     def __init__(self, api_key: str, model_name: str = "openrouter/free") -> None:
-        self.api_key = api_key
-        self.model_name = model_name
-
-    def _request_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """POST a chat-completion payload to OpenRouter.
-
-        Returns the parsed JSON response after validating that at least one
-        choice is present. Error mapping matches the single-shot methods.
-        """
-        req = urllib.request.Request(
-            "https://openrouter.ai/api/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=60) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                if "choices" not in res_data or not res_data["choices"]:
-                    raise ValidationError(
-                        f"Invalid response format from OpenRouter: {res_data}"
-                    )
-                return res_data
-        except urllib.error.HTTPError as e:
-            try:
-                error_body = e.read().decode("utf-8")
-            except Exception:
-                error_body = ""
-            if e.code == 429:
-                raise QuotaExceededError(
-                    f"OpenRouter rate limit exceeded: {e.reason}. Body: {error_body}"
-                ) from e
-            raise ValidationError(
-                f"OpenRouter HTTP Error {e.code}: {e.reason}. Body: {error_body}"
-            ) from e
-        except urllib.error.URLError as e:
-            raise ValidationError(f"OpenRouter Connection Error: {e.reason}") from e
-        except TimeoutError as e:
-            raise ValidationError(f"OpenRouter Request Timeout: {e}") from e
-        except json.JSONDecodeError as e:
-            raise ValidationError(f"OpenRouter Invalid JSON Response: {e}") from e
-        except ValidationError:
-            raise
-
-    def _call_openrouter(self, prompt: str) -> str:
-        payload = {
-            "model": self.model_name,
-            "messages": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"},
-        }
-        res_data = self._request_chat(payload)
-        return res_data["choices"][0]["message"]["content"]
-
-    def chat(
-        self,
-        messages: list[ChatMessage],
-        tools: list[dict] | None = None,
-    ) -> ChatMessage:
-        payload: dict[str, Any] = {
-            "model": self.model_name,
-            "messages": _messages_to_openai(messages),
-        }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
-        res_data = self._request_chat(payload)
-        return _openai_message_to_chat_message(res_data["choices"][0]["message"])
-
-    def triage_job(
-        self,
-        job_description: str,
-        resume: Resume,
-        work_preference: str = "remote",
-        job_location: str | None = None,
-        desired_salary_min: int | None = None,
-    ) -> TriageResult:
-        prompt = format_triage_prompt(
-            job_description,
-            resume,
-            work_preference,
-            job_location=job_location,
-            desired_salary_min=desired_salary_min,
-        )
-        try:
-            response_text = self._call_openrouter(prompt)
-            clean_text = clean_json_string(response_text)
-            data = json.loads(clean_text)
-            return TriageResult.from_dict(data)
-        except (json.JSONDecodeError, ValidationError) as e:
-            raise ValidationError(f"OpenRouter triage evaluation failed: {e}") from e
-
-    def tailor_resume(self, job_description: str, resume: Resume) -> Resume:
-        resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
-        prompt = TAILOR_PROMPT.format(
-            resume_yaml=resume_yaml, job_description=job_description
-        )
-        return _parse_tailored_resume(
-            lambda hint: self._call_openrouter(prompt + hint), "OpenRouter", resume
-        )
-
-    def extract_job_details(
-        self, fetched_text: str, page_title: str, url: str
-    ) -> dict[str, str]:
-        prompt = _build_job_details_prompt(fetched_text, page_title, url)
-        try:
-            response_text = self._call_openrouter(prompt)
-            return _parse_job_details_response(response_text)
-        except (json.JSONDecodeError, ValidationError) as e:
-            raise ValidationError(
-                f"OpenRouter job details extraction failed: {e}"
-            ) from e
+        super().__init__(api_key=api_key, model_name=model_name, provider="OpenRouter")
 
 
-class ClaudeClient(LLMClient):
-    """LLM client implementation utilizing the Anthropic Messages API.
-
-    Supports both Claude Code OAuth tokens (e.g. from `claude setup-token`)
-    and standard Anthropic API keys.
-    """
+class ClaudeClient(LiteLLMClient):
+    """LLM client implementation for Claude models via LiteLLM."""
 
     def __init__(self, api_key: str, model_name: str = "claude-sonnet-5") -> None:
-        self.api_key = api_key
-        self.model_name = model_name
-
-    def _request_messages(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """POST a messages payload to Anthropic Messages API.
-
-        Returns the parsed JSON response.
-        """
-        headers = {
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        }
-        if self.api_key.startswith("sk-ant-oat"):
-            headers["Authorization"] = f"Bearer {self.api_key}"
-            headers["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20"
-            current_system = payload.get("system")
-            if current_system and current_system != _CLAUDE_CODE_SYSTEM_PREFIX:
-                payload["messages"] = _fold_system_into_first_message(
-                    current_system, payload.get("messages", [])
-                )
-            payload["system"] = _CLAUDE_CODE_SYSTEM_PREFIX
-        else:
-            headers["x-api-key"] = self.api_key
-
-        if "max_tokens" not in payload:
-            payload["max_tokens"] = 4096
-
-        req = urllib.request.Request(
-            "https://api.anthropic.com/v1/messages",
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=60) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                if "content" not in res_data or not isinstance(
-                    res_data["content"], list
-                ):
-                    raise ValidationError(
-                        f"Invalid response format from Claude: {res_data}"
-                    )
-                return res_data
-        except urllib.error.HTTPError as e:
-            try:
-                error_body = e.read().decode("utf-8")
-            except Exception:
-                error_body = ""
-            if e.code == 429:
-                raise QuotaExceededError(
-                    f"Claude rate limit exceeded: {e.reason}. Body: {error_body}"
-                ) from e
-            raise ValidationError(
-                f"Claude HTTP Error {e.code}: {e.reason}. Body: {error_body}"
-            ) from e
-        except urllib.error.URLError as e:
-            raise ValidationError(f"Claude Connection Error: {e.reason}") from e
-        except TimeoutError as e:
-            raise ValidationError(f"Claude Request Timeout: {e}") from e
-        except json.JSONDecodeError as e:
-            raise ValidationError(f"Claude Invalid JSON Response: {e}") from e
-        except ValidationError:
-            raise
-
-    def _call_claude(self, prompt: str, system: str | None = None) -> str:
-        payload: dict[str, Any] = {
-            "model": self.model_name,
-            "max_tokens": 4096,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if system:
-            payload["system"] = system
-        res_data = self._request_messages(payload)
-        text_parts = [
-            block.get("text", "")
-            for block in res_data.get("content", [])
-            if block.get("type") == "text"
-        ]
-        return "".join(text_parts)
-
-    def chat(
-        self,
-        messages: list[ChatMessage],
-        tools: list[dict] | None = None,
-    ) -> ChatMessage:
-        system, anthropic_messages = _messages_to_anthropic(messages)
-        payload: dict[str, Any] = {
-            "model": self.model_name,
-            "max_tokens": 4096,
-            "messages": anthropic_messages,
-        }
-        if system:
-            payload["system"] = system
-        if tools:
-            payload["tools"] = _openai_tools_to_anthropic(tools)
-
-        res_data = self._request_messages(payload)
-        content = ""
-        tool_calls: list[ToolCall] = []
-        for block in res_data.get("content", []):
-            if block.get("type") == "text":
-                content += block.get("text", "")
-            elif block.get("type") == "tool_use":
-                tool_calls.append(
-                    ToolCall(
-                        name=block["name"],
-                        arguments=block.get("input", {}),
-                        id=block.get("id"),
-                    )
-                )
-        if not content and not tool_calls:
-            raise ValidationError(
-                "Claude chat returned an empty response (no text or tool calls)"
-            )
-        return ChatMessage(
-            role="assistant", content=content, tool_calls=tool_calls or None
-        )
-
-    def triage_job(
-        self,
-        job_description: str,
-        resume: Resume,
-        work_preference: str = "remote",
-        job_location: str | None = None,
-        desired_salary_min: int | None = None,
-    ) -> TriageResult:
-        prompt = format_triage_prompt(
-            job_description,
-            resume,
-            work_preference,
-            job_location=job_location,
-            desired_salary_min=desired_salary_min,
-        )
-        try:
-            response_text = self._call_claude(prompt)
-            clean_text = clean_json_string(response_text)
-            data = json.loads(clean_text)
-            return TriageResult.from_dict(data)
-        except (json.JSONDecodeError, ValidationError) as e:
-            raise ValidationError(f"Claude triage evaluation failed: {e}") from e
-
-    def tailor_resume(self, job_description: str, resume: Resume) -> Resume:
-        resume_yaml = yaml.safe_dump(resume.to_dict(), allow_unicode=True)
-        prompt = TAILOR_PROMPT.format(
-            resume_yaml=resume_yaml, job_description=job_description
-        )
-        return _parse_tailored_resume(
-            lambda hint: self._call_claude(prompt + hint), "Claude", resume
-        )
-
-    def extract_job_details(
-        self, fetched_text: str, page_title: str, url: str
-    ) -> dict[str, str]:
-        prompt = _build_job_details_prompt(fetched_text, page_title, url)
-        try:
-            response_text = self._call_claude(prompt)
-            return _parse_job_details_response(response_text)
-        except (json.JSONDecodeError, ValidationError) as e:
-            raise ValidationError(f"Claude job details extraction failed: {e}") from e
+        super().__init__(api_key=api_key, model_name=model_name, provider="Claude")
 
 
 _DEFAULT_GEMINI_MODEL = "models/gemini-2.5-flash"
