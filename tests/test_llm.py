@@ -1372,3 +1372,34 @@ def test_litellm_client_direct_instantiation() -> None:
     )
     assert client.model_name == "models/gemini-2.5-flash"
     assert client.litellm_model == "gemini/models/gemini-2.5-flash"
+
+
+def test_triage_result_pydantic_serialization() -> None:
+    """Verify TriageResult serialization round-trip with Pydantic model methods."""
+    res = TriageResult(
+        fit_score=4.5,
+        tech_stack_fit=5.0,
+        experience_fit=4.0,
+        location_fit=4.0,
+        salary_fit=4.5,
+        industry_fit=4.0,
+        reasoning="Solid fit across dimensions.",
+    )
+    dumped = res.model_dump()
+    assert dumped["fit_score"] == 4.5
+    assert dumped["reasoning"] == "Solid fit across dimensions."
+    reloaded = TriageResult.model_validate(dumped)
+    assert reloaded == res
+
+
+def test_job_details_pydantic_serialization() -> None:
+    """Verify JobDetails serialization round-trip with Pydantic model methods."""
+    details = JobDetails(
+        company="Acme Corp",
+        role="Principal Engineer",
+        location="Remote",
+    )
+    dumped = details.model_dump()
+    assert dumped["company"] == "Acme Corp"
+    reloaded = JobDetails.model_validate(dumped)
+    assert reloaded == details
