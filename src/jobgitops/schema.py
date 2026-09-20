@@ -2,7 +2,6 @@
 
 import datetime
 import re
-from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 import pydantic
@@ -554,12 +553,13 @@ class Settings(BaseModel):
             raise
 
 
-# --- JSON Resume Schema Dataclasses ---
+# --- JSON Resume Schema Pydantic Models ---
 
 
-@dataclass
-class Location:
+class Location(BaseModel):
     """Location information for JSON Resume."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     city: str | None = None
     state: str | None = None
@@ -567,17 +567,7 @@ class Location:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Location":
-        """Parse location details from dictionary.
-
-        Args:
-            data: Raw dictionary containing Location fields.
-
-        Returns:
-            A parsed Location instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse location details from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("basics.location must be a dictionary.")
 
@@ -611,9 +601,10 @@ class Location:
         return res
 
 
-@dataclass
-class Profile:
+class Profile(BaseModel):
     """Social profiles (GitHub, LinkedIn) for JSON Resume."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     network: str
     username: str | None = None
@@ -621,17 +612,7 @@ class Profile:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Profile":
-        """Parse social profile details from dictionary.
-
-        Args:
-            data: Raw dictionary containing Profile fields.
-
-        Returns:
-            A parsed Profile instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse social profile details from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("profile details must be a dictionary.")
 
@@ -671,9 +652,10 @@ def _set_array(
         res[key] = items
 
 
-@dataclass
-class Basics:
+class Basics(BaseModel):
     """Basic profile information for JSON Resume."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     name: str
     label: str | None = None
@@ -682,21 +664,11 @@ class Basics:
     url: str | None = None
     summary: str | None = None
     location: Location | None = None
-    profiles: list[Profile] = field(default_factory=list)
+    profiles: list[Profile] = Field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Basics":
-        """Parse basics section from dictionary.
-
-        Args:
-            data: Raw dictionary containing Basics fields.
-
-        Returns:
-            A parsed Basics instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse basics section from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("Resume basics must be a dictionary.")
 
@@ -757,19 +729,24 @@ class Basics:
         if self.summary is not None:
             res["summary"] = self.summary
         if self.location is not None:
-            res["location"] = self.location.to_dict()
+            res["location"] = (
+                self.location.to_dict()
+                if hasattr(self.location, "to_dict")
+                else self.location
+            )
         _set_array(
             res,
             "profiles",
-            [p.to_dict() for p in self.profiles],
+            [p.to_dict() if hasattr(p, "to_dict") else p for p in self.profiles],
             include_empty_arrays=include_empty_arrays,
         )
         return res
 
 
-@dataclass
-class Work:
+class Work(BaseModel):
     """Professional work experience entry for JSON Resume."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     name: str
     position: str
@@ -777,21 +754,11 @@ class Work:
     start_date: str | None = None
     end_date: str | None = None
     summary: str | None = None
-    highlights: list[str] = field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Work":
-        """Parse work experience entry from dictionary.
-
-        Args:
-            data: Raw dictionary containing Work fields.
-
-        Returns:
-            A parsed Work instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse work experience entry from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("work entry must be a dictionary.")
 
@@ -851,9 +818,10 @@ class Work:
         return res
 
 
-@dataclass
-class Education:
+class Education(BaseModel):
     """Education history entry for JSON Resume."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     institution: str
     url: str | None = None
@@ -862,21 +830,11 @@ class Education:
     start_date: str | None = None
     end_date: str | None = None
     score: str | None = None
-    courses: list[str] = field(default_factory=list)
+    courses: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Education":
-        """Parse education history entry from dictionary.
-
-        Args:
-            data: Raw dictionary containing Education fields.
-
-        Returns:
-            A parsed Education instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse education history entry from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("education entry must be a dictionary.")
 
@@ -935,26 +893,17 @@ class Education:
         return res
 
 
-@dataclass
-class Skill:
+class Skill(BaseModel):
     """Professional skills entry for JSON Resume."""
 
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
     name: str
-    keywords: list[str] = field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Skill":
-        """Parse skill entry from dictionary.
-
-        Args:
-            data: Raw dictionary containing Skill fields.
-
-        Returns:
-            A parsed Skill instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse skill entry from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("skill entry must be a dictionary.")
 
@@ -990,31 +939,22 @@ class Skill:
         return res
 
 
-@dataclass
-class Project:
+class Project(BaseModel):
     """Personal or professional project entry for JSON Resume."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     name: str
     description: str | None = None
-    highlights: list[str] = field(default_factory=list)
-    keywords: list[str] = field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
     start_date: str | None = None
     end_date: str | None = None
     url: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Project":
-        """Parse project entry from dictionary.
-
-        Args:
-            data: Raw dictionary containing Project fields.
-
-        Returns:
-            A parsed Project instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse project entry from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("project entry must be a dictionary.")
 
@@ -1081,30 +1021,21 @@ class Project:
         return res
 
 
-@dataclass
-class Resume:
+class Resume(BaseModel):
     """Full resume conforming to JSON Resume schema conventions."""
 
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
     basics: Basics
-    work: list[Work] = field(default_factory=list)
-    education: list[Education] = field(default_factory=list)
-    skills: list[Skill] = field(default_factory=list)
-    projects: list[Project] = field(default_factory=list)
+    work: list[Work] = Field(default_factory=list)
+    education: list[Education] = Field(default_factory=list)
+    skills: list[Skill] = Field(default_factory=list)
+    projects: list[Project] = Field(default_factory=list)
     meta: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Resume":
-        """Parse full resume from dictionary with parsing validation.
-
-        Args:
-            data: Raw dictionary containing the full Resume.
-
-        Returns:
-            A parsed Resume instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse full resume from dictionary with parsing validation."""
         if not isinstance(data, dict):
             raise ValidationError("Resume data must be a dictionary.")
 
