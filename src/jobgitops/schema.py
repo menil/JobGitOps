@@ -3,7 +3,10 @@
 import datetime
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
+
+import pydantic
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from jobgitops.fit_grades import FIT_GRADE_B_MIN
 
@@ -127,162 +130,156 @@ def _parse_bool(field_name: str, val: Any, default: bool) -> bool:
     raise ValidationError(f"{field_name} must be a boolean.")
 
 
-@dataclass
-class SearchConfig:
+class SearchConfig(BaseModel):
     """Job search scraper configuration."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     work_preference: str = "hybrid"
     job_type: str = "fulltime"
-    platforms: list[str] = field(
+    platforms: list[str] = Field(
         default_factory=lambda: ["linkedin", "indeed", "zip_recruiter"]
     )
     hours_old: int = 24
     enabled: bool = True
     desired_salary_min: int | None = None
 
+    @field_validator("work_preference", mode="before")
+    @classmethod
+    def _validate_work_preference(cls, v: Any) -> str:
+        if v is None:
+            return "hybrid"
+        if isinstance(v, bool) or not isinstance(v, str):
+            raise ValidationError(
+                "search.work_preference must be a string, not a collection."
+                if isinstance(v, (list, dict, set, tuple))
+                else "search.work_preference must be a string, not a boolean."
+            )
+        v_clean = v.lower().strip()
+        if v_clean not in ("remote", "onsite", "hybrid"):
+            raise ValidationError(
+                "search.work_preference must be one of: remote, onsite, hybrid."
+            )
+        return v_clean
+
+    @field_validator("job_type", mode="before")
+    @classmethod
+    def _validate_job_type(cls, v: Any) -> str:
+        if v is None:
+            return "fulltime"
+        if isinstance(v, bool) or not isinstance(v, str):
+            raise ValidationError("search.job_type must be a string.")
+        return v
+
+    @field_validator("platforms", mode="before")
+    @classmethod
+    def _validate_platforms(cls, v: Any) -> list[str]:
+        if v is None:
+            return ["linkedin", "indeed", "zip_recruiter"]
+        if not isinstance(v, list) or not all(
+            isinstance(p, str) and not isinstance(p, bool) for p in v
+        ):
+            raise ValidationError("search.platforms must be a list of strings.")
+        return v
+
+    @field_validator("hours_old", mode="before")
+    @classmethod
+    def _validate_hours_old(cls, v: Any) -> int:
+        if v is None:
+            return 24
+        if isinstance(v, bool):
+            raise ValidationError("search.hours_old must be an integer.")
+        try:
+            val = int(v)
+        except (ValueError, TypeError) as e:
+            raise ValidationError("search.hours_old must be an integer.") from e
+        if val <= 0:
+            raise ValidationError("search.hours_old must be greater than zero.")
+        return val
+
+    @field_validator("desired_salary_min", mode="before")
+    @classmethod
+    def _validate_desired_salary_min(cls, v: Any) -> int | None:
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            raise ValidationError("search.desired_salary_min must be an integer.")
+        try:
+            val = int(v)
+        except (ValueError, TypeError) as e:
+            raise ValidationError(
+                "search.desired_salary_min must be an integer."
+            ) from e
+        if val <= 0:
+            raise ValidationError(
+                "search.desired_salary_min must be greater than zero."
+            )
+        return val
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def _validate_enabled(cls, v: Any) -> bool:
+        if v is None:
+            return True
+        if isinstance(v, str):
+            return v.lower() not in ("false", "0", "no", "")
+        return bool(v)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SearchConfig":
-        """Parse search configuration from dictionary.
-
-        Args:
-            data: Raw dictionary containing search config fields.
-
-        Returns:
-            A parsed SearchConfig instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse search configuration from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("Search configuration must be a dictionary.")
-
         try:
-            work_preference = (
-                _parse_str("search.work_preference", data.get("work_preference"))
-                or "hybrid"
-            )
-            work_preference = work_preference.lower().strip()
-            if work_preference not in ("remote", "onsite", "hybrid"):
-                raise ValidationError(
-                    "search.work_preference must be one of: remote, onsite, hybrid."
-                )
-
-            job_type = _parse_str("search.job_type", data.get("job_type")) or "fulltime"
-
-            platforms_raw = data.get("platforms")
-            if platforms_raw is None:
-                platforms = ["linkedin", "indeed", "zip_recruiter"]
-            else:
-                if not isinstance(platforms_raw, list) or not all(
-                    isinstance(p, str) and not isinstance(p, bool)
-                    for p in platforms_raw
-                ):
-                    raise ValidationError("search.platforms must be a list of strings.")
-                platforms = platforms_raw
-
-            hours_old_raw = data.get("hours_old")
-            if hours_old_raw is None:
-                hours_old = 24
-            else:
-                if isinstance(hours_old_raw, bool) or not isinstance(
-                    hours_old_raw, int
-                ):
-                    try:
-                        if isinstance(hours_old_raw, bool):
-                            raise TypeError()
-                        hours_old = int(hours_old_raw)
-                    except (ValueError, TypeError) as e:
-                        raise ValidationError(
-                            "search.hours_old must be an integer."
-                        ) from e
-                else:
-                    hours_old = hours_old_raw
-
-            if hours_old <= 0:
-                raise ValidationError("search.hours_old must be greater than zero.")
-
-            desired_salary_min_raw = data.get("desired_salary_min")
-            desired_salary_min = (
-                _parse_positive_int(
-                    "search.desired_salary_min", desired_salary_min_raw, 1
-                )
-                if desired_salary_min_raw is not None
-                else None
-            )
-
-            enabled_val = data.get("enabled")
-            if enabled_val is None:
-                enabled = True
-            elif isinstance(enabled_val, str):
-                enabled = enabled_val.lower() not in ("false", "0", "no", "")
-            else:
-                enabled = bool(enabled_val)
-
-            return cls(
-                work_preference=work_preference,
-                job_type=job_type,
-                platforms=platforms,
-                hours_old=hours_old,
-                enabled=enabled,
-                desired_salary_min=desired_salary_min,
-            )
-        except (ValueError, TypeError, ValidationError) as e:
-            raise ValidationError(f"Failed to parse SearchConfig: {e}") from e
+            return cls.model_validate(data)
+        except pydantic.ValidationError as e:
+            first_err = e.errors()[0]
+            msg = first_err.get("msg", "")
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, ") :]
+            raise ValidationError(f"Failed to parse SearchConfig: {msg}") from e
 
 
-@dataclass
-class ProjectsV2Config:
+class ProjectsV2Config(BaseModel):
     """Optional GitHub Projects V2 automation configuration."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     project_id: str
     status_field_name: str = "Status"
+    PLACEHOLDER_PREFIX: ClassVar[str] = "PVT_YOUR_"
 
-    # Sentinel shipped in config/settings.yaml; normalized to empty below so a
-    # fresh clone degrades to label-only tracking instead of firing GraphQL
-    # mutations against a nonexistent project (which would red-CI every label
-    # event). Enabling the integration is an explicit "replace the placeholder"
-    # step.
-    PLACEHOLDER_PREFIX = "PVT_YOUR_"
+    @field_validator("project_id", mode="before")
+    @classmethod
+    def _validate_project_id(cls, v: Any) -> str:
+        if v is None or isinstance(v, bool) or not isinstance(v, str) or not v.strip():
+            raise ValidationError("projects_v2.project_id must be a non-empty string.")
+        if v.startswith(cls.PLACEHOLDER_PREFIX):
+            return ""
+        return v
+
+    @field_validator("status_field_name", mode="before")
+    @classmethod
+    def _validate_status_field_name(cls, v: Any) -> str:
+        if v is None:
+            return "Status"
+        if isinstance(v, bool) or not isinstance(v, str):
+            raise ValidationError("projects_v2.status_field_name must be a string.")
+        return v or "Status"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ProjectsV2Config":
-        """Parse Projects V2 configuration from dictionary.
-
-        Args:
-            data: Raw dictionary containing Projects V2 config.
-
-        Returns:
-            A parsed ProjectsV2Config instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse Projects V2 configuration from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("projects_v2 configuration must be a dictionary.")
-
         try:
-            project_id = _parse_str("projects_v2.project_id", data.get("project_id"))
-            if not project_id:
-                raise ValidationError(
-                    "projects_v2.project_id must be a non-empty string."
-                )
-
-            # A placeholder project ID is indistinguishable from "not set":
-            # scripts gate Projects V2 work on project_id truthiness, so keep
-            # the shipped default in a label-only state until a real ID is set.
-            if project_id.startswith(cls.PLACEHOLDER_PREFIX):
-                project_id = ""
-
-            status_field_name = (
-                _parse_str(
-                    "projects_v2.status_field_name", data.get("status_field_name")
-                )
-                or cls.status_field_name
-            )
-
-            return cls(project_id=project_id, status_field_name=status_field_name)
-        except (ValueError, TypeError, ValidationError) as e:
-            raise ValidationError(f"Failed to parse ProjectsV2Config: {e}") from e
+            return cls.model_validate(data)
+        except pydantic.ValidationError as e:
+            first_err = e.errors()[0]
+            msg = first_err.get("msg", "")
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, ") :]
+            raise ValidationError(f"Failed to parse ProjectsV2Config: {msg}") from e
 
 
 # Maximum decompressed response body accepted from a fetched page (1 MiB).
@@ -306,9 +303,10 @@ _RESEARCH_INT_FIELDS: tuple[str, ...] = (
 _RESEARCH_BOOL_FIELDS: tuple[str, ...] = ("use_jina_reader", "block_private_ips")
 
 
-@dataclass
-class ResearchConfig:
+class ResearchConfig(BaseModel):
     """Issue Assistant research / web-tool configuration."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     search_provider: str = "duckduckgo"
     max_results: int = 5
@@ -322,77 +320,113 @@ class ResearchConfig:
     use_jina_reader: bool = True
     max_jina_calls: int = 5
     block_private_ips: bool = True
-    # Optional responder model override; empty = provider default.
     model: str = ""
+
+    @field_validator("request_delay", mode="before")
+    @classmethod
+    def _validate_request_delay(cls, v: Any) -> float:
+        if v is None:
+            return 1.0
+        if isinstance(v, bool):
+            raise ValidationError("research.request_delay must be a number.")
+        try:
+            val = float(v)
+        except (ValueError, TypeError) as e:
+            raise ValidationError("research.request_delay must be a number.") from e
+        if val < 0:
+            raise ValidationError("research.request_delay must not be negative.")
+        return val
+
+    @field_validator(
+        "max_results",
+        "max_iterations",
+        "max_context_comments",
+        "timeout_seconds",
+        "total_timeout_seconds",
+        "max_redirects",
+        "max_content_bytes",
+        mode="before",
+    )
+    @classmethod
+    def _validate_positive_ints(cls, v: Any, info: ValidationInfo) -> int:
+        field_name = info.field_name
+        if v is None:
+            default_val = cls.model_fields[field_name].default
+            return default_val if isinstance(default_val, int) else 1
+        if isinstance(v, bool):
+            raise ValidationError(f"research.{field_name} must be an integer.")
+        try:
+            val = int(v)
+        except (ValueError, TypeError) as e:
+            raise ValidationError(f"research.{field_name} must be an integer.") from e
+        if val <= 0:
+            raise ValidationError(f"research.{field_name} must be greater than zero.")
+        return val
+
+    @field_validator("max_jina_calls", mode="before")
+    @classmethod
+    def _validate_max_jina_calls(cls, v: Any, info: ValidationInfo) -> int:
+        if v is None:
+            return 5
+        if isinstance(v, bool):
+            raise ValidationError("research.max_jina_calls must be an integer.")
+        try:
+            val = int(v)
+        except (ValueError, TypeError) as e:
+            raise ValidationError("research.max_jina_calls must be an integer.") from e
+        is_from_dict = info.context and info.context.get("from_dict")
+        if is_from_dict and val <= 0:
+            raise ValidationError("research.max_jina_calls must be greater than zero.")
+        if val < 0:
+            raise ValidationError("research.max_jina_calls must not be negative.")
+        return val
+
+    @field_validator("use_jina_reader", "block_private_ips", mode="before")
+    @classmethod
+    def _validate_bools(cls, v: Any, info: ValidationInfo) -> bool:
+        field_name = info.field_name
+        if v is None:
+            return True
+        if isinstance(v, bool):
+            return v
+        raise ValidationError(f"research.{field_name} must be a boolean.")
+
+    @field_validator("search_provider", "model", mode="before")
+    @classmethod
+    def _validate_str_fields(cls, v: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name
+        default_val = "duckduckgo" if field_name == "search_provider" else ""
+        if v is None:
+            return default_val
+        if isinstance(v, bool):
+            raise ValidationError(
+                f"research.{field_name} must be a string, not a boolean."
+            )
+        if not isinstance(v, str):
+            raise ValidationError(f"research.{field_name} must be a string.")
+        return v or default_val
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ResearchConfig":
-        """Parse research configuration from dictionary.
-
-        Args:
-            data: Raw dictionary containing research config fields.
-
-        Returns:
-            A parsed ResearchConfig instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse research configuration from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("Research configuration must be a dictionary.")
-
         try:
-            request_delay = _parse_float(
-                "research.request_delay", data.get("request_delay"), cls.request_delay
-            )
-            if request_delay < 0:
-                raise ValidationError("research.request_delay must not be negative.")
-
-            values: dict[str, Any] = {}
-            for name in _RESEARCH_INT_FIELDS:
-                values[name] = _parse_positive_int(
-                    f"research.{name}", data.get(name), getattr(cls, name)
-                )
-            for name in _RESEARCH_BOOL_FIELDS:
-                values[name] = _parse_bool(
-                    f"research.{name}", data.get(name), getattr(cls, name)
-                )
-
-            return cls(
-                search_provider=(
-                    _parse_str("research.search_provider", data.get("search_provider"))
-                    or cls.search_provider
-                ),
-                request_delay=request_delay,
-                model=_parse_str("research.model", data.get("model")) or cls.model,
-                **values,
-            )
-        except (ValueError, TypeError, ValidationError) as e:
-            raise ValidationError(f"Failed to parse ResearchConfig: {e}") from e
+            return cls.model_validate(data, context={"from_dict": True})
+        except pydantic.ValidationError as e:
+            first_err = e.errors()[0]
+            msg = first_err.get("msg", "")
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, ") :]
+            raise ValidationError(f"Failed to parse ResearchConfig: {msg}") from e
 
 
 _GITHUB_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
-
-# A bare "<major>.<minor>.<patch>[-prerelease][+build]" -- rejects npm dist
-# tags ("latest", "next") and semver ranges ("^2.0.0", "~1.2.3", ">=1.0.0"),
-# which previously passed this check since they're merely non-empty strings
-# after the last "@" -- confirmed as a real gap during review, since those
-# are exactly the "floating" specs this check exists to reject.
 _NPM_PINNED_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
 
 
 def theme_looks_pinned(theme_spec: str) -> bool:
-    """Check theme_spec is pinned to an exact version or 40-char commit SHA.
-
-    Matches the format documented in template/config/settings.yaml: an npm
-    "<package>@<version>" spec, or a "github:<owner>/<repo>#<sha>" spec
-    pinned to a full commit SHA (not a branch or tag name). Lives here
-    (rather than in renderer.py, which actually installs/executes the
-    theme) so Settings.from_dict can enforce it at config-load time --
-    renderer.py imports this rather than duplicating it, since it already
-    depends on schema.py (for Resume) and the reverse dependency would be
-    circular.
-    """
+    """Check theme_spec is pinned to an exact version or 40-char commit SHA."""
     if theme_spec.startswith("github:"):
         _, _, ref = theme_spec.partition("#")
         return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(ref))
@@ -400,79 +434,94 @@ def theme_looks_pinned(theme_spec: str) -> bool:
     return bool(sep) and bool(name) and bool(_NPM_PINNED_VERSION_RE.fullmatch(version))
 
 
-@dataclass
-class Settings:
+class Settings(BaseModel):
     """App-wide settings loaded from config/settings.yaml."""
 
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
     fit_threshold: float = FIT_GRADE_B_MIN
-    search: SearchConfig = field(default_factory=SearchConfig)
+    search: SearchConfig | Any = Field(default_factory=SearchConfig)
     custom_queries: list[str] | None = None
-    projects_v2: ProjectsV2Config | None = None
-    research: ResearchConfig = field(default_factory=ResearchConfig)
-    # Pinned theme spec ("<package>@<version>" or "github:<owner>/<repo>#<sha>"),
-    # per this key's format documentation in config/settings.yaml. None when
-    # absent (e.g. a repo installed before this key existed) -- callers fall
-    # back to a hardcoded pinned default in that case, not this dataclass,
-    # since sync-template.sh never updates an existing repo's config/.
-    #
-    # Unlike every other field on this dataclass, this one is read from a
-    # file the repo owner (or anyone with write access to their repo) can
-    # edit, and it drives root-level `bun add -g` + import() execution --
-    # see ensure_theme_installed() in renderer.py. When set, it's validated
-    # here (below) rather than left to that later, unprivileged-boundary-
-    # unaware layer, both to reject an obviously-malformed value before any
-    # LLM spend (a bad theme otherwise only surfaces after triage_job/
-    # tailor_resume already ran for every approved-match issue in a batch)
-    # and because this is the only layer that can enforce it at all --
-    # ensure_theme_installed's own pin check only logs a warning.
+    projects_v2: ProjectsV2Config | Any = None
+    research: ResearchConfig | Any = Field(default_factory=ResearchConfig)
     theme: str | None = None
+
+    @field_validator("fit_threshold", mode="before")
+    @classmethod
+    def _validate_fit_threshold(cls, v: Any) -> float:
+        if v is None:
+            return FIT_GRADE_B_MIN
+        if isinstance(v, bool):
+            raise ValidationError("fit_threshold must be a number.")
+        try:
+            val = float(v)
+        except (ValueError, TypeError) as e:
+            raise ValidationError("fit_threshold must be a number.") from e
+        if not (1.0 <= val <= 5.0):
+            raise ValidationError("fit_threshold must be between 1.0 and 5.0.")
+        return val
+
+    @field_validator("custom_queries", mode="before")
+    @classmethod
+    def _validate_custom_queries(cls, v: Any) -> list[str] | None:
+        if v is None:
+            return None
+        if not isinstance(v, list) or not all(
+            isinstance(q, str) and not isinstance(q, bool) for q in v
+        ):
+            raise ValidationError("custom_queries must be a list of strings.")
+        return v
+
+    @field_validator("theme", mode="before")
+    @classmethod
+    def _validate_theme(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            raise ValidationError("theme must be a string, not a boolean.")
+        if isinstance(v, (list, dict, set, tuple)):
+            raise ValidationError("theme must be a string, not a collection.")
+        if not isinstance(v, str):
+            raise ValidationError("theme must be a string.")
+        if not theme_looks_pinned(v):
+            raise ValidationError(
+                "theme must be pinned to an exact version or commit SHA: "
+                '"<package>@<version>" or "github:<owner>/<repo>#<40-char-sha>" '
+                f"(got {v!r}). Omit the key entirely to use the default."
+            )
+        return v
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Settings":
-        """Parse settings from dictionary with parsing validation.
-
-        Args:
-            data: Raw dictionary containing Settings fields.
-
-        Returns:
-            A parsed Settings instance.
-
-        Raises:
-            ValidationError: If parsing fails.
-        """
+        """Parse settings from dictionary."""
         if not isinstance(data, dict):
             raise ValidationError("Settings data must be a dictionary.")
+        if (
+            "search" in data
+            and not isinstance(data["search"], dict)
+            and data["search"] is not None
+        ):
+            raise ValidationError("Search configuration must be a dictionary.")
+        if (
+            "projects_v2" in data
+            and not isinstance(data["projects_v2"], dict)
+            and data["projects_v2"] is not None
+        ):
+            raise ValidationError("projects_v2 configuration must be a dictionary.")
+        if (
+            "research" in data
+            and not isinstance(data["research"], dict)
+            and data["research"] is not None
+        ):
+            raise ValidationError("Research configuration must be a dictionary.")
 
         try:
-            fit_threshold_raw = data.get("fit_threshold", cls.fit_threshold)
-            if isinstance(fit_threshold_raw, bool) or not isinstance(
-                fit_threshold_raw, (int, float)
-            ):
-                try:
-                    if isinstance(fit_threshold_raw, bool):
-                        raise TypeError()
-                    fit_threshold = float(fit_threshold_raw)
-                except (ValueError, TypeError) as e:
-                    raise ValidationError("fit_threshold must be a number.") from e
-            else:
-                fit_threshold = float(fit_threshold_raw)
-
-            if not (1.0 <= fit_threshold <= 5.0):
-                raise ValidationError("fit_threshold must be between 1.0 and 5.0.")
-
             search_data = data.get("search") or {}
-            search = SearchConfig.from_dict(search_data)
-
-            custom_queries_raw = data.get("custom_queries")
-            if custom_queries_raw is None:
-                custom_queries = None
-            else:
-                if not isinstance(custom_queries_raw, list) or not all(
-                    isinstance(q, str) and not isinstance(q, bool)
-                    for q in custom_queries_raw
-                ):
-                    raise ValidationError("custom_queries must be a list of strings.")
-                custom_queries = custom_queries_raw
+            search = (
+                SearchConfig.from_dict(search_data)
+                if isinstance(search_data, dict)
+                else SearchConfig.model_validate(search_data)
+            )
 
             projects_v2_data = data.get("projects_v2")
             projects_v2 = (
@@ -482,26 +531,27 @@ class Settings:
             )
 
             research_data = data.get("research") or {}
-            research = ResearchConfig.from_dict(research_data)
-
-            theme = _parse_str("theme", data.get("theme"))
-            if theme is not None and not theme_looks_pinned(theme):
-                raise ValidationError(
-                    "theme must be pinned to an exact version or commit SHA: "
-                    '"<package>@<version>" or "github:<owner>/<repo>#<40-char-sha>" '
-                    f"(got {theme!r}). Omit the key entirely to use the default."
-                )
-
-            return cls(
-                fit_threshold=fit_threshold,
-                search=search,
-                custom_queries=custom_queries,
-                projects_v2=projects_v2,
-                theme=theme,
-                research=research,
+            research = (
+                ResearchConfig.from_dict(research_data)
+                if isinstance(research_data, dict)
+                else ResearchConfig.model_validate(research_data)
             )
-        except (ValueError, TypeError, ValidationError) as e:
-            raise ValidationError(f"Failed to parse Settings: {e}") from e
+
+            payload = {
+                **data,
+                "search": search,
+                "projects_v2": projects_v2,
+                "research": research,
+            }
+            return cls.model_validate(payload)
+        except pydantic.ValidationError as e:
+            first_err = e.errors()[0]
+            msg = first_err.get("msg", "")
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, ") :]
+            raise ValidationError(f"Failed to parse Settings: {msg}") from e
+        except ValidationError:
+            raise
 
 
 # --- JSON Resume Schema Dataclasses ---
