@@ -13,6 +13,8 @@ dependencies = [
     "pyyaml",
     "python-jobspy",
     "google-generativeai",
+    "pydantic>=2.7.0",
+    "litellm>=1.40.0",
     # ddgs is an unofficial DDG client that tracks DDG's site structure and can
     # break unannounced when DDG changes markup. Keep a floor (not an exact pin)
     # so upgrades can pick up fixes quickly. uv.lock still pins the exact
