@@ -159,16 +159,18 @@ def _backfill_basics(tailored: Basics, original: Basics) -> Basics:
     untouched fields entirely. Any such field left empty in the tailored
     output falls back to the original resume's value.
     """
-    return replace(
-        tailored,
-        label=tailored.label or original.label,
-        email=tailored.email or original.email,
-        phone=tailored.phone or original.phone,
-        url=tailored.url or original.url,
-        summary=tailored.summary or original.summary,
-        location=tailored.location or original.location,
-        profiles=tailored.profiles or original.profiles,
-    )
+    updates = {
+        "label": tailored.label or original.label,
+        "email": tailored.email or original.email,
+        "phone": tailored.phone or original.phone,
+        "url": tailored.url or original.url,
+        "summary": tailored.summary or original.summary,
+        "location": tailored.location or original.location,
+        "profiles": tailored.profiles or original.profiles,
+    }
+    if hasattr(tailored, "model_copy"):
+        return tailored.model_copy(update=updates)
+    return replace(tailored, **updates)
 
 
 def _parse_tailored_resume(
