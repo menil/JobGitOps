@@ -40,95 +40,6 @@ def _parse_str(field_name: str, val: Any) -> str | None:
     return str(val)
 
 
-def _parse_int(field_name: str, val: Any, default: int) -> int:
-    """Parse a value into an int, rejecting booleans.
-
-    Args:
-        field_name: The name of the field being validated.
-        val: The value to validate, or None to use the default.
-        default: Default value when val is None.
-
-    Returns:
-        The integer value.
-
-    Raises:
-        ValidationError: If the value cannot be coerced to an int.
-    """
-    if val is None:
-        return default
-    if isinstance(val, bool):
-        raise ValidationError(f"{field_name} must be an integer.")
-    try:
-        return int(val)
-    except (ValueError, TypeError) as e:
-        raise ValidationError(f"{field_name} must be an integer.") from e
-
-
-def _parse_positive_int(field_name: str, val: Any, default: int) -> int:
-    """Parse a value into a positive int.
-
-    Args:
-        field_name: The name of the field being validated.
-        val: The value to validate, or None to use the default.
-        default: Default value when val is None.
-
-    Returns:
-        The positive integer value.
-
-    Raises:
-        ValidationError: If the value is not a positive int.
-    """
-    parsed = _parse_int(field_name, val, default)
-    if parsed <= 0:
-        raise ValidationError(f"{field_name} must be greater than zero.")
-    return parsed
-
-
-def _parse_float(field_name: str, val: Any, default: float) -> float:
-    """Parse a value into a float, rejecting booleans.
-
-    Args:
-        field_name: The name of the field being validated.
-        val: The value to validate, or None to use the default.
-        default: Default value when val is None.
-
-    Returns:
-        The float value.
-
-    Raises:
-        ValidationError: If the value cannot be coerced to a float.
-    """
-    if val is None:
-        return default
-    if isinstance(val, bool):
-        raise ValidationError(f"{field_name} must be a number.")
-    try:
-        return float(val)
-    except (ValueError, TypeError) as e:
-        raise ValidationError(f"{field_name} must be a number.") from e
-
-
-def _parse_bool(field_name: str, val: Any, default: bool) -> bool:
-    """Parse a value into a bool, requiring an actual boolean.
-
-    Args:
-        field_name: The name of the field being validated.
-        val: The value to validate, or None to use the default.
-        default: Default value when val is None.
-
-    Returns:
-        The boolean value.
-
-    Raises:
-        ValidationError: If the value is not a boolean.
-    """
-    if val is None:
-        return default
-    if isinstance(val, bool):
-        return val
-    raise ValidationError(f"{field_name} must be a boolean.")
-
-
 class SearchConfig(BaseModel):
     """Job search scraper configuration."""
 
@@ -285,21 +196,6 @@ class ProjectsV2Config(BaseModel):
 # Sized for JS-heavy job boards (e.g. LinkedIn serves ~300 KiB of HTML) while
 # still bounding memory on the runner.
 MAX_CONTENT_BYTES = 1048576
-
-# Positive-int research fields parsed with the same shared helper.
-_RESEARCH_INT_FIELDS: tuple[str, ...] = (
-    "max_results",
-    "max_iterations",
-    "max_context_comments",
-    "timeout_seconds",
-    "total_timeout_seconds",
-    "max_redirects",
-    "max_content_bytes",
-    "max_jina_calls",
-)
-
-# Boolean research fields parsed with the same shared helper.
-_RESEARCH_BOOL_FIELDS: tuple[str, ...] = ("use_jina_reader", "block_private_ips")
 
 
 class ResearchConfig(BaseModel):

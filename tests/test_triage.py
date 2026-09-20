@@ -404,7 +404,9 @@ def test_fit_category_mismatch_labels_keys_match_triage_result_fields() -> None:
     Guards against a mistyped key silently breaking the dynamic attribute
     lookup inside get_category_mismatch_labels at runtime.
     """
-    valid_fields = TriageResult.__dataclass_fields__
+    valid_fields = getattr(
+        TriageResult, "model_fields", getattr(TriageResult, "__dataclass_fields__", {})
+    )
     assert set(FIT_CATEGORY_MISMATCH_LABELS).issubset(valid_fields)
 
 

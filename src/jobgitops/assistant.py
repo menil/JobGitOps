@@ -11,7 +11,7 @@ GitHub side effects and just executes the returned ``AgentAction``.
 import json
 import logging
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any
 
 import yaml
@@ -26,8 +26,6 @@ from jobgitops.llm import (
 from jobgitops.schema import ResearchConfig, Resume
 from jobgitops.web import (
     TOOLS,
-    PageContent,
-    SearchResult,
     WebClient,
     tools_to_openai,
 )
@@ -317,9 +315,9 @@ def _execute_tool_call(web_client: WebClient, call: ToolCall) -> Any:
 
 
 def _plain(item: Any) -> Any:
-    """Convert a dataclass tool result to a plain dict for JSON serialization."""
-    if isinstance(item, (SearchResult, PageContent)):
-        return asdict(item)
+    """Convert a tool result to a plain dict for JSON serialization."""
+    if hasattr(item, "model_dump"):
+        return item.model_dump()
     return item
 
 
@@ -476,7 +474,7 @@ def run_agent(
     # the model one last chance to answer before falling back (§9.5). The cap
     # still bounds the expensive tool rounds at max_iterations.
     if messages[-1].role == "tool":
-        reply = llm_client.chat(messages, tools=tools)
+        reply = llm_client.chat(messages, tools=None)
         if reply.tool_calls:
             logger.warning(
                 "Final answer for '%s' was another tool call (%s); using "
