@@ -46,5 +46,8 @@ jobs:
       - name: Ensure Shellcheck
         run: command -v shellcheck || { apt-get update && apt-get install -y --no-install-recommends shellcheck; }
 
+      - name: Sync Python Dependencies
+        run: uv sync --frozen
+
       - name: Run Validation Checks
         run: just validate
