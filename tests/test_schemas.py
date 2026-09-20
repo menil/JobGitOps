@@ -1045,3 +1045,26 @@ def test_resume_meta_invalid_type_raises() -> None:
     for invalid in ["not-a-dict", [1, 2, 3], True, False, 123]:
         with pytest.raises(ValidationError, match=msg):
             Resume.from_dict({"basics": {"name": "Jane"}, "meta": invalid})
+
+
+def test_pydantic_model_features() -> None:
+    """Test that Settings and Resume models support Pydantic BaseModel features."""
+    settings = Settings()
+    # Pydantic dump & schema
+    dump = settings.model_dump()
+    assert isinstance(dump, dict)
+    assert dump["fit_threshold"] == 3.5
+    schema = Settings.model_json_schema()
+    assert "properties" in schema
+
+    # Resume model validation and copy
+    resume = Resume(basics=Basics(name="Jane Doe", summary="Original"))
+    copied = resume.model_copy(deep=True)
+    assert copied.basics.name == "Jane Doe"
+    assert copied.basics.summary == "Original"
+    copied.basics.name = "Mutated Name"
+    assert resume.basics.name == "Jane Doe"
+
+    resume_schema = Resume.model_json_schema()
+    assert "properties" in resume_schema
+    assert "basics" in resume_schema["properties"]
