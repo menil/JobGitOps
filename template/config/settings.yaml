@@ -53,6 +53,20 @@ custom_queries: []
 #   project_id: "PVT_YOUR_PROJECT_ID"
 #   status_field_name: "Status"
 
+# Optional Gmail integration. Off by default -- enabling it requires a
+# one-time Google OAuth setup and three repo secrets, either automated by
+# the installer wizard or done manually (see DEVELOPMENT.md).
+# gmail:
+#   enabled: true
+#   label: "JobGitOps"        # required when enabled: only mail carrying this
+#                              # Gmail label is ever read (see DEVELOPMENT.md
+#                              # for how to create the label + a Gmail filter).
+#   query: ""                 # optional: further narrows every fetch beyond
+#                              # the label alone.
+#   days_back: 7               # lookback window re-queried on every run;
+#                              # also the retention window for the de-dup
+#                              # cursor.
+
 # Research settings for the Issue Assistant agent (respond.py web tools).
 research:
   # Search provider: duckduckgo (default, no key) | tavily (TAVILY_API_KEY) | brave (BRAVE_API_KEY)

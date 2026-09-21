@@ -238,15 +238,26 @@ If you choose to enable the Projects V2 Kanban board manually on your fork:
 
 ### Gmail Sync Setup (Optional)
 
-Gmail Sync (`gmail-sync.yml`) is off by default: `config/settings.yaml` has no `gmail` section until you add one. Enabling it requires a one-time manual OAuth setup — deliberately kept out of the interactive installer, since it needs a real user consent flow in a browser — plus a Gmail label/filter and three repository secrets.
+Gmail Sync (`gmail-sync.yml`) is off by default: `config/settings.yaml` has no `gmail` section until you enable one. Enabling it always needs your own Google Cloud OAuth client (never a JobGitOps-shared one — see below) plus a Gmail label/filter; from there you can either let the **installer wizard automate the rest**, or do it **manually** (required if you're adding Gmail Sync to an already-installed repo, or setting it up headless).
 
 1. **Create a Google Cloud project** at [console.cloud.google.com](https://console.cloud.google.com/), then enable the **Gmail API** for it (APIs & Services > Library > search "Gmail API" > Enable).
 
-2. **Configure the OAuth consent screen** (APIs & Services > OAuth consent screen): choose **External**, fill in the required app fields (any name/contact works, this app is never published or reviewed), and add yourself as a **test user**. Test-mode consent screens work indefinitely for the developer's own account — no Google review needed, since only you ever authorize this client.
+2. **Add yourself as a test user — do not skip this.** APIs & Services > **OAuth consent screen** > **Audience** tab > **Test users** > add your own Google account's email > Save. Test-mode consent screens work indefinitely for the developer's own account — no Google review needed, since only you ever authorize this client. *(A single JobGitOps-shared OAuth client would let the wizard skip this step entirely, but `gmail.readonly` is a restricted scope: a shared client serving many different users' accounts would need to pass Google's app verification/security assessment, and every user would see an "unverified app" warning until then. Keeping the client per-user avoids that entirely.)*
 
-3. **Create an OAuth client ID** (APIs & Services > Credentials > Create Credentials > OAuth client ID), application type **Desktop app**. Download or copy the generated **Client ID** and **Client Secret** — these become the `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` repo secrets.
+   > [!WARNING]
+   > Skipping this step is the single most common snag: you'll get all the way through the Google sign-in and see **"Access blocked: `<app name>` has not completed the Google verification process... The app is currently being tested, and can only be accessed by developer-approved testers"** instead of the permission screen. If you hit that, this is the step you missed — go add yourself as a test user and try again.
 
-4. **Mint a refresh token**, once, on your local machine (not in CI — this step needs an interactive browser consent screen). In a scratch virtual environment (this package is intentionally not a project dependency, since nothing in the shipped engine needs it — only this one-time local script does):
+3. **Create an OAuth client ID**: APIs & Services > **OAuth consent screen** > **Overview** tab > **Create OAuth Client** > application type **Desktop app** (not Web application — Desktop app is required for the redirect to work, since only that type gets automatic support for the loopback address this integration redirects to). Copy the generated **Client ID** and **Client Secret** — you'll need both for either path below.
+
+4. **Create a Gmail label and filter** to scope what this integration ever reads. `gmail_sync.py` only ever lists messages scoped to that exact label (via the Gmail API's `labelIds` parameter) within the last `days_back` days, so the label — and whatever filter rule applies it — is a real part of the trust boundary, not just an organizational convenience: the `gmail.readonly` OAuth scope grants read access to your whole mailbox (Gmail has no way to scope a grant to a single label), so only what your filter labels ever enters the matching pipeline. **Recommend scoping the filter to known ATS/recruiter senders or domains** (e.g. `from:(greenhouse.io OR lever.co OR myworkday.com)`) rather than broad keyword matching (e.g. a bare `subject:(interview)` filter), since anything auto-labeled is DMARC-checked and passed to the matching LLM call.
+
+   **Even simpler and more precise:** if your provider supports address tagging (e.g. Gmail's native `+` addressing), apply for jobs using a dedicated alias like `you+jobsearch@gmail.com` instead of your main address, then create a Gmail filter scoped to that exact `to:` address. Every ATS/recruiter reply naturally lands on an address only job applications ever use, so the filter needs no sender-domain guessing — label everything sent to the alias and you're done.
+
+5. **Get your refresh token, secrets, and config set up** — pick one:
+
+   **Automated (recommended, during initial repo setup only):** run the installer (`npx jobgitops-installer`) and answer "yes" when it asks about Gmail Sync. If you don't have a Client ID/Secret yet, say so when asked and it opens the Google Cloud Console credentials page for you, printing steps 1-3 above right in your terminal. Paste the resulting Client ID/Secret in, plus your label from step 4; it then opens your browser to Google's consent screen, catches the redirect on a short-lived local server (nothing is ever typed or copy-pasted), exchanges the code for a refresh token, and writes `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REFRESH_TOKEN` to your repo's secrets plus `gmail.enabled`/`gmail.label` into `config/settings.yaml` for you. Non-interactive/scripted installs can pass `--gmail --gmail-client-id ... --gmail-client-secret ... --gmail-refresh-token ...` (mint the token manually first, per below) or `--gmail-label`; see `npx jobgitops-installer --help`.
+
+   **Manual (for an already-installed repo, or a headless machine):** mint the refresh token yourself, once, in a scratch virtual environment (`google-auth-oauthlib` is intentionally not a project dependency, since nothing in the shipped engine needs it — only this one-time script does):
 
    ```bash
    pip install google-auth-oauthlib
@@ -270,18 +281,26 @@ Gmail Sync (`gmail-sync.yml`) is off by default: `config/settings.yaml` has no `
    EOF
    ```
 
-   A browser window opens for you to sign in and consent; the script then prints a refresh token. That value becomes the `GMAIL_REFRESH_TOKEN` repo secret. The scope requested is read-only (`gmail.readonly`) — this integration never sends, modifies, or deletes mail.
+   A browser window opens for you to sign in and consent; the script then prints a refresh token. The scope requested is read-only (`gmail.readonly`) — this integration never sends, modifies, or deletes mail.
 
-5. **Add the three secrets** (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`) under **Settings > Secrets and variables > Actions** in your job-search repo.
+   On a headless machine with no local browser, replace the last two lines with a copy-paste variant instead of `run_local_server()` — nothing needs to actually listen on `localhost` for this to work, since Desktop-app clients support any `localhost` redirect port and the authorization code lands in the (never-loading) redirect URL's address bar regardless:
 
-6. **Create a Gmail label and filter** to scope what this integration ever reads. `gmail_sync.py` only ever lists messages scoped to that exact label (via the Gmail API's `labelIds` parameter) within the last `days_back` days, so the label — and whatever filter rule applies it — is a real part of the trust boundary, not just an organizational convenience: the `gmail.readonly` OAuth scope grants read access to your whole mailbox (Gmail has no way to scope a grant to a single label), so only what your filter labels ever enters the matching pipeline. **Recommend scoping the filter to known ATS/recruiter senders or domains** (e.g. `from:(greenhouse.io OR lever.co OR myworkday.com)`) rather than broad keyword matching (e.g. a bare `subject:(interview)` filter), since anything auto-labeled is DMARC-checked and passed to the matching LLM call.
+   ```python
+   flow.redirect_uri = "http://localhost:8080"
+   print(flow.authorization_url(access_type="offline", prompt="consent")[0])
+   # Open that URL in any browser, on any device, sign in and approve.
+   # It redirects to http://localhost:8080/?code=...&scope=... and fails
+   # to load -- copy the `code` value straight out of the address bar.
+   flow.fetch_token(code=input("Paste the code: ").strip())
+   print(flow.credentials.refresh_token)
+   ```
 
-7. **Enable it** in `config/settings.yaml`:
+   Then add the three secrets (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`) under **Settings > Secrets and variables > Actions**, and enable it in `config/settings.yaml`:
 
    ```yaml
    gmail:
      enabled: true
-     label: "JobGitOps"   # must exactly match the label name you created above
+     label: "JobGitOps"   # must exactly match the label name you created in step 4
    ```
 
 > [!NOTE]

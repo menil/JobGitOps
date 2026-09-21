@@ -15,6 +15,7 @@ import {
   OptionalService,
 } from "./prompts.js";
 import { runInstallation } from "./installer.js";
+import { resolveGmailSetup } from "./gmailSetup.js";
 import { LLMProvider, getProviderLabel } from "./constants.js";
 
 const program = new Command();
@@ -43,6 +44,23 @@ program
   .option("--brave-key <key>", "Brave API key")
   .option("--jina-key <key>", "Jina API key")
   .option("--projects", "Integrate with GitHub Projects V2", false)
+  .option("--gmail", "Enable Gmail Sync (optional)", false)
+  .option(
+    "--gmail-client-id <id>",
+    "Google OAuth Client ID for Gmail Sync (Desktop app type)",
+  )
+  .option(
+    "--gmail-client-secret <secret>",
+    "Google OAuth Client Secret for Gmail Sync",
+  )
+  .option(
+    "--gmail-refresh-token <token>",
+    "Pre-minted Gmail OAuth refresh token; skips the interactive browser consent flow",
+  )
+  .option(
+    "--gmail-label <label>",
+    "Gmail label to scope Gmail Sync to (default: JobGitOps)",
+  )
   .addOption(
     new Option(
       "--visibility <visibility>",
@@ -219,21 +237,58 @@ program
         }
       }
 
+      // 6.5 Gmail Sync resolution (optional)
+      const {
+        wantGmail,
+        gmailClientId,
+        gmailClientSecret,
+        gmailRefreshToken,
+        gmailLabel,
+      } = await resolveGmailSetup(options, interactive);
+
       // 7. Execute the installation core logic
-      await runInstallation(
-        {
-          repoName,
-          visibility: options.visibility,
-          provider,
-          primaryKey,
-          optionalKeys,
-          wantProjects,
-          tag: options.tag,
-          dryRun: options.dryRun,
-          token: options.token,
-        },
-        owner,
-      );
+      try {
+        await runInstallation(
+          {
+            repoName,
+            visibility: options.visibility,
+            provider,
+            primaryKey,
+            optionalKeys,
+            wantProjects,
+            wantGmail,
+            gmailClientId,
+            gmailClientSecret,
+            gmailRefreshToken,
+            gmailLabel,
+            tag: options.tag,
+            dryRun: options.dryRun,
+            token: options.token,
+          },
+          owner,
+        );
+      } catch (err: any) {
+        // The Gmail OAuth consent (if any) already ran and minted a live
+        // refresh token before this point -- Google's prompt=consent means
+        // redoing the browser flow after an unrelated failure here (a taken
+        // repo name, a network blip) isn't a quick retry. Surface the token
+        // so the user can pass it via --gmail-refresh-token on a re-run
+        // instead of clicking through consent again.
+        if (
+          wantGmail &&
+          gmailRefreshToken &&
+          gmailRefreshToken !== "dry-run-placeholder-refresh-token"
+        ) {
+          console.error(
+            pc.yellow(
+              "\n⚠️  Installation failed after Gmail Sync was already authorized. " +
+                "Re-run with --gmail-refresh-token to avoid repeating browser consent:\n" +
+                `   --gmail-refresh-token ${gmailRefreshToken}`,
+            ),
+          );
+        }
+        throw err;
+      }
     } catch (err: any) {
       console.error(pc.red(`\n❌ Error: ${err.message || err}`));
       process.exit(1);

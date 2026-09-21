@@ -10,6 +10,9 @@ export const EXCLUDED_WORKFLOWS = [
 /** Supported LLM providers across the installer. */
 export type LLMProvider = "gemini" | "openrouter" | "claude";
 
+/** Default Gmail label suggested/applied when the user doesn't pick one. */
+export const DEFAULT_GMAIL_LABEL = "JobGitOps";
+
 export function getProviderLabel(provider: LLMProvider): string {
   switch (provider) {
     case "gemini":
