@@ -53,6 +53,7 @@ The following GitHub Actions workflows manage the automated lifecycle of the scr
 | `respond-issue.yml` | Issue comment created or issue opened | Runs the Issue Assistant: answers thread questions with web research, applies status labels from conversational intents, and auto-triages bare job-URL submissions |
 | `status-transition.yml` | Issue labeled with a lifecycle label or closed | Moves the issue card to the matching Projects V2 column |
 | `project-status-sync.yml` | Schedule (every 30m) or `workflow_dispatch` | Reverse sync: applies the label matching a card's new column (skips Triage Pending) |
+| `gmail-sync.yml` | Hourly cron (`0 * * * *`) or `workflow_dispatch` | Optional, off by default. Matches DMARC-authenticated lifecycle emails in a label-scoped slice of Gmail to open applications and applies the same status-update side effects as the Issue Assistant |
 | `ci.yml` | Push/PR to `main` | Runs `just validate` (lint + format + 90% coverage tests) inside the pre-built container |
 | `pr-review.yml` | PR opened, reopened, or marked ready for review (dependabot skipped) | Automated code review via OpenRouter |
 | `sync-labels.yml` | Push to `main` | Applies issue labels from `.github/labels.yml` and migrates renamed labels (e.g. `interviewing` → `in-loop`) |
@@ -188,6 +189,9 @@ Configure the following secrets and variables under **Settings > Secrets and var
 | `TAVILY_API_KEY` | Optional | Enables the `tavily` search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional | Enables the `brave` search provider for the Issue Assistant's web research |
 | `JINA_API_KEY` | Optional | Free key (jina.ai) for the Jina Reader fallback on JS-heavy job boards; raises the anonymous 20 RPM limit to 500 RPM |
+| `GMAIL_CLIENT_ID` | Optional | Required only to enable Gmail Sync (`config/settings.yaml`'s `gmail.enabled: true`) — see [Gmail Sync Setup](#gmail-sync-setup-optional) below |
+| `GMAIL_CLIENT_SECRET` | Optional | Required only to enable Gmail Sync, paired with `GMAIL_CLIENT_ID` |
+| `GMAIL_REFRESH_TOKEN` | Optional | Required only to enable Gmail Sync; long-lived, scoped to `gmail.readonly` only |
 
 > [!NOTE]
 > At least one of `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` is required for triage. If `GH_PAT` is omitted, the workflows use the built-in `GITHUB_TOKEN` (enough for issues, contents, and PRs; Projects V2 automation and Gist status badges then degrade/skip) — provided **Settings > Actions > General > Workflow permissions** is set to *Read and write permissions*. Note that `${{ secrets.A || secrets.B }}` selects `GH_PAT` whenever it is non-empty: a stale, revoked, or under-scoped token is used preferentially and fails rather than falling back, so replace — don't just remove — a bad token. We recommend using **Fine-Grained Personal Access Tokens (Beta)** scoped strictly to your job search repository.
@@ -231,3 +235,54 @@ If you choose to enable the Projects V2 Kanban board manually on your fork:
 
    > [!TIP]
    > Run the prune step once cards are off the default columns: removing the `Done` option permanently disarms GitHub's built-in "item closed → Done" automation, which otherwise races the pipeline's own column moves on every issue close (see `ensure_project_status` in `src/jobgitops/github_client.py`).
+
+### Gmail Sync Setup (Optional)
+
+Gmail Sync (`gmail-sync.yml`) is off by default: `config/settings.yaml` has no `gmail` section until you add one. Enabling it requires a one-time manual OAuth setup — deliberately kept out of the interactive installer, since it needs a real user consent flow in a browser — plus a Gmail label/filter and three repository secrets.
+
+1. **Create a Google Cloud project** at [console.cloud.google.com](https://console.cloud.google.com/), then enable the **Gmail API** for it (APIs & Services > Library > search "Gmail API" > Enable).
+
+2. **Configure the OAuth consent screen** (APIs & Services > OAuth consent screen): choose **External**, fill in the required app fields (any name/contact works, this app is never published or reviewed), and add yourself as a **test user**. Test-mode consent screens work indefinitely for the developer's own account — no Google review needed, since only you ever authorize this client.
+
+3. **Create an OAuth client ID** (APIs & Services > Credentials > Create Credentials > OAuth client ID), application type **Desktop app**. Download or copy the generated **Client ID** and **Client Secret** — these become the `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` repo secrets.
+
+4. **Mint a refresh token**, once, on your local machine (not in CI — this step needs an interactive browser consent screen). In a scratch virtual environment (this package is intentionally not a project dependency, since nothing in the shipped engine needs it — only this one-time local script does):
+
+   ```bash
+   pip install google-auth-oauthlib
+   python3 - <<'EOF'
+   from google_auth_oauthlib.flow import InstalledAppFlow
+
+   SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+   flow = InstalledAppFlow.from_client_config(
+       {
+           "installed": {
+               "client_id": "YOUR_CLIENT_ID",
+               "client_secret": "YOUR_CLIENT_SECRET",
+               "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+               "token_uri": "https://oauth2.googleapis.com/token",
+           }
+       },
+       SCOPES,
+   )
+   creds = flow.run_local_server(port=0)
+   print(creds.refresh_token)
+   EOF
+   ```
+
+   A browser window opens for you to sign in and consent; the script then prints a refresh token. That value becomes the `GMAIL_REFRESH_TOKEN` repo secret. The scope requested is read-only (`gmail.readonly`) — this integration never sends, modifies, or deletes mail.
+
+5. **Add the three secrets** (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`) under **Settings > Secrets and variables > Actions** in your job-search repo.
+
+6. **Create a Gmail label and filter** to scope what this integration ever reads. `gmail_sync.py` only ever lists messages scoped to that exact label (via the Gmail API's `labelIds` parameter) within the last `days_back` days, so the label — and whatever filter rule applies it — is a real part of the trust boundary, not just an organizational convenience: the `gmail.readonly` OAuth scope grants read access to your whole mailbox (Gmail has no way to scope a grant to a single label), so only what your filter labels ever enters the matching pipeline. **Recommend scoping the filter to known ATS/recruiter senders or domains** (e.g. `from:(greenhouse.io OR lever.co OR myworkday.com)`) rather than broad keyword matching (e.g. a bare `subject:(interview)` filter), since anything auto-labeled is DMARC-checked and passed to the matching LLM call.
+
+7. **Enable it** in `config/settings.yaml`:
+
+   ```yaml
+   gmail:
+     enabled: true
+     label: "JobGitOps"   # must exactly match the label name you created above
+   ```
+
+> [!NOTE]
+> Every comment `gmail-sync.yml` posts links back to the original Gmail message via a permalink of the form `https://mail.google.com/mail/u/0/#all/{message_id}`. The `u/0` segment assumes your browser's *primary* signed-in Google account owns the integration. If you use the Gmail account tied to this integration as a secondary (`u/1`, `u/2`, ...) signed-in account in your browser, the link will open your primary account's mailbox instead — sign out of other accounts first, or manually adjust the `u/N` index in the URL.
