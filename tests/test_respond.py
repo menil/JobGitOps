@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from jobgitops.assistant import (
+    GMAIL_NOTICE_MARKER,
     STATUS_CONFIRMATION_MARKER,
     STATUS_LABELS,
     AgentAction,
@@ -199,13 +200,20 @@ def test_is_bot_author_human_not_skipped() -> None:
     assert not respond.is_bot_author({}, set())
 
 
-def test_contains_confirmation_marker() -> None:
+def test_contains_automation_marker() -> None:
     """The assistant's own confirmation marker is recognized exactly."""
-    assert respond.contains_confirmation_marker(
+    assert respond.contains_automation_marker(
         f"{STATUS_CONFIRMATION_MARKER}\n\nMarked as applied."
     )
-    assert not respond.contains_confirmation_marker("I applied!")
-    assert not respond.contains_confirmation_marker(None)
+    assert not respond.contains_automation_marker("I applied!")
+    assert not respond.contains_automation_marker(None)
+
+
+def test_contains_automation_marker_gmail_notice() -> None:
+    """The Gmail integration's heads-up notice marker is also recognized."""
+    assert respond.contains_automation_marker(
+        f"{GMAIL_NOTICE_MARKER}\n\nThis match looked ambiguous, please check."
+    )
 
 
 def test_bot_logins_from_env() -> None:
@@ -290,6 +298,17 @@ def test_comment_flow_skips_confirmation_marker() -> None:
     """A comment carrying the confirmation marker is skipped deterministically."""
     gh = FakeGitHubClient()
     event = comment_event(body=f"{STATUS_CONFIRMATION_MARKER}\n\nMarked applied.")
+    mocked = _run_comment_flow(gh, event, AgentAction(action="reply", reply="x"))
+    mocked.assert_not_called()
+    assert gh.posted_comments == []
+
+
+def test_comment_flow_skips_gmail_notice_marker() -> None:
+    """A comment carrying the Gmail heads-up marker is skipped deterministically."""
+    gh = FakeGitHubClient()
+    event = comment_event(
+        body=f"{GMAIL_NOTICE_MARKER}\n\nAmbiguous match, please check."
+    )
     mocked = _run_comment_flow(gh, event, AgentAction(action="reply", reply="x"))
     mocked.assert_not_called()
     assert gh.posted_comments == []
