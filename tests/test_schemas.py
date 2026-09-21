@@ -8,6 +8,7 @@ import pytest
 from jobgitops.loader import load_resume, load_settings
 from jobgitops.schema import (
     Basics,
+    GmailConfig,
     ResearchConfig,
     Resume,
     Settings,
@@ -26,6 +27,7 @@ def test_default_settings() -> None:
     assert settings.custom_queries is None
     assert settings.projects_v2 is None
     assert settings.theme is None
+    assert settings.gmail is None
     assert settings.research.search_provider == "duckduckgo"
     assert settings.research.max_results == 5
     assert settings.research.max_iterations == 6
@@ -1068,3 +1070,108 @@ def test_pydantic_model_features() -> None:
     resume_schema = Resume.model_json_schema()
     assert "properties" in resume_schema
     assert "basics" in resume_schema["properties"]
+
+
+def test_gmail_config_defaults() -> None:
+    """Test that GmailConfig returns proper defaults when created empty."""
+    gmail = GmailConfig()
+    assert gmail.enabled is False
+    assert gmail.label == ""
+    assert gmail.query is None
+    assert gmail.days_back == 7
+
+
+def test_gmail_config_valid_parsing() -> None:
+    """Test parsing a valid gmail configuration dictionary."""
+    gmail = GmailConfig.from_dict(
+        {
+            "enabled": True,
+            "label": "JobGitOps",
+            "query": "in:inbox",
+            "days_back": 14,
+        }
+    )
+    assert gmail.enabled is True
+    assert gmail.label == "JobGitOps"
+    assert gmail.query == "in:inbox"
+    assert gmail.days_back == 14
+
+
+def test_gmail_config_enabled_without_label_raises() -> None:
+    """Test that enabled=True with an empty/missing label raises."""
+    msg = "gmail.label is required when gmail.enabled is true"
+    with pytest.raises(ValidationError, match=msg):
+        GmailConfig.from_dict({"enabled": True})
+
+    with pytest.raises(ValidationError, match=msg):
+        GmailConfig.from_dict({"enabled": True, "label": ""})
+
+
+def test_gmail_config_invalid_days_back_raises() -> None:
+    """Test that a non-positive or non-integer days_back raises."""
+    msg_pos = "gmail.days_back must be greater than zero"
+    with pytest.raises(ValidationError, match=msg_pos):
+        GmailConfig.from_dict({"days_back": 0})
+
+    with pytest.raises(ValidationError, match=msg_pos):
+        GmailConfig.from_dict({"days_back": -1})
+
+    msg_int = "gmail.days_back must be an integer"
+    with pytest.raises(ValidationError, match=msg_int):
+        GmailConfig.from_dict({"days_back": "not-an-int"})
+
+    with pytest.raises(ValidationError, match=msg_int):
+        GmailConfig.from_dict({"days_back": True})
+
+
+def test_gmail_config_unescaped_quote_raises() -> None:
+    """Test that an unescaped double-quote in label/query raises."""
+    msg_label = "gmail.label must not contain an unescaped double-quote"
+    with pytest.raises(ValidationError, match=msg_label):
+        GmailConfig.from_dict({"label": 'Jobs"Applied'})
+
+    msg_query = "gmail.query must not contain an unescaped double-quote"
+    with pytest.raises(ValidationError, match=msg_query):
+        GmailConfig.from_dict({"query": 'subject:"interview'})
+
+    # An escaped quote (\") is allowed since Gmail's own query grammar uses
+    # it to delimit exact-phrase searches.
+    gmail = GmailConfig.from_dict({"query": 'subject:\\"interview\\"'})
+    assert gmail.query == 'subject:\\"interview\\"'
+
+
+def test_gmail_config_not_a_dict_raises() -> None:
+    """Test that a non-dict gmail configuration raises."""
+    msg = "gmail configuration must be a dictionary"
+    with pytest.raises(ValidationError, match=msg):
+        GmailConfig.from_dict("not-a-dict")  # type: ignore
+
+
+def test_settings_without_gmail_section_parses_unchanged() -> None:
+    """Test backward compatibility: settings without a gmail key parse fine.
+
+    Existing config/settings.yaml files written before the gmail key
+    existed must continue to parse unchanged, with Settings.gmail
+    defaulting to None.
+    """
+    settings = Settings.from_dict({"fit_threshold": 4.0})
+    assert settings.gmail is None
+    assert settings.fit_threshold == 4.0
+
+
+def test_settings_with_gmail_section_parses() -> None:
+    """Test that Settings.from_dict wires a gmail section into GmailConfig."""
+    settings = Settings.from_dict(
+        {"gmail": {"enabled": True, "label": "JobGitOps", "days_back": 3}}
+    )
+    assert settings.gmail is not None
+    assert settings.gmail.enabled is True
+    assert settings.gmail.label == "JobGitOps"
+    assert settings.gmail.days_back == 3
+
+
+def test_settings_gmail_not_a_dict_raises() -> None:
+    """Test that a non-dict gmail value on Settings raises."""
+    msg = "gmail configuration must be a dictionary"
+    with pytest.raises(ValidationError, match=msg):
+        Settings.from_dict({"gmail": "not-a-dict"})  # type: ignore
