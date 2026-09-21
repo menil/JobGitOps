@@ -21,6 +21,7 @@ A serverless, GitOps-driven job application and tracking system. JobGitOps treat
 - 🧠 **AI Triage & Tailoring**: A two-pass LLM engine ([Triage and Tailor Issue](https://github.com/menil/jobgitops-example/actions/workflows/triage-issue.yml)) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
 - 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to print-ready PDFs via a [JSON Resume theme](https://jsonresume.org/themes) of your choosing on dedicated application branches — every version you send is a clean, reviewable Git diff, complete with side-by-side visual PDF diffs via [pdf-vdiff](https://github.com/menil/pdf-vdiff).
 - 💬 **Issue Assistant**: A tool-using agent ([Respond to Issue](https://github.com/menil/jobgitops-example/actions/workflows/respond-issue.yml)) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
+- 📬 **Gmail Sync** *(optional)*: An hourly cron ([Gmail Sync](https://github.com/menil/jobgitops-example/actions/workflows/gmail-sync.yml)) reads a label-scoped, DMARC-authenticated slice of your Gmail inbox, matches lifecycle emails (interview invites, rejections, offers) to open applications via a single LLM call, and applies the same status-update side effects the Issue Assistant already provides. Off by default; opting in requires a one-time manual OAuth setup — see [DEVELOPMENT.md](DEVELOPMENT.md).
 - 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → In Loop → Rejected`) with label-based automation and a label-only fallback.
 
 ---
@@ -129,6 +130,25 @@ search:
 - **`custom_queries`**: When non-empty, the scraper uses these queries instead of auto-generating them from your resume — useful for targeting new stacks or domains.
 - **`projects_v2`**: When configured, issue cards move through your Projects V2 board automatically and column moves are reflected back as labels. Without it (or while the placeholder is in place), the system falls back to repository labels (`ready-to-apply`, `applied`, `in-loop`, `rejected`).
 
+### Gmail Sync (optional)
+
+Off by default. Enabling it lets the hourly `gmail-sync.yml` cron read a label-scoped slice of your inbox and drive the same status updates the Issue Assistant already provides — see [DEVELOPMENT.md](DEVELOPMENT.md#gmail-sync-setup-optional) for the one-time OAuth setup and the three repo secrets it requires (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`).
+
+```yaml
+# Optional Gmail integration. Off by default — enabling it requires the
+# one-time manual OAuth setup in DEVELOPMENT.md and three repo secrets.
+gmail:
+  enabled: true
+  label: "JobGitOps"        # required when enabled: only mail carrying this
+                             # Gmail label is ever read (see DEVELOPMENT.md
+                             # for how to create the label + a Gmail filter).
+  query: ""                 # optional: further narrows every fetch beyond
+                             # the label alone.
+  days_back: 7               # lookback window re-queried on every run;
+                              # also the retention window for the de-dup
+                              # cursor.
+```
+
 ---
 
 ## Troubleshooting
@@ -141,6 +161,7 @@ search:
 - **Board moves but the label never updates (or vice-versa)**: verify your configuration has Projects V2 enabled. To reconcile out-of-sync board columns and issue labels, see the manual sync procedures in [DEVELOPMENT.md](DEVELOPMENT.md#project-sync-and-reconciliation-cli).
 - **Web research or job URL fetch fails**: if pages fail to parse due to anti-bot protection or rate limiting, add a Jina API key to your secrets or configure a dedicated search provider in `config/settings.yaml`.
 - **`custom_queries` / `fit_threshold` seem ignored**: verify `custom_queries` is a top-level key in `config/settings.yaml` (a sibling of `search`), not nested under it.
+- **Gmail sync isn't picking up emails**: confirm `gmail.label` in `config/settings.yaml` exactly matches your Gmail label's spelling (case-sensitive); confirm the sender passes DMARC (a spoofed or improperly-forwarded message is silently skipped, by design); then check the `Gmail Sync` workflow's run log under **Actions** for the specific skip/error reason.
 
 ---
 

@@ -5,6 +5,7 @@
 [![Daily Job Scraper](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/scrape-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/scrape-jobs.yml)
 [![Triage & Tailor](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/triage-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/triage-issue.yml)
 [![Issue Assistant](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/respond-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/respond-issue.yml)
+[![Gmail Sync](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/gmail-sync-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/gmail-sync.yml)
 
 
 A serverless, GitOps-driven job application and tracking system. GitHub Issues are your pipeline, GitHub Projects is your Kanban board, and GitHub Actions is the automation plane that scrapes roles, AI-triages fit, and tailors your resume — all running free on GitHub's infrastructure.
@@ -60,6 +61,9 @@ Configure these under **Settings > Secrets and variables > Actions**:
 | `TAVILY_API_KEY` | Optional. Enables the Tavily search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional. Enables the Brave search provider for the Issue Assistant's web research |
 | `JINA_API_KEY` | Optional. Raises page-fetch rate limits from 20 to 500 RPM for JS-heavy job boards |
+| `GMAIL_CLIENT_ID` | Optional. Required only to enable Gmail Sync — see [DEVELOPMENT.md](https://github.com/menil/jobgitops/blob/main/DEVELOPMENT.md#gmail-sync-setup-optional) for the one-time OAuth setup |
+| `GMAIL_CLIENT_SECRET` | Optional. Required only to enable Gmail Sync (paired with `GMAIL_CLIENT_ID`) |
+| `GMAIL_REFRESH_TOKEN` | Optional. Required only to enable Gmail Sync; long-lived, read-only (`gmail.readonly`) |
 
 #### Variables (Optional)
 
@@ -81,3 +85,4 @@ Configure these under the **Variables** tab:
 | `respond-issue.yml` | Answers questions on issue threads via live web research, and applies status labels from conversation |
 | `status-transition.yml` | Moves your board card when you apply a lifecycle label (`applied`, `in-loop`, ...), and closes the issue for terminal labels (`rejected`, `triage-mismatched`) while keeping their columns distinct |
 | `project-status-sync.yml` | Reverse sync: applies the matching label when you drag a card to a new column |
+| `gmail-sync.yml` | Optional, off by default. Hourly cron that matches lifecycle emails in a label-scoped slice of your Gmail inbox to open applications and applies the same status updates as the Issue Assistant |
