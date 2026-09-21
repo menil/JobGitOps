@@ -407,7 +407,13 @@ Mirrors the structure of `respond.py` / `triage.py`.
    step 4's query again, so it's provably safe to forget (§13.8). This
    replaces a fixed-size ring buffer: storage tracks actual mailbox volume
    within the window rather than an arbitrary count, and never evicts
-   something still in scope.
+   something still in scope. `last_synced_at` only advances to "now" when
+   this run's batch actually caught up with the full unprocessed backlog
+   (i.e. `MAX_MESSAGES_PER_RUN` didn't truncate it) — a run that only
+   chipped away at a larger backlog leaves the previous `last_synced_at` in
+   place, so the §5.2 step 2 staleness warning keeps firing on every
+   subsequent run until the backlog actually clears, instead of the
+   per-run cap silently resetting the clock on a gap that hasn't closed.
 7. Commit the advanced cursor (`processed`, updated `last_synced_at`) to the
    dedicated `gmail-sync-state` orphan branch (§7). `git fetch origin
    gmail-sync-state` first; if the branch exists remotely, check it out and
@@ -644,9 +650,13 @@ entirely instead of working around it with a `[skip ci]` marker.
   `days_back + 1` days, since anything older will never be returned by the
   label+`days_back` query again. Storage size tracks actual mailbox volume
   within the window rather than an arbitrary fixed count.
-- `last_synced_at`: the time of the last successful run. Read back on the
-  next run (§5.2 step 2) to detect a gap exceeding `days_back` and log a
-  loud warning — mail older than `days_back` from "now" is permanently
+- `last_synced_at`: the time of the last run that fully caught up with its
+  unprocessed backlog (§5.2 step 6) — not simply "the last successful run":
+  a run that only chipped away at a backlog larger than
+  `MAX_MESSAGES_PER_RUN` leaves this value unchanged, so the gap it
+  represents stays honest until the backlog actually clears. Read back on
+  the next run (§5.2 step 2) to detect a gap exceeding `days_back` and log
+  a loud warning — mail older than `days_back` from "now" is permanently
   unrecoverable by this design once such a gap has passed, so making that
   visible is a cheap, worthwhile safety net.
 
