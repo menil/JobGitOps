@@ -870,7 +870,10 @@ def _coerce_email_match_status(raw_status: Any, valid_statuses: set[str]) -> str
     normalized = raw_status.strip().lower()
     if normalized in _EMAIL_MATCH_NULL_STATUS_STRINGS:
         return None
-    return normalized if normalized in valid_statuses else None
+    if normalized not in valid_statuses:
+        logger.warning("email match status %r rejected: not in allowlist", normalized)
+        return None
+    return normalized
 
 
 def _coerce_email_match_issue_number(
@@ -897,7 +900,10 @@ def _coerce_email_match_issue_number(
             number = int(stripped)
     if number is None:
         return None
-    return number if number in valid_numbers else None
+    if number not in valid_numbers:
+        logger.warning("email match issue_number %d rejected: not in allowlist", number)
+        return None
+    return number
 
 
 _URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
