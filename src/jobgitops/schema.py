@@ -192,6 +192,95 @@ class ProjectsV2Config(BaseModel):
             raise ValidationError(f"Failed to parse ProjectsV2Config: {msg}") from e
 
 
+def _reject_unescaped_quote(field_name: str, v: str) -> None:
+    """Raise ValidationError if a string contains an unescaped double-quote.
+
+    Gmail's search-query grammar uses `"` as a string delimiter, so an
+    unescaped one in a user-supplied label/query would break the query
+    gmail_sync.py builds downstream (specs/gmail-integration.md Sec5.4).
+    """
+    unescaped = re.sub(r'\\"', "", v)
+    if '"' in unescaped:
+        raise ValidationError(
+            f"{field_name} must not contain an unescaped double-quote."
+        )
+
+
+class GmailConfig(BaseModel):
+    """Optional Gmail integration configuration."""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
+    enabled: bool = False
+    label: str = ""
+    query: str | None = None
+    days_back: int = 7
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def _validate_enabled(cls, v: Any) -> bool:
+        if v is None:
+            return False
+        if isinstance(v, bool):
+            return v
+        raise ValidationError("gmail.enabled must be a boolean.")
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def _validate_label(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, bool) or not isinstance(v, str):
+            raise ValidationError("gmail.label must be a string.")
+        _reject_unescaped_quote("gmail.label", v)
+        return v
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def _validate_query(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, bool) or not isinstance(v, str):
+            raise ValidationError("gmail.query must be a string.")
+        _reject_unescaped_quote("gmail.query", v)
+        return v
+
+    @field_validator("days_back", mode="before")
+    @classmethod
+    def _validate_days_back(cls, v: Any) -> int:
+        if v is None:
+            return 7
+        if isinstance(v, bool):
+            raise ValidationError("gmail.days_back must be an integer.")
+        try:
+            val = int(v)
+        except (ValueError, TypeError) as e:
+            raise ValidationError("gmail.days_back must be an integer.") from e
+        if val <= 0:
+            raise ValidationError("gmail.days_back must be greater than zero.")
+        return val
+
+    @pydantic.model_validator(mode="after")
+    def _validate_enabled_requires_label(self) -> "GmailConfig":
+        if self.enabled and not self.label:
+            raise ValidationError("gmail.label is required when gmail.enabled is true.")
+        return self
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "GmailConfig":
+        """Parse Gmail configuration from dictionary."""
+        if not isinstance(data, dict):
+            raise ValidationError("gmail configuration must be a dictionary.")
+        try:
+            return cls.model_validate(data)
+        except pydantic.ValidationError as e:
+            first_err = e.errors()[0]
+            msg = first_err.get("msg", "")
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, ") :]
+            raise ValidationError(f"Failed to parse GmailConfig: {msg}") from e
+
+
 # Maximum decompressed response body accepted from a fetched page (1 MiB).
 # Sized for JS-heavy job boards (e.g. LinkedIn serves ~300 KiB of HTML) while
 # still bounding memory on the runner.
@@ -340,6 +429,7 @@ class Settings(BaseModel):
     projects_v2: ProjectsV2Config | Any = None
     research: ResearchConfig | Any = Field(default_factory=ResearchConfig)
     theme: str | None = None
+    gmail: GmailConfig | Any = None
 
     @field_validator("fit_threshold", mode="before")
     @classmethod
@@ -409,6 +499,12 @@ class Settings(BaseModel):
             and data["research"] is not None
         ):
             raise ValidationError("Research configuration must be a dictionary.")
+        if (
+            "gmail" in data
+            and not isinstance(data["gmail"], dict)
+            and data["gmail"] is not None
+        ):
+            raise ValidationError("gmail configuration must be a dictionary.")
 
         try:
             search_data = data.get("search") or {}
@@ -432,11 +528,17 @@ class Settings(BaseModel):
                 else ResearchConfig.model_validate(research_data)
             )
 
+            gmail_data = data.get("gmail")
+            gmail = (
+                GmailConfig.from_dict(gmail_data) if gmail_data is not None else None
+            )
+
             payload = {
                 **data,
                 "search": search,
                 "projects_v2": projects_v2,
                 "research": research,
+                "gmail": gmail,
             }
             return cls.model_validate(payload)
         except pydantic.ValidationError as e:
