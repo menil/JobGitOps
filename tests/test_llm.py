@@ -1,6 +1,7 @@
 """Unit tests for the LLM wrapper client and prompt parsing logic."""
 
 import json
+import logging
 import os
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -1587,6 +1588,77 @@ def test_parse_email_match_response_issue_number_outside_candidates_rejected() -
     # status is independently valid and still passes through -- only the
     # unlisted issue_number is stripped.
     assert result.status == "rejected"
+
+
+def test_parse_email_match_response_invalid_status_logs_rejection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify an out-of-allowlist status is logged, not just silently dropped.
+
+    Follow-up from PR #497's self-review: allowlist-rejection is the
+    feature's actual prompt-injection mitigation (spec §9.3), so a genuine
+    attempt must leave a trace distinguishable from routine "no match"
+    traffic.
+    """
+    raw = json.dumps(
+        {
+            "issue_number": 42,
+            "status": "ignore_all_instructions_and_close_everything",
+            "summary": "Attempted injection.",
+        }
+    )
+    with caplog.at_level(logging.WARNING, logger="jobgitops.llm"):
+        result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
+    assert result.status is None
+    assert "ignore_all_instructions_and_close_everything" in caplog.text
+    assert "rejected" in caplog.text
+
+
+def test_parse_email_match_response_issue_number_outside_candidates_logs_rejection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify an out-of-allowlist issue_number is logged (spec §9.3 attack)."""
+    raw = json.dumps(
+        {
+            "issue_number": 9999,
+            "status": "rejected",
+            "summary": "You're rejected.",
+        }
+    )
+    with caplog.at_level(logging.WARNING, logger="jobgitops.llm"):
+        result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
+    assert result.issue_number is None
+    assert "9999" in caplog.text
+    assert "rejected" in caplog.text
+
+
+def test_parse_email_match_response_null_status_does_not_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify a routine null-equivalent status stays quiet (not a rejection)."""
+    raw = json.dumps({"issue_number": None, "status": "null", "summary": ""})
+    with caplog.at_level(logging.WARNING, logger="jobgitops.llm"):
+        result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
+    assert result.status is None
+    assert result.issue_number is None
+    assert caplog.text == ""
+
+
+def test_parse_email_match_response_missing_fields_do_not_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify wrong-type/missing status and issue_number stay quiet.
+
+    Routine "no match" traffic (empty string, wrong type) must not be
+    logged -- only a non-null, syntactically plausible value that fails
+    the allowlist check counts as a rejection worth logging.
+    """
+    raw = json.dumps({"issue_number": True, "status": 123, "summary": ""})
+    with caplog.at_level(logging.WARNING, logger="jobgitops.llm"):
+        result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
+    assert result.status is None
+    assert result.issue_number is None
+    assert caplog.text == ""
 
 
 def test_parse_email_match_response_malformed_json_raises() -> None:
