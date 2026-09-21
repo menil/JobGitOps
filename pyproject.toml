@@ -13,6 +13,11 @@ dependencies = [
     "pyyaml",
     "python-jobspy",
     "google-generativeai",
+    # Already fully resolved transitively via google-generativeai (see
+    # uv.lock); promoted to direct deps for the Gmail integration
+    # (specs/gmail-integration.md §5.1, §13.7).
+    "google-api-python-client",
+    "google-auth",
     "pydantic>=2.7.0",
     "litellm>=1.40.0",
     # ddgs is an unofficial DDG client that tracks DDG's site structure and can

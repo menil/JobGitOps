@@ -1279,6 +1279,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "ddgs" },
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
     { name = "google-generativeai" },
     { name = "litellm" },
     { name = "numpy" },
@@ -1299,6 +1301,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ddgs", specifier = ">=9.14.4" },
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
     { name = "google-generativeai" },
     { name = "litellm", specifier = ">=1.40.0" },
     { name = "numpy", specifier = ">=1.26.0" },
