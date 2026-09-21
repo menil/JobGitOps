@@ -8,7 +8,7 @@ import ora from "ora";
 import { pipeline } from "stream/promises";
 import { Readable } from "stream";
 
-import { EXCLUDED_WORKFLOWS } from "./constants";
+import { DEFAULT_GMAIL_LABEL, EXCLUDED_WORKFLOWS } from "./constants";
 import {
   createProjectV2,
   fetchRepositoryNodeId,
@@ -23,6 +23,11 @@ export interface InstallOptions {
   primaryKey: string;
   optionalKeys: Record<string, string>;
   wantProjects: boolean;
+  wantGmail?: boolean;
+  gmailClientId?: string;
+  gmailClientSecret?: string;
+  gmailRefreshToken?: string;
+  gmailLabel?: string;
   tag?: string;
   dryRun: boolean;
   token?: string;
@@ -39,10 +44,22 @@ export async function runInstallation(
     primaryKey,
     optionalKeys,
     wantProjects,
+    wantGmail = false,
+    gmailClientId,
+    gmailClientSecret,
+    gmailRefreshToken,
+    gmailLabel,
     tag,
     dryRun,
     token,
   } = options;
+  // Single source of truth for "Gmail Sync is actually going live": both the
+  // secret upload and the settings.yaml patch must agree on this, or a repo
+  // can end up with gmail.enabled: true but no secrets to back it (silently
+  // broken, failing every hour on the cron with no signal at install time).
+  const gmailFullyConfigured = Boolean(
+    wantGmail && gmailClientId && gmailClientSecret && gmailRefreshToken,
+  );
   const resolvedToken = token || (await getGhCliToken());
   const targetTag = tag || (await resolveLatestTag(resolvedToken));
 
@@ -140,6 +157,18 @@ export async function runInstallation(
             2,
           ),
         },
+        "gmail-sync-status.json": {
+          content: JSON.stringify(
+            {
+              schemaVersion: 1,
+              label: "Gmail Sync",
+              message: "pending",
+              color: "inactive",
+            },
+            null,
+            2,
+          ),
+        },
       };
       const createdGistId = await createGist(
         `JobGitOps status badges mapping store for ${owner}/${repoName}`,
@@ -209,11 +238,17 @@ export async function runInstallation(
       gistId,
       env,
       dryRun,
+      gmailFullyConfigured ? gmailClientId : undefined,
+      gmailFullyConfigured ? gmailClientSecret : undefined,
+      gmailFullyConfigured ? gmailRefreshToken : undefined,
     );
 
     // 7. Git Init, Commit & Push
     if (projectNodeId) {
       patchSettingsWithProjectId(appDir, projectNodeId, "Status");
+    }
+    if (gmailFullyConfigured && !dryRun) {
+      patchSettingsWithGmail(appDir, gmailLabel || DEFAULT_GMAIL_LABEL);
     }
     await initializeGitAndPush(
       appDir,
@@ -436,6 +471,9 @@ async function provisionSecretsAndPermissions(
   gistId: string,
   env: any,
   dryRun: boolean,
+  gmailClientId?: string,
+  gmailClientSecret?: string,
+  gmailRefreshToken?: string,
 ): Promise<void> {
   const secretSpinner = ora(
     "Uploading credentials securely to GitHub Secrets...",
@@ -468,6 +506,34 @@ async function provisionSecretsAndPermissions(
     // Always upload GH_PAT secret (needed for Gist status badges and optionally Projects V2)
     if (token) {
       await uploadSecret(owner, repoName, "GH_PAT", token, token);
+    }
+
+    // Gmail Sync secrets. Callers only pass these when all three are
+    // already known-present (see `gmailFullyConfigured` in
+    // `runInstallation`) -- re-checked here defensively so a future caller
+    // can't silently upload a partial set.
+    if (gmailClientId && gmailClientSecret && gmailRefreshToken) {
+      await uploadSecret(
+        owner,
+        repoName,
+        "GMAIL_CLIENT_ID",
+        gmailClientId,
+        token,
+      );
+      await uploadSecret(
+        owner,
+        repoName,
+        "GMAIL_CLIENT_SECRET",
+        gmailClientSecret,
+        token,
+      );
+      await uploadSecret(
+        owner,
+        repoName,
+        "GMAIL_REFRESH_TOKEN",
+        gmailRefreshToken,
+        token,
+      );
     }
 
     // Upload Gist ID variable
@@ -547,6 +613,40 @@ function patchSettingsWithProjectId(
   } else {
     // Fallback: append at end of file
     content += `\nprojects_v2:\n  project_id: "${projectId}"\n  status_field_name: "${statusFieldName}"\n`;
+  }
+
+  fs.writeFileSync(settingsPath, content, "utf8");
+}
+
+/**
+ * Patches the assembled settings.yaml to uncomment and enable the `gmail`
+ * section with the chosen label. Operates on the assembled appDir copy.
+ */
+function patchSettingsWithGmail(appDir: string, label: string): void {
+  const settingsPath = path.join(appDir, "config", "settings.yaml");
+  let content = fs.readFileSync(settingsPath, "utf8");
+
+  // Replace the commented-out `# gmail:` block (see template/config/settings.yaml)
+  // -- including its query/days_back explanation lines, which this regex's
+  // trailing `(?:\n#[^\n]*)*` also consumes -- with a live, enabled block
+  // carrying just the chosen label. query/days_back are dropped rather than
+  // left commented alongside it; their documented defaults ("", 7) already
+  // match what an enabled section with only `label` set would parse to.
+  const commentedPattern = /#\s*gmail:(?:\n#[^\n]*)*/;
+  // Backslashes must be escaped before quotes, or a label ending in `\`
+  // produces a trailing `\"` that YAML reads as an escaped quote, leaving
+  // the string (and the rest of the file) unterminated.
+  const escapedLabel = label.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const replacement = `gmail:\n  enabled: true\n  label: "${escapedLabel}"`;
+
+  if (commentedPattern.test(content)) {
+    // A replacer function, not a plain string: `String.replace`'s string
+    // form treats `$&`/`$$`/`` $` ``/`$'` in the replacement specially, so a
+    // label containing e.g. "$&" would otherwise splice the matched block
+    // (or surrounding file content) into itself.
+    content = content.replace(commentedPattern, () => replacement);
+  } else {
+    content += `\n${replacement}\n`;
   }
 
   fs.writeFileSync(settingsPath, content, "utf8");

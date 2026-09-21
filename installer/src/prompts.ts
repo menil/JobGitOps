@@ -1,6 +1,8 @@
 import { input, confirm, select, password, checkbox } from "@inquirer/prompts";
 import pc from "picocolors";
 
+import { DEFAULT_GMAIL_LABEL } from "./constants.js";
+
 export async function promptRepoName(defaultName: string): Promise<string> {
   return input({
     message: "Enter the repository name:",
@@ -111,5 +113,46 @@ export async function promptRefreshScopes(
   return confirm({
     message: `Token is missing scope(s): ${pc.bold(missingScopes.join(", "))}. Run "gh auth refresh -s ${missingScopes.join(",")}" now?`,
     default: true,
+  });
+}
+
+export async function promptGmailSetup(): Promise<boolean> {
+  return confirm({
+    message:
+      "Do you want to set up Gmail Sync? Reads a label-scoped slice of your inbox to auto-update application statuses from interview/rejection/offer emails. Off by default; opting in opens your browser for a one-time Google sign-in.",
+    default: false,
+  });
+}
+
+export async function promptHasGmailCredentials(): Promise<boolean> {
+  return confirm({
+    message:
+      "Do you already have a Google OAuth Client ID/Secret ready (Desktop app type)?",
+    default: false,
+  });
+}
+
+export async function promptGmailClientId(): Promise<string> {
+  return input({
+    message: `Enter your Google OAuth ${pc.cyan("Client ID")} (see DEVELOPMENT.md#gmail-sync-setup-optional for how to create one):`,
+    validate: (val) => val.trim().length > 0 || "Client ID cannot be empty.",
+  });
+}
+
+export async function promptGmailClientSecret(): Promise<string> {
+  return password({
+    message: `Enter the matching Google OAuth ${pc.cyan("Client Secret")}:`,
+    mask: true,
+    validate: (val) =>
+      val.trim().length > 0 || "Client Secret cannot be empty.",
+  });
+}
+
+export async function promptGmailLabel(): Promise<string> {
+  return input({
+    message:
+      "Gmail label to scope Gmail Sync to (create this label + a filter in Gmail first — see DEVELOPMENT.md):",
+    default: DEFAULT_GMAIL_LABEL,
+    validate: (val) => val.trim().length > 0 || "Label cannot be empty.",
   });
 }

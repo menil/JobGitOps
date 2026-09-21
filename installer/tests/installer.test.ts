@@ -41,7 +41,17 @@ vi.mock("fs-extra", async (importOriginal) => {
           return "Link to project: https://github.com/testowner/job-search-test/projects";
         }
         if (p.endsWith("settings.yaml")) {
-          return '# projects_v2:\n#   project_id: ""\n#   status_field_name: ""';
+          return (
+            '# projects_v2:\n#   project_id: ""\n#   status_field_name: ""\n\n' +
+            "# gmail:\n" +
+            "#   enabled: true\n" +
+            '#   label: "JobGitOps"        # required when enabled\n' +
+            "#                              # continuation comment line\n" +
+            '#   query: ""                 # optional\n' +
+            "#   days_back: 7               # lookback window\n" +
+            "#                              # also the retention window\n" +
+            "#                              # cursor.\n"
+          );
         }
         return "";
       }),
@@ -416,6 +426,214 @@ describe("runInstallation", () => {
       .mock.calls.find(([p]) => String(p).endsWith("settings.yaml"));
     expect(settingsWrite).toBeDefined();
     expect(String(settingsWrite?.[1])).toContain("PVT_123");
+  });
+
+  it("uploads the three Gmail secrets and patches settings.yaml when wantGmail is true", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = mockGithubFetch();
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "private",
+        provider: "gemini",
+        primaryKey: "mock-gemini-key",
+        optionalKeys: {},
+        wantProjects: false,
+        wantGmail: true,
+        gmailClientId: "gmail-client-id",
+        gmailClientSecret: "gmail-client-secret",
+        gmailRefreshToken: "gmail-refresh-token",
+        gmailLabel: "MyLabel",
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const execaCalls = vi.mocked(execa).mock.calls;
+    const secretCalls = execaCalls.filter(
+      (call) =>
+        call[0] === "gh" &&
+        call[1]?.includes("secret") &&
+        call[1]?.includes("set"),
+    );
+    for (const [name, value] of [
+      ["GMAIL_CLIENT_ID", "gmail-client-id"],
+      ["GMAIL_CLIENT_SECRET", "gmail-client-secret"],
+      ["GMAIL_REFRESH_TOKEN", "gmail-refresh-token"],
+    ]) {
+      const call = secretCalls.find((c) => c[1]?.[2] === name);
+      expect(call).toBeDefined();
+      expect((call?.[2] as any)?.input).toBe(value);
+    }
+
+    const settingsWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith("settings.yaml"));
+    expect(settingsWrite).toBeDefined();
+    const written = String(settingsWrite?.[1]);
+    expect(written).toContain("gmail:");
+    expect(written).toContain("enabled: true");
+    expect(written).toContain('label: "MyLabel"');
+    // The commented `# gmail:` block (and its continuation-comment lines)
+    // from the fixture must be replaced in place, not left behind with the
+    // enabled block merely appended after it -- proves the regex-replace
+    // path fired, not the append fallback.
+    expect(written).not.toContain("#   enabled: true");
+    expect(written).not.toContain("continuation comment line");
+    // The unrelated, still-commented `# projects_v2:` block above it must
+    // survive untouched -- only the `# gmail:` block was replaced.
+    expect(written).toContain('#   project_id: ""');
+  });
+
+  it("escapes a label containing YAML/regex-replacement-special characters safely", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = mockGithubFetch();
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "private",
+        provider: "gemini",
+        primaryKey: "mock-gemini-key",
+        optionalKeys: {},
+        wantProjects: false,
+        wantGmail: true,
+        gmailClientId: "gmail-client-id",
+        gmailClientSecret: "gmail-client-secret",
+        gmailRefreshToken: "gmail-refresh-token",
+        // `$&` would expand to the whole matched block under a naive
+        // `String.replace(pattern, stringWithDollarSign)` call; a trailing
+        // backslash would break the YAML double-quoted string if the
+        // backslash itself weren't escaped before the closing quote.
+        gmailLabel: "Job$&Search\\",
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const settingsWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith("settings.yaml"));
+    expect(settingsWrite).toBeDefined();
+    const written = String(settingsWrite?.[1]);
+    expect(written).toContain('label: "Job$&Search\\\\"');
+    expect(written).not.toContain("#   enabled: true");
+  });
+
+  it("does not crash and skips the settings.yaml patch in --dry-run mode even with wantGmail true", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = mockGithubFetch();
+
+    await expect(
+      runInstallation(
+        {
+          repoName: "job-search-test",
+          visibility: "private",
+          provider: "gemini",
+          primaryKey: "mock-gemini-key",
+          optionalKeys: {},
+          wantProjects: false,
+          wantGmail: true,
+          gmailClientId: "gmail-client-id",
+          gmailClientSecret: "gmail-client-secret",
+          gmailRefreshToken: "gmail-refresh-token",
+          gmailLabel: "JobGitOps",
+          dryRun: true,
+        },
+        "testowner",
+      ),
+    ).resolves.toBeUndefined();
+
+    const settingsWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith("settings.yaml"));
+    expect(settingsWrite).toBeUndefined();
+  });
+
+  it("does not upload Gmail secrets or patch settings.yaml when wantGmail is false", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = mockGithubFetch();
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "private",
+        provider: "gemini",
+        primaryKey: "mock-gemini-key",
+        optionalKeys: {},
+        wantProjects: false,
+        wantGmail: false,
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const execaCalls = vi.mocked(execa).mock.calls;
+    const secretCalls = execaCalls.filter(
+      (call) =>
+        call[0] === "gh" &&
+        call[1]?.includes("secret") &&
+        call[1]?.includes("set"),
+    );
+    expect(secretCalls.some((c) => c[1]?.[2] === "GMAIL_CLIENT_ID")).toBe(
+      false,
+    );
+    expect(secretCalls.some((c) => c[1]?.[2] === "GMAIL_REFRESH_TOKEN")).toBe(
+      false,
+    );
+
+    const settingsWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith("settings.yaml"));
+    expect(settingsWrite).toBeUndefined();
+  });
+
+  it("does not upload partial Gmail secrets if wantGmail is true but a credential is missing", async () => {
+    vi.mocked(execa).mockResolvedValue({ stdout: "mock-result" } as any);
+    global.fetch = mockGithubFetch();
+
+    await runInstallation(
+      {
+        repoName: "job-search-test",
+        visibility: "private",
+        provider: "gemini",
+        primaryKey: "mock-gemini-key",
+        optionalKeys: {},
+        wantProjects: false,
+        wantGmail: true,
+        gmailClientId: "gmail-client-id",
+        gmailClientSecret: "",
+        gmailRefreshToken: "gmail-refresh-token",
+        gmailLabel: "JobGitOps",
+        dryRun: false,
+      },
+      "testowner",
+    );
+
+    const execaCalls = vi.mocked(execa).mock.calls;
+    const secretCalls = execaCalls.filter(
+      (call) =>
+        call[0] === "gh" &&
+        call[1]?.includes("secret") &&
+        call[1]?.includes("set"),
+    );
+    expect(secretCalls.some((c) => c[1]?.[2] === "GMAIL_CLIENT_ID")).toBe(
+      false,
+    );
+    expect(secretCalls.some((c) => c[1]?.[2] === "GMAIL_REFRESH_TOKEN")).toBe(
+      false,
+    );
+
+    // Regression test: settings.yaml must not end up with `gmail.enabled:
+    // true` when the secrets it depends on weren't actually uploaded --
+    // that would leave a repo silently broken (cron fails every hour with
+    // no signal at install time). The settings patch must be gated on the
+    // same completeness check as the secret upload.
+    const settingsWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith("settings.yaml"));
+    expect(settingsWrite).toBeUndefined();
   });
 
   it("fails installation and propagates error when download fails", async () => {

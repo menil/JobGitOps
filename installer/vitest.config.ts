@@ -11,6 +11,7 @@ export default defineConfig({
       exclude: [
         "src/index.ts",
         "src/prompts.ts",
+        "src/gmailSetup.ts",
       ],
       thresholds: {
         lines: 90,
