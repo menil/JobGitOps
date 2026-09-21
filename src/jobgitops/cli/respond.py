@@ -3,11 +3,13 @@
 Responds to ``issue_comment`` (created) and ``issues`` (opened) webhook events
 (spec 4.1):
 
-- **Comment flow:** skips bot authors, empty comments, and the assistant's own
-  confirmation marker; loads the issue thread context; runs the agent loop
-  (``assistant.run_agent``); executes the returned side effect (reply comment,
-  status label + marker-prefixed confirmation, triage, or nothing). Terminal
-  status updates (``rejected``) additionally close the issue directly.
+- **Comment flow:** skips bot authors, empty comments, and comments carrying a
+  hidden automation marker (the assistant's own status-update confirmation, or
+  the Gmail integration's heads-up notice); loads the issue thread context;
+  runs the agent loop (``assistant.run_agent``); executes the returned side
+  effect (reply comment, status label + marker-prefixed confirmation, triage,
+  or nothing). Terminal status updates (``rejected``) additionally close the
+  issue directly.
 - **Opened-issue flow:** auto-detects bare job-URL submissions, fetches the
   posting, builds the canonical job body, and runs the shared triage core
   directly. Issues already labeled ``triage-pending`` are left to the
@@ -32,6 +34,7 @@ from jobgitops.assistant import (
     ACTION_SKIP,
     ACTION_STATUS_UPDATE,
     ACTION_TRIAGE,
+    AUTOMATION_MARKERS,
     STATUS_CONFIRMATION_MARKER,
     STATUS_LABELS,
     AgentAction,
@@ -129,14 +132,22 @@ def is_bot_author(author: dict[str, Any] | None, bot_logins: set[str]) -> bool:
     return (user.get("login") or "").strip().lower() in bot_logins
 
 
-def contains_confirmation_marker(comment_body: str | None) -> bool:
-    """Return True when a comment carries the status-update confirmation marker.
+def contains_automation_marker(comment_body: str | None) -> bool:
+    """Return True when a comment carries a hidden automation marker.
 
-    The marker prefixes the assistant's own confirmations, so matching on it is
-    the deterministic re-trigger guard (spec 6.2/9.3): a confirmation that slips
-    through the bot guard is still skipped.
+    Checks against ``AUTOMATION_MARKERS`` (currently
+    ``STATUS_CONFIRMATION_MARKER``, the assistant's own status-update
+    confirmations, and ``GMAIL_NOTICE_MARKER``, the Gmail integration's
+    ambiguous-match heads-up comment) — every hidden prefix on a comment that
+    is posted automatically but would otherwise look like a genuine human
+    comment to the bot-author guard. Matching on any marker is the
+    deterministic re-trigger guard (spec §6.2/§9.3, §9.7): such a comment
+    that slips through the bot guard is still skipped. A future marker only
+    needs adding to ``AUTOMATION_MARKERS`` in assistant.py, not here.
     """
-    return bool(comment_body) and STATUS_CONFIRMATION_MARKER in comment_body
+    if not comment_body:
+        return False
+    return any(marker in comment_body for marker in AUTOMATION_MARKERS)
 
 
 def _extract_url(body: str | None) -> str | None:
@@ -349,8 +360,8 @@ def handle_comment_event(
     if not comment_body.strip():
         logger.info("Skipping empty comment.")
         return
-    if contains_confirmation_marker(comment_body):
-        logger.info("Skipping assistant confirmation-marker comment.")
+    if contains_automation_marker(comment_body):
+        logger.info("Skipping automation-marker comment.")
         return
 
     issue = event.get("issue") or {}

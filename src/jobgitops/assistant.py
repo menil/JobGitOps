@@ -61,6 +61,17 @@ STATUS_LABELS = {
 # matches on it to skip re-triggers deterministically (spec §6.2/§9.3).
 STATUS_CONFIRMATION_MARKER = "<!-- jobgitops:status-update -->"
 
+# Hidden prefix on the Gmail integration's ambiguous-match heads-up comment
+# (spec §5.2 step 5e). That comment is posted with a real-user-like token and
+# is not a status update, but still needs the same re-trigger guard as
+# STATUS_CONFIRMATION_MARKER so it doesn't loop back into respond-issue.yml
+# (spec §9.7).
+GMAIL_NOTICE_MARKER = "<!-- jobgitops:gmail-notice -->"
+
+# Every hidden automation marker respond.py's bot-loop guard recognizes.
+# Single source of truth so a future marker only needs adding here.
+AUTOMATION_MARKERS = (STATUS_CONFIRMATION_MARKER, GMAIL_NOTICE_MARKER)
+
 # Concise fallback reply when the model never produces a parseable action, per
 # spec §9.5 (fail with a clear comment rather than loop or fail silently).
 FALLBACK_REPLY = (
