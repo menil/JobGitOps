@@ -603,7 +603,15 @@ def _push_state_branch(repo_path: pathlib.Path) -> bool:
 
 def _finalize_cursor(repo_path: pathlib.Path, cursor: dict[str, Any]) -> None:
     """Check out `gmail-sync-state`, write/commit/push the advanced cursor
-    (spec §5.2 step 7).
+    (spec §5.2 step 7), then restore the working tree to the ref it was on
+    when this function was entered.
+
+    The restore matters because this process does not own the whole CI job:
+    `gmail-sync.yml` runs further steps (badge updates) against the same
+    checkout after `python -m jobgitops.cli.gmail_sync` exits, and those
+    steps need files (e.g. `.github/scripts/update_badge.py`) that only
+    exist on the original branch, not on the disconnected orphan
+    `gmail-sync-state` branch this function checks out.
 
     Every failure here -- checkout, write, commit, or push -- is logged, not
     raised: the GitHub issue side effects already applied this run must
@@ -612,6 +620,50 @@ def _finalize_cursor(repo_path: pathlib.Path, cursor: dict[str, Any]) -> None:
     idempotency guards in `process_message` (already-processed /
     already-commented) make safe.
     """
+    try:
+        original_ref = run_git(["rev-parse", "HEAD"], cwd=repo_path)
+    except GitOpsError as e:
+        logger.error(
+            "Could not resolve the current ref before checking out %s; "
+            "skipping the cursor commit to avoid stranding the working "
+            "tree on the orphan branch: %s",
+            STATE_BRANCH,
+            e,
+        )
+        return
+
+    try:
+        _finalize_cursor_on_state_branch(repo_path, cursor)
+    finally:
+        try:
+            # --force: on a genuine first-ever run, _clear_working_tree
+            # stages the deletion of every file inherited from
+            # original_ref via `git rm -rf`. If a later step in
+            # _finalize_cursor_on_state_branch then fails before that's
+            # committed, those staged deletions are still sitting in the
+            # index -- a plain `checkout <ref> --` would refuse to run
+            # ("local changes would be overwritten"). Any local state on
+            # the orphan branch is disposable by this point, so forcing
+            # past it is safe and is the only way to guarantee later
+            # workflow steps get the original branch's files back.
+            run_git(["checkout", "--force", original_ref, "--"], cwd=repo_path)
+        except GitOpsError as e:
+            logger.error(
+                "Could not restore the working tree to %s after finalizing "
+                "the Gmail sync cursor; later workflow steps may see the "
+                "wrong branch checked out: %s",
+                original_ref,
+                e,
+            )
+
+
+def _finalize_cursor_on_state_branch(
+    repo_path: pathlib.Path, cursor: dict[str, Any]
+) -> None:
+    """Do the actual checkout/write/commit/push of the advanced cursor onto
+    `gmail-sync-state`. Split out of `_finalize_cursor` so that function can
+    guarantee the original ref is restored via `finally` regardless of which
+    step here fails."""
     try:
         _checkout_state_branch(repo_path)
     except GitOpsError as e:
