@@ -330,6 +330,177 @@ def test_get_labels_empty(mock_urlopen: mock.MagicMock) -> None:
 
 
 @mock.patch("urllib.request.urlopen")
+def test_list_issue_label_events_single_page(mock_urlopen: mock.MagicMock) -> None:
+    """Test fetching labeled/unlabeled timeline events on a single page."""
+    timeline = [
+        {
+            "event": "labeled",
+            "label": {"name": "applied"},
+            "created_at": "2026-01-05T00:00:00Z",
+        },
+        {"event": "commented", "created_at": "2026-01-05T01:00:00Z"},
+        {
+            "event": "unlabeled",
+            "label": {"name": "applied"},
+            "created_at": "2026-01-06T00:00:00Z",
+        },
+        {
+            "event": "labeled",
+            "label": {"name": "in-loop"},
+            "created_at": "2026-01-06T00:00:01Z",
+        },
+    ]
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps(timeline).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    res = client.list_issue_label_events(issue_number=42)
+
+    assert res == [
+        {"event": "labeled", "label": "applied", "created_at": "2026-01-05T00:00:00Z"},
+        {
+            "event": "unlabeled",
+            "label": "applied",
+            "created_at": "2026-01-06T00:00:00Z",
+        },
+        {"event": "labeled", "label": "in-loop", "created_at": "2026-01-06T00:00:01Z"},
+    ]
+    mock_urlopen.assert_called_once()
+    req = mock_urlopen.call_args[0][0]
+    assert (
+        req.full_url
+        == "https://api.github.com/repos/owner/repo/issues/42/timeline?per_page=100&page=1"
+    )
+    assert req.method == "GET"
+    assert req.headers["Accept"] == "application/vnd.github+json"
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_issue_label_events_paginates(mock_urlopen: mock.MagicMock) -> None:
+    """Test that a full (100-item) page triggers a follow-up page fetch."""
+    page1 = [
+        {
+            "event": "labeled",
+            "label": {"name": "applied"},
+            "created_at": f"2026-01-{i:02d}T00:00:00Z",
+        }
+        for i in range(1, 101)
+    ]
+    page2 = [
+        {
+            "event": "labeled",
+            "label": {"name": "in-loop"},
+            "created_at": "2026-02-01T00:00:00Z",
+        },
+    ]
+    mock_urlopen.side_effect = [
+        make_mock_response(status=200, body=json.dumps(page1).encode("utf-8")),
+        make_mock_response(status=200, body=json.dumps(page2).encode("utf-8")),
+    ]
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    res = client.list_issue_label_events(issue_number=42)
+
+    assert len(res) == 101
+    assert res[-1] == {
+        "event": "labeled",
+        "label": "in-loop",
+        "created_at": "2026-02-01T00:00:00Z",
+    }
+    assert mock_urlopen.call_count == 2
+    first_req = mock_urlopen.call_args_list[0][0][0]
+    second_req = mock_urlopen.call_args_list[1][0][0]
+    assert first_req.full_url.endswith("page=1")
+    assert second_req.full_url.endswith("page=2")
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_issue_label_events_page_cap(mock_urlopen: mock.MagicMock) -> None:
+    """Test that runaway pagination aborts instead of looping forever."""
+    full_page = [
+        {
+            "event": "labeled",
+            "label": {"name": "applied"},
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+    ] * 100
+    body = json.dumps(full_page).encode("utf-8")
+    mock_urlopen.side_effect = lambda *a, **k: make_mock_response(  # noqa: ARG005
+        status=200, body=body
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    with pytest.raises(GitHubClientError, match="exceeded 1000 pages"):
+        client.list_issue_label_events(issue_number=42)
+
+    assert mock_urlopen.call_count == 1000
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_issue_label_events_empty(mock_urlopen: mock.MagicMock) -> None:
+    """Test an issue with no timeline label events returns an empty list."""
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps([]).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    assert client.list_issue_label_events(issue_number=42) == []
+    mock_urlopen.assert_called_once()
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_issue_label_events_skips_malformed_and_unnamed_labels(
+    mock_urlopen: mock.MagicMock,
+) -> None:
+    """Test malformed timeline entries, labelless events, and events missing
+    or with a non-string ``created_at`` are all skipped."""
+    timeline = [
+        "not-a-dict",
+        {"event": "labeled", "label": None, "created_at": "2026-01-05T00:00:00Z"},
+        {"event": "labeled", "label": {}, "created_at": "2026-01-05T00:00:00Z"},
+        # created_at missing entirely, or present but not a string: skipped so
+        # every returned event honors the documented `created_at: <iso str>`
+        # contract rather than leaking None/non-string values to callers.
+        {"event": "labeled", "label": {"name": "applied"}},
+        {
+            "event": "labeled",
+            "label": {"name": "applied"},
+            "created_at": 12345,
+        },
+        {
+            "event": "labeled",
+            "label": {"name": "applied"},
+            "created_at": "2026-01-06T00:00:00Z",
+        },
+    ]
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps(timeline).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    res = client.list_issue_label_events(issue_number=42)
+
+    assert res == [
+        {"event": "labeled", "label": "applied", "created_at": "2026-01-06T00:00:00Z"}
+    ]
+
+
+@mock.patch("urllib.request.urlopen")
+def test_list_issue_label_events_invalid_response_format(
+    mock_urlopen: mock.MagicMock,
+) -> None:
+    """Test a non-list timeline response raises GitHubClientError."""
+    mock_urlopen.return_value = make_mock_response(
+        status=200, body=json.dumps({"message": "not a list"}).encode("utf-8")
+    )
+
+    client = GitHubClient(token="my-token", repo="owner/repo")
+    with pytest.raises(GitHubClientError, match="Unexpected response format"):
+        client.list_issue_label_events(issue_number=42)
+
+
+@mock.patch("urllib.request.urlopen")
 def test_list_issues(mock_urlopen: mock.MagicMock) -> None:
     """Test listing issues from repository."""
     expected_response = [

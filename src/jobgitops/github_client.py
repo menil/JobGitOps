@@ -422,6 +422,77 @@ class GitHubClient:
             raise GitHubClientError(f"Unexpected response format: {res}")
         return res
 
+    def list_issue_label_events(self, issue_number: int) -> list[dict[str, Any]]:
+        """Fetch every labeled/unlabeled event from an issue's timeline.
+
+        Used to reconstruct *when* a label was added or removed, since the
+        REST issue/label endpoints only expose the current label set, not its
+        history. Paginates internally (unlike ``list_issues``/
+        ``list_comments``, which return one page and leave paging to the
+        caller) because the point of this method is "every label event this
+        issue ever had," not one page of them.
+
+        Args:
+            issue_number: The number of the issue.
+
+        Returns:
+            List of ``{"event": "labeled" | "unlabeled", "label": <name>,
+            "created_at": <iso str>}`` dicts, oldest first (GitHub's
+            timeline order), across all pages.
+
+        Raises:
+            GitHubClientError: If the API request fails.
+        """
+        events: list[dict[str, Any]] = []
+        page = 1
+        per_page = 100
+        # This loop paginates internally (unlike list_issues/list_comments,
+        # which leave paging to the caller), so it needs its own escape
+        # hatch: cap the fetch at a generous page count rather than trusting
+        # `len(res) < per_page` alone to always terminate.
+        max_pages = 1000
+        while True:
+            if page > max_pages:
+                raise GitHubClientError(
+                    f"Issue {issue_number} timeline exceeded {max_pages} pages "
+                    f"({max_pages * per_page} events); aborting to avoid an "
+                    "unbounded fetch."
+                )
+            url = (
+                f"https://api.github.com/repos/{self.repo}/issues/"
+                f"{issue_number}/timeline?per_page={per_page}&page={page}"
+            )
+            # The timeline API is GA under the standard v3+json media type;
+            # override the base v3-specific Accept header for this call.
+            res = self._request(
+                "GET", url, headers={"Accept": "application/vnd.github+json"}
+            )
+            if not isinstance(res, list):
+                raise GitHubClientError(f"Unexpected response format: {res}")
+            for item in res:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("event") not in ("labeled", "unlabeled"):
+                    continue
+                label = item.get("label")
+                label_name = label.get("name") if isinstance(label, dict) else None
+                if not label_name:
+                    continue
+                created_at = item.get("created_at")
+                if not isinstance(created_at, str):
+                    continue
+                events.append(
+                    {
+                        "event": item["event"],
+                        "label": label_name,
+                        "created_at": created_at,
+                    }
+                )
+            if len(res) < per_page:
+                break
+            page += 1
+        return events
+
     def get_labels(self, issue_number: int) -> list[str]:
         """Get the names of all labels on a GitHub issue.
 
