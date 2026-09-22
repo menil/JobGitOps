@@ -951,9 +951,92 @@ def test_push_state_branch_gives_up_after_one_retry(tmp_path: Path) -> None:
 def test_finalize_cursor_push_failure_does_not_raise(tmp_path: Path) -> None:
     """A total push failure in _finalize_cursor is logged, not raised."""
     with (
+        patch("jobgitops.cli.gmail_sync.run_git", return_value="deadbeef"),
         patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
         patch("jobgitops.cli.gmail_sync._commit_cursor", return_value=True),
         patch("jobgitops.cli.gmail_sync._push_state_branch", return_value=False),
+    ):
+        # Must not raise.
+        gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
+
+
+def test_finalize_cursor_restores_original_ref_after_state_branch_work(
+    tmp_path: Path,
+) -> None:
+    """After committing the cursor onto the orphan gmail-sync-state branch,
+    _finalize_cursor must check the working tree back out to the ref it
+    started on -- later `gmail-sync.yml` steps (badge updates) run against
+    this same checkout and need files that only exist on the original
+    branch, not on the disconnected orphan branch."""
+    git_calls: list[list[str]] = []
+
+    def fake_run_git(args: list[str], cwd: Path) -> str:
+        git_calls.append(args)
+        if args == ["rev-parse", "HEAD"]:
+            return "abc123"
+        return ""
+
+    with (
+        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
+        patch("jobgitops.cli.gmail_sync._commit_cursor", return_value=True),
+        patch("jobgitops.cli.gmail_sync._push_state_branch", return_value=True),
+    ):
+        gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
+
+    assert git_calls[0] == ["rev-parse", "HEAD"]
+    assert git_calls[-1] == ["checkout", "--force", "abc123", "--"]
+
+
+def test_finalize_cursor_restores_original_ref_even_on_checkout_failure(
+    tmp_path: Path,
+) -> None:
+    """The original-ref restore must run even when checking out the state
+    branch itself fails, since the failure path still logs-not-raises and
+    later workflow steps still need the original branch back."""
+    git_calls: list[list[str]] = []
+
+    def fake_run_git(args: list[str], cwd: Path) -> str:
+        git_calls.append(args)
+        if args == ["rev-parse", "HEAD"]:
+            return "abc123"
+        return ""
+
+    with (
+        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch(
+            "jobgitops.cli.gmail_sync._checkout_state_branch",
+            side_effect=GitOpsError("boom"),
+        ),
+    ):
+        gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
+
+    assert git_calls == [
+        ["rev-parse", "HEAD"],
+        ["checkout", "--force", "abc123", "--"],
+    ]
+
+
+def test_finalize_cursor_logs_restore_failure_without_raising(
+    tmp_path: Path,
+) -> None:
+    """If the final restore checkout itself fails (e.g. the ref no longer
+    exists locally), that must be logged, not raised -- already-applied
+    GitHub issue side effects must never be rolled back for a working-tree
+    housekeeping problem."""
+
+    def fake_run_git(args: list[str], cwd: Path) -> str:
+        if args == ["rev-parse", "HEAD"]:
+            return "abc123"
+        if args[0] == "checkout" and "--force" in args:
+            raise GitOpsError("ref no longer exists")
+        return ""
+
+    with (
+        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
+        patch("jobgitops.cli.gmail_sync._commit_cursor", return_value=True),
+        patch("jobgitops.cli.gmail_sync._push_state_branch", return_value=True),
     ):
         # Must not raise.
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
@@ -1233,9 +1316,12 @@ def test_commit_cursor_returns_false_when_nothing_staged(tmp_path: Path) -> None
 
 
 def test_finalize_cursor_checkout_failure_is_logged_not_raised(tmp_path: Path) -> None:
-    with patch(
-        "jobgitops.cli.gmail_sync._checkout_state_branch",
-        side_effect=GitOpsError("boom"),
+    with (
+        patch("jobgitops.cli.gmail_sync.run_git", return_value="deadbeef"),
+        patch(
+            "jobgitops.cli.gmail_sync._checkout_state_branch",
+            side_effect=GitOpsError("boom"),
+        ),
     ):
         # Must not raise.
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
@@ -1247,6 +1333,7 @@ def test_finalize_cursor_write_failure_is_logged_not_raised(tmp_path: Path) -> N
     failure paths, so the caller's already-applied issue side effects are
     never at risk from a cursor-write problem either."""
     with (
+        patch("jobgitops.cli.gmail_sync.run_git", return_value="deadbeef"),
         patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
         patch(
             "jobgitops.cli.gmail_sync._write_cursor_file",
@@ -1261,6 +1348,7 @@ def test_finalize_cursor_write_failure_is_logged_not_raised(tmp_path: Path) -> N
 
 def test_finalize_cursor_no_changes_skips_push(tmp_path: Path) -> None:
     with (
+        patch("jobgitops.cli.gmail_sync.run_git", return_value="deadbeef"),
         patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
         patch(
             "jobgitops.cli.gmail_sync._commit_cursor", return_value=False
@@ -1270,6 +1358,24 @@ def test_finalize_cursor_no_changes_skips_push(tmp_path: Path) -> None:
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
     mocked_commit.assert_called_once()
     mocked_push.assert_not_called()
+
+
+def test_finalize_cursor_rev_parse_failure_skips_state_branch_entirely(
+    tmp_path: Path,
+) -> None:
+    """If HEAD can't even be resolved, _finalize_cursor must not touch the
+    state branch at all -- checking it out with no way to restore the
+    original ref afterward would strand the working tree."""
+    with (
+        patch(
+            "jobgitops.cli.gmail_sync.run_git",
+            side_effect=GitOpsError("not a git repo"),
+        ),
+        patch("jobgitops.cli.gmail_sync._checkout_state_branch") as mocked_checkout,
+    ):
+        # Must not raise.
+        gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
+    mocked_checkout.assert_not_called()
 
 
 # --- main(): remaining client-init failure branches --------------------------
