@@ -41,6 +41,7 @@ jobgitops-respond = "jobgitops.cli.respond:main"
 jobgitops-project-sync = "jobgitops.cli.project_sync:main"
 jobgitops-status-transition = "jobgitops.cli.status_transition:main"
 jobgitops-validate-resume = "jobgitops.cli.validate_resume:main"
+jobgitops-esd-export = "jobgitops.cli.esd_export:main"
 
 [dependency-groups]
 dev = [
