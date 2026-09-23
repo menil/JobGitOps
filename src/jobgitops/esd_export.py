@@ -2,8 +2,9 @@
 
 See specs/esd-export.md for the full design. This module implements the
 pipeline: fetch issues, reconstruct activity history from GitHub's issue
-timeline, bucket into reporting periods, dedupe, and cap -- producing the
-row list the CLI (jobgitops/cli/esd_export.py) hands to a spreadsheet writer.
+timeline, bucket into reporting periods, dedupe, and cap -- and a writer
+that hands the resulting rows to pandas for CSV/XLSX serialization. The CLI
+(jobgitops/cli/esd_export.py) wires both together.
 """
 
 from __future__ import annotations
@@ -11,7 +12,10 @@ from __future__ import annotations
 import datetime as dt
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+import pandas as pd
 
 from jobgitops.cli.triage import parse_job_details
 from jobgitops.github_client import GitHubClient
@@ -27,9 +31,22 @@ WEEKDAYS: tuple[str, ...] = (
     "sunday",
 )
 
+# Export formats supported by write_rows.
+FORMATS: tuple[str, ...] = ("csv", "xlsx")
+
 _ISSUE_PAGE_SIZE = 100
 
 _ACTIVITY_TEXT_IN_LOOP = "Interviewed for position"
+
+# Row dict keys (as produced by _build_row), in output column order, mapped
+# to the display header specs/esd-export.md §7 specifies.
+_COLUMNS: dict[str, str] = {
+    "date": "Date",
+    "company": "Company",
+    "position": "Position",
+    "activity": "Activity",
+    "apply_url": "Application URL",
+}
 
 
 @dataclass(frozen=True)
@@ -237,6 +254,29 @@ def _neutralize_formula(value: str) -> str:
     if value and value[0] in "=+-@":
         return f"'{value}"
     return value
+
+
+def write_rows(rows: list[dict[str, str]], output_path: str | Path, fmt: str) -> None:
+    """Write export rows to a CSV or XLSX file (specs/esd-export.md §6.2, §7).
+
+    Args:
+        rows: Rows from ``export_rows``, each with keys ``date``, ``company``,
+            ``position``, ``activity``, ``apply_url``.
+        output_path: Destination file path.
+        fmt: ``"csv"`` or ``"xlsx"``.
+
+    Raises:
+        ValueError: If ``fmt`` is not one of ``FORMATS``.
+    """
+    if fmt not in FORMATS:
+        raise ValueError(f"fmt must be one of {FORMATS}, got {fmt!r}")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(rows, columns=list(_COLUMNS)).rename(columns=_COLUMNS)
+    if fmt == "csv":
+        frame.to_csv(output_path, index=False)
+    else:
+        frame.to_excel(output_path, index=False, engine="openpyxl")
 
 
 def _parse_iso(value: str | None) -> dt.datetime | None:

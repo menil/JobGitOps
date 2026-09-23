@@ -5,9 +5,10 @@ from __future__ import annotations
 import datetime as dt
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 
-from jobgitops.esd_export import _ActivityEvent, _build_row, export_rows
+from jobgitops.esd_export import _ActivityEvent, _build_row, export_rows, write_rows
 
 
 def _issue(
@@ -472,3 +473,93 @@ def test_invalid_arguments_raise_value_error(kwargs: dict, message: str) -> None
     client = _make_client([], {})
     with pytest.raises(ValueError, match=message):
         export_rows(client, **kwargs)
+
+
+# --- write_rows -------------------------------------------------------------
+
+_SAMPLE_ROWS = [
+    {
+        "date": "2026-01-05",
+        "company": "Acme, Inc.",
+        "position": 'Senior "Backend" Engineer',
+        "activity": "Applied online via LinkedIn",
+        "apply_url": "https://acme.example/apply",
+    },
+    {
+        "date": "2026-01-20",
+        "company": "Bëta Söftwäre\nGmbH",
+        "position": "Analyst",
+        "activity": "Interviewed for position",
+        "apply_url": "",
+    },
+]
+
+_EXPECTED_FRAME = pd.DataFrame(_SAMPLE_ROWS).rename(
+    columns={
+        "date": "Date",
+        "company": "Company",
+        "position": "Position",
+        "activity": "Activity",
+        "apply_url": "Application URL",
+    }
+)
+
+
+def test_write_rows_csv_round_trips(tmp_path) -> None:
+    output = tmp_path / "export.csv"
+    write_rows(_SAMPLE_ROWS, output, "csv")
+
+    # keep_default_na=False: read the written empty apply_url cell back as ""
+    # rather than pandas' default NaN-on-read interpretation of a blank field
+    # (a *reading* convention, not evidence of what write_rows actually wrote).
+    frame = pd.read_csv(output, keep_default_na=False, dtype=str)
+    pd.testing.assert_frame_equal(frame, _EXPECTED_FRAME)
+
+
+def test_write_rows_xlsx_round_trips(tmp_path) -> None:
+    output = tmp_path / "export.xlsx"
+    write_rows(_SAMPLE_ROWS, output, "xlsx")
+
+    frame = pd.read_excel(output, keep_default_na=False, dtype=str)
+    pd.testing.assert_frame_equal(frame, _EXPECTED_FRAME)
+
+
+def test_write_rows_creates_missing_parent_directory(tmp_path) -> None:
+    output = tmp_path / "nested" / "dir" / "export.csv"
+    write_rows(_SAMPLE_ROWS, output, "csv")
+    assert output.exists()
+
+
+def test_write_rows_empty_csv_has_headers_only(tmp_path) -> None:
+    output = tmp_path / "export.csv"
+    write_rows([], output, "csv")
+
+    frame = pd.read_csv(output)
+    assert list(frame.columns) == [
+        "Date",
+        "Company",
+        "Position",
+        "Activity",
+        "Application URL",
+    ]
+    assert len(frame) == 0
+
+
+def test_write_rows_empty_xlsx_has_headers_only(tmp_path) -> None:
+    output = tmp_path / "export.xlsx"
+    write_rows([], output, "xlsx")
+
+    frame = pd.read_excel(output)
+    assert list(frame.columns) == [
+        "Date",
+        "Company",
+        "Position",
+        "Activity",
+        "Application URL",
+    ]
+    assert len(frame) == 0
+
+
+def test_write_rows_invalid_format_raises() -> None:
+    with pytest.raises(ValueError, match="fmt must be one of"):
+        write_rows(_SAMPLE_ROWS, "/dev/null", "pdf")
