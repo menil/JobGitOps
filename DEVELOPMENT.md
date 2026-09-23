@@ -76,8 +76,12 @@ tab, select **ESD Export**, click **Run workflow**, and fill in the inputs:
   the full history through today.
 
 The run uploads its result as a workflow artifact named `esd-export`
-(download it from the completed run's summary page). See
-[`specs/esd-export.md`](specs/esd-export.md) for the full design, including
+(download it from the completed run's summary page). GitHub Actions always
+wraps artifact downloads in a `.zip` regardless of how many files are
+inside — that's a platform behavior, not something this workflow controls.
+`gh run download <run-id>` (GitHub CLI) extracts it for you automatically,
+so you get the raw `.csv`/`.xlsx` directly without unzipping anything
+yourself. See [`specs/esd-export.md`](specs/esd-export.md) for the full design, including
 what counts as an "activity" and how periods/dedup/caps work.
 
 ---

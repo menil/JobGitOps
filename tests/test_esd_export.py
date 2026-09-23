@@ -95,7 +95,7 @@ def test_dedupe_same_issue_same_period_keeps_most_recent() -> None:
     client = _make_client(issues, events)
     rows = export_rows(client, group_by="weekly", week_start="monday")
     assert len(rows) == 1
-    assert rows[0]["activity"] == "Interviewed for position"
+    assert rows[0]["activity"] == "Interview scheduled"
     assert rows[0]["date"] == "2026-01-07"
 
 
@@ -137,7 +137,7 @@ def test_dedupe_cross_period_scenario() -> None:
     assert len(rows) == 2
     by_date = {row["date"]: row for row in rows}
     assert by_date["2026-01-05"]["activity"] == "Applied online"
-    assert by_date["2026-01-22"]["activity"] == "Interviewed for position"
+    assert by_date["2026-01-22"]["activity"] == "Interview scheduled"
     assert "2026-01-20" not in by_date  # collapsed into the in-loop row
 
 
@@ -222,6 +222,49 @@ def test_monthly_bucketing_groups_by_calendar_month() -> None:
     rows = export_rows(client, group_by="monthly", max_per_period=1)
     assert len(rows) == 1
     assert rows[0]["company"] == "Acme"
+
+
+def test_period_label_weekly_monday_matches_iso_week() -> None:
+    """With week_start=monday, the Period column is the real ISO week label."""
+    issues = [_issue(1, "Acme", "Engineer")]
+    events = {1: [_labeled_event("applied", "2026-01-05T00:00:00Z")]}  # a Monday
+    client = _make_client(issues, events)
+    rows = export_rows(client, group_by="weekly", week_start="monday")
+    assert rows[0]["period"] == "2026-W02"
+
+
+def test_period_label_weekly_spans_year_boundary() -> None:
+    """A week starting 2025-12-29 gets the ISO week/year it actually falls in."""
+    issues = [_issue(1, "Acme", "Engineer")]
+    events = {1: [_labeled_event("applied", "2025-12-31T00:00:00Z")]}
+    client = _make_client(issues, events)
+    rows = export_rows(client, group_by="weekly", week_start="monday")
+    assert rows[0]["period"] == "2026-W01"
+
+
+def test_period_label_monthly_format() -> None:
+    issues = [_issue(1, "Acme", "Engineer")]
+    events = {1: [_labeled_event("applied", "2026-01-31T00:00:00Z")]}
+    client = _make_client(issues, events)
+    rows = export_rows(client, group_by="monthly")
+    assert rows[0]["period"] == "2026-01"
+
+
+def test_period_label_non_monday_week_start_reflects_period_start() -> None:
+    """A non-Monday week_start labels by the ISO week period_start falls in.
+
+    specs/esd-export.md and _period_label's docstring both call this out:
+    with a non-Monday week_start the custom period can span two ISO week
+    numbers, so the label describes where the period *starts*, not
+    necessarily every day inside it.
+    """
+    issues = [_issue(1, "Acme", "Engineer")]
+    # 2026-01-06 (Tue) buckets to period_start 2025-12-31 (Wed) under
+    # week_start=wednesday -- see test_weekly_bucketing_non_monday_week_start.
+    events = {1: [_labeled_event("applied", "2026-01-06T00:00:00Z")]}
+    client = _make_client(issues, events)
+    rows = export_rows(client, group_by="weekly", week_start="wednesday")
+    assert rows[0]["period"] == "2026-W01"  # the ISO week 2025-12-31 falls in
 
 
 def test_cap_keeps_chronologically_earliest_rows() -> None:
@@ -347,12 +390,21 @@ def test_malformed_created_at_is_skipped() -> None:
     assert export_rows(client, group_by="weekly") == []
 
 
-def test_activity_text_applied_with_source() -> None:
-    issues = [_issue(1, "Acme", "Engineer", source="LinkedIn")]
+def test_activity_text_applied_ignores_source() -> None:
+    """Activity is always "Applied online", never "via {source}".
+
+    `source` only records which job board the *listing* was scraped from,
+    not how the claimant actually submitted the application (often a
+    company's own site, not the board it was found on) -- naming a specific
+    channel would overclaim in a document filed with a government agency.
+    A malicious-looking source value also confirms nothing from it can leak
+    into (or open as a formula in) the Activity cell, since it's never used.
+    """
+    issues = [_issue(1, "Acme", "Engineer", source="=cmd|'/c calc'!A1")]
     events = {1: [_labeled_event("applied", "2026-01-05T00:00:00Z")]}
     client = _make_client(issues, events)
     rows = export_rows(client, group_by="weekly")
-    assert rows[0]["activity"] == "Applied online via LinkedIn"
+    assert rows[0]["activity"] == "Applied online"
 
 
 def test_activity_text_applied_without_source() -> None:
@@ -376,7 +428,7 @@ def test_applied_row_includes_apply_url_in_loop_row_does_not() -> None:
     by_date = {row["date"]: row for row in rows}
     assert by_date["2026-01-05"]["apply_url"] == "https://acme.example/apply"
     assert by_date["2026-01-20"]["apply_url"] == ""
-    assert by_date["2026-01-20"]["activity"] == "Interviewed for position"
+    assert by_date["2026-01-20"]["activity"] == "Interview scheduled"
 
 
 def test_formula_leading_characters_are_neutralized() -> None:
@@ -407,21 +459,6 @@ def test_formula_leading_characters_are_neutralized() -> None:
     assert row["position"].startswith("'+")
 
 
-def test_activity_text_never_starts_with_formula_character() -> None:
-    """The 'Applied online via {source}' sentence is safe by construction.
-
-    A malicious `source` value can't turn the Activity cell into a formula,
-    since the cell always starts with the fixed "Applied" prefix -- this is
-    a design-intent check, not exercising _neutralize_formula.
-    """
-    issues = [_issue(1, "Acme", "Engineer", source="=cmd|'/c calc'!A1")]
-    events = {1: [_labeled_event("applied", "2026-01-05T00:00:00Z")]}
-    client = _make_client(issues, events)
-    rows = export_rows(client, group_by="weekly")
-    assert rows[0]["activity"] == "Applied online via =cmd|'/c calc'!A1"
-    assert rows[0]["activity"][0] not in "=+-@"
-
-
 def test_unhandled_activity_label_raises_instead_of_silently_mislabeling() -> None:
     """A label outside {"applied", "in-loop"} fails loudly, not silently.
 
@@ -434,7 +471,7 @@ def test_unhandled_activity_label_raises_instead_of_silently_mislabeling() -> No
         1, "some-future-label", dt.datetime(2026, 1, 5, tzinfo=dt.UTC)
     )
     with pytest.raises(AssertionError, match="Unhandled activity label"):
-        _build_row(issue, event)
+        _build_row(issue, event, period_label="2026-W02")
 
 
 def test_issue_listing_paginates_fully() -> None:
@@ -479,23 +516,26 @@ def test_invalid_arguments_raise_value_error(kwargs: dict, message: str) -> None
 
 _SAMPLE_ROWS = [
     {
+        "period": "2026-W02",
         "date": "2026-01-05",
         "company": "Acme, Inc.",
         "position": 'Senior "Backend" Engineer',
-        "activity": "Applied online via LinkedIn",
+        "activity": "Applied online",
         "apply_url": "https://acme.example/apply",
     },
     {
+        "period": "2026-W04",
         "date": "2026-01-20",
         "company": "Bëta Söftwäre\nGmbH",
         "position": "Analyst",
-        "activity": "Interviewed for position",
+        "activity": "Interview scheduled",
         "apply_url": "",
     },
 ]
 
 _EXPECTED_FRAME = pd.DataFrame(_SAMPLE_ROWS).rename(
     columns={
+        "period": "Period",
         "date": "Date",
         "company": "Company",
         "position": "Position",
@@ -536,6 +576,7 @@ def test_write_rows_empty_csv_has_headers_only(tmp_path) -> None:
 
     frame = pd.read_csv(output)
     assert list(frame.columns) == [
+        "Period",
         "Date",
         "Company",
         "Position",
@@ -551,6 +592,7 @@ def test_write_rows_empty_xlsx_has_headers_only(tmp_path) -> None:
 
     frame = pd.read_excel(output)
     assert list(frame.columns) == [
+        "Period",
         "Date",
         "Company",
         "Position",

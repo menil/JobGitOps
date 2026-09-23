@@ -166,15 +166,24 @@ export pipeline, not the client.
    claimant filing a capped weekly log wants to show they didn't wait until
    the last day to act. Two issues with an identical event timestamp break
    ties by issue number (ascending) for determinism.
-7. Resolve `company`, `role`, `source`, and `apply_url` for each surviving
-   row via the existing `parse_job_details(body, title)`
-   (`src/jobgitops/cli/triage.py`) — reused as-is, not reimplemented (`role`
-   populates the `Position` column; see §7). This reads the issue's
-   *current* body/title, not a point-in-time snapshot — if a job posting's
-   title or company text is edited after the activity happened, the export
-   reflects the edited version. Accepted as a known limitation: issue
-   titles/bodies are edited rarely enough in practice that a point-in-time
-   snapshot isn't worth the added complexity.
+7. Resolve `company`, `role`, and `apply_url` for each surviving row via the
+   existing `parse_job_details(body, title)` (`src/jobgitops/cli/triage.py`)
+   — reused as-is, not reimplemented (`role` populates the `Position`
+   column; see §7). This reads the issue's *current* body/title, not a
+   point-in-time snapshot — if a job posting's title or company text is
+   edited after the activity happened, the export reflects the edited
+   version. Accepted as a known limitation: issue titles/bodies are edited
+   rarely enough in practice that a point-in-time snapshot isn't worth the
+   added complexity. `parse_job_details`'s `source` field (which job board
+   the *listing* was scraped from) is deliberately never surfaced in the
+   export — see §7's `Activity` text rules for why.
+8. Format a `Period` label for each surviving row from its period's start
+   date: `"YYYY-MM"` for monthly, or the ISO 8601 week (`"YYYY-Www"`)
+   containing that start date for weekly. When `week_start=monday`, weekly
+   periods coincide exactly with real ISO weeks; for any other
+   `week_start`, the custom period can span two ISO week numbers, so the
+   label reflects the week the period *starts* in, not necessarily every
+   day inside it — documented behavior, not a bug.
 
 ### 6.2. Spreadsheet Writer
 
@@ -213,6 +222,7 @@ Each row has exactly these columns, in this order:
 
 | Column          | Source | Notes |
 |-----------------|--------|-------|
+| `Period`        | The row's reporting period, formatted per §6.1 step 8 | First column, so periods are visually scannable/groupable in the spreadsheet. |
 | `Date`          | Winning event's `created_at`, formatted `YYYY-MM-DD` (`.isoformat()`) | |
 | `Company`       | `parse_job_details().company` | |
 | `Position`      | `parse_job_details().role` | |
@@ -221,9 +231,21 @@ Each row has exactly these columns, in this order:
 
 `Activity` text:
 
-- `applied` row, `source` present: `"Applied online via {source}"`
-- `applied` row, no `source`: `"Applied online"`
-- `in-loop` row: `"Interviewed for position"`
+- `applied` row: `"Applied online"`, always — never `"via {source}"`.
+  `parse_job_details().source` only records which job board the *listing*
+  was scraped from (LinkedIn, Indeed, ...), not how the claimant actually
+  submitted the application, which is frequently a different channel (e.g.
+  the company's own careers site reached by clicking through). Naming a
+  specific application channel would overclaim in a document filed with a
+  government agency, so `source` is never surfaced in the export at all.
+- `in-loop` row: `"Interview scheduled"` — not `"Interviewed for position"`.
+  The `in-loop` label means an interview was scheduled with the claimant,
+  not that one has necessarily happened yet by the time of export; this
+  wording states the ongoing status without asserting a specific completed
+  interview. Determining the label change's real trigger (e.g. by reading
+  issue comments with an LLM) was considered and rejected: real per-row
+  cost/latency for a manually-triggered export that should stay simple and
+  deterministic.
 
 No issue-number or internal-ID column — not meaningful to an ESD caseworker
 reviewing the filing.
@@ -266,8 +288,11 @@ as the `week_start`/`max_per_period` validation already called out there.
   filtering, including boundary inclusivity (an event exactly on `start_date`
   or `end_date` is included) and an event timestamped "today" when `end_date`
   defaults; issues with zero `ACTIVITY_LABELS` events contribute zero rows;
-  and the `Activity`/`Application URL` text rules (with/without `source`,
-  applied vs. in-loop). Dedupe gets its own named test for the specific
+  the `Period` label format for weekly (including the non-Monday
+  `week_start` case where it reflects the ISO week the period starts in)
+  and monthly grouping; and the `Activity`/`Application URL` text rules
+  (`source` never appears in `Activity`, applied vs. in-loop wording).
+  Dedupe gets its own named test for the specific
   cross-period scenario in §6.1 step 5 (an issue moving `applied` → `in-loop`
   within one period, with an earlier-period `applied` row surviving
   separately) — this is the trickiest case and the most likely to hide a
