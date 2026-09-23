@@ -1,6 +1,7 @@
 """Unit tests for the canonical status/label model."""
 
 from jobgitops.status_model import (
+    ACTIVITY_LABELS,
     CLOSURE_LABELS,
     LABEL_TO_STATUS,
     LIFECYCLE_LABELS,
@@ -10,6 +11,15 @@ from jobgitops.status_model import (
     resolve_closed_lifecycle_label,
     sync_lifecycle_label,
 )
+
+
+def test_activity_labels_are_claimant_actions_only() -> None:
+    """ACTIVITY_LABELS covers only labels the claimant themselves caused."""
+    assert {"applied", "in-loop"} == ACTIVITY_LABELS
+    assert ACTIVITY_LABELS <= LIFECYCLE_LABELS
+    # Employer-driven outcomes are deliberately excluded (specs/esd-export.md §4).
+    assert "rejected" not in ACTIVITY_LABELS
+    assert "offer-received" not in ACTIVITY_LABELS
 
 
 def test_lifecycle_labels_are_complete() -> None:
