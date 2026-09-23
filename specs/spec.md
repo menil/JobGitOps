@@ -58,6 +58,8 @@ To make JobGitOps highly accessible and easy to distribute, the system is design
 > **Issue Assistant:** The conversational responder, status-transition intents, and URL triage are specified separately in [`specs/assistant-agent.md`](assistant-agent.md).
 >
 > **Gmail Sync:** The optional, off-by-default Gmail integration that matches lifecycle emails to open applications is specified separately in [`specs/gmail-integration.md`](gmail-integration.md).
+>
+> **ESD Export:** The manually-triggered job-search-activity export for filing with a state unemployment department is specified separately in [`specs/esd-export.md`](esd-export.md).
 
 ### 2.1. Job Scraper Bot
 *   **Location:** `src/jobgitops/cli/scrape.py` (run via `python -m jobgitops.cli.scrape`)
