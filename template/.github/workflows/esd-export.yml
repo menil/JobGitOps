@@ -1,0 +1,108 @@
+name: ESD Export
+
+on:
+  workflow_dispatch:
+    inputs:
+      group_by:
+        description: 'Reporting period granularity'
+        type: choice
+        required: true
+        options:
+          - weekly
+          - monthly
+      week_start:
+        description: 'First day of the week (only used when group_by is weekly)'
+        type: choice
+        required: false
+        default: monday
+        options:
+          - monday
+          - tuesday
+          - wednesday
+          - thursday
+          - friday
+          - saturday
+          - sunday
+      format:
+        description: 'Output spreadsheet format'
+        type: choice
+        required: true
+        options:
+          - csv
+          - xlsx
+      max_per_period:
+        description: 'Row cap per period: a positive integer, or "unlimited"'
+        type: string
+        required: false
+        default: 'unlimited'
+      start_date:
+        description: 'Inclusive lower bound, YYYY-MM-DD (blank = unbounded)'
+        type: string
+        required: false
+        default: ''
+      end_date:
+        description: 'Inclusive upper bound, YYYY-MM-DD (blank = today)'
+        type: string
+        required: false
+        default: ''
+
+# This job only ever reads issues and their label history; it never writes
+# labels, comments, or Projects V2 state, so it gets a narrower token scope
+# than every other JobGitOps workflow (specs/esd-export.md §6.4).
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  export:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/menil/jobgitops:latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run ESD Export
+        id: export
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          INPUT_GROUP_BY: ${{ inputs.group_by }}
+          INPUT_WEEK_START: ${{ inputs.week_start }}
+          INPUT_FORMAT: ${{ inputs.format }}
+          INPUT_MAX_PER_PERIOD: ${{ inputs.max_per_period }}
+          INPUT_START_DATE: ${{ inputs.start_date }}
+          INPUT_END_DATE: ${{ inputs.end_date }}
+        run: |
+          set -e
+          OUTPUT="esd-export.${INPUT_FORMAT}"
+          echo "output=$OUTPUT" >> "$GITHUB_OUTPUT"
+
+          ARGS=(
+            "--group-by" "$INPUT_GROUP_BY"
+            "--format" "$INPUT_FORMAT"
+            "--output" "$OUTPUT"
+          )
+          if [ -n "${INPUT_WEEK_START:-}" ]; then
+            ARGS+=("--week-start" "$INPUT_WEEK_START")
+          fi
+          if [ -n "${INPUT_MAX_PER_PERIOD:-}" ]; then
+            ARGS+=("--max-per-period" "$INPUT_MAX_PER_PERIOD")
+          fi
+          if [ -n "${INPUT_START_DATE:-}" ]; then
+            ARGS+=("--start-date" "$INPUT_START_DATE")
+          fi
+          if [ -n "${INPUT_END_DATE:-}" ]; then
+            ARGS+=("--end-date" "$INPUT_END_DATE")
+          fi
+
+          python -m jobgitops.cli.esd_export "${ARGS[@]}"
+
+      - name: Upload Export Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: esd-export
+          path: ${{ steps.export.outputs.output }}
+          if-no-files-found: error

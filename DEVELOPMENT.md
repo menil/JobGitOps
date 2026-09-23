@@ -54,11 +54,31 @@ The following GitHub Actions workflows manage the automated lifecycle of the scr
 | `status-transition.yml` | Issue labeled with a lifecycle label or closed | Moves the issue card to the matching Projects V2 column |
 | `project-status-sync.yml` | Schedule (every 30m) or `workflow_dispatch` | Reverse sync: applies the label matching a card's new column (skips Triage Pending) |
 | `gmail-sync.yml` | Hourly cron (`0 * * * *`) or `workflow_dispatch` | Optional, off by default. Matches DMARC-authenticated lifecycle emails in a label-scoped slice of Gmail to open applications and applies the same status-update side effects as the Issue Assistant |
+| `esd-export.yml` | `workflow_dispatch` only | Exports job-search activity (`applied`/`in-loop` label history) as a CSV/XLSX file, uploaded as a workflow artifact, for filing with a state unemployment department — see [`specs/esd-export.md`](specs/esd-export.md) |
 | `ci.yml` | Push/PR to `main` | Runs `just validate` (lint + format + 90% coverage tests) inside the pre-built container |
 | `pr-review.yml` | PR opened, reopened, or marked ready for review (dependabot skipped) | Automated code review via OpenRouter |
 | `sync-labels.yml` | Push to `main` | Applies issue labels from `.github/labels.yml` and migrates renamed labels (e.g. `interviewing` → `in-loop`) |
 
 These workflows run inside a pre-built Docker container hosting Bun, Chromium/Puppeteer, and uv, avoiding runner bootstrap delays.
+
+### Running the ESD Export
+
+`esd-export.yml` is manual-only — there's no cron, since ESD filings happen
+on the agency's schedule, not JobGitOps's. To run it: open the **Actions**
+tab, select **ESD Export**, click **Run workflow**, and fill in the inputs:
+
+- **group_by** (`weekly`/`monthly`) and, if weekly, **week_start** — how
+  activity is bucketed into reporting periods.
+- **format** (`csv`/`xlsx`) — the output spreadsheet format.
+- **max_per_period** — a positive integer to cap rows per period (e.g. `3`
+  for a state that only accepts 3 activities/week), or `unlimited`.
+- **start_date** / **end_date** (`YYYY-MM-DD`, optional) — leave blank for
+  the full history through today.
+
+The run uploads its result as a workflow artifact named `esd-export`
+(download it from the completed run's summary page). See
+[`specs/esd-export.md`](specs/esd-export.md) for the full design, including
+what counts as an "activity" and how periods/dedup/caps work.
 
 ---
 
