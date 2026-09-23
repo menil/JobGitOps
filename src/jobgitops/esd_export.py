@@ -36,11 +36,18 @@ FORMATS: tuple[str, ...] = ("csv", "xlsx")
 
 _ISSUE_PAGE_SIZE = 100
 
-_ACTIVITY_TEXT_IN_LOOP = "Interviewed for position"
+# in-loop means the claimant is in the interview process -- a scheduled
+# interview, not necessarily one that already happened. Determining the
+# actual triggering event (e.g. by reading issue comments with an LLM) was
+# considered and rejected: real per-row cost/latency for a manually-triggered
+# export that should stay simple and deterministic. This wording states the
+# ongoing status without overclaiming a specific completed interview.
+_ACTIVITY_TEXT_IN_LOOP = "Interview scheduled"
 
 # Row dict keys (as produced by _build_row), in output column order, mapped
 # to the display header specs/esd-export.md §7 specifies.
 _COLUMNS: dict[str, str] = {
+    "period": "Period",
     "date": "Date",
     "company": "Company",
     "position": "Position",
@@ -82,8 +89,8 @@ def export_rows(
             (UTC).
 
     Returns:
-        Rows sorted by period then date, each a dict with keys ``date``,
-        ``company``, ``position``, ``activity``, ``apply_url``.
+        Rows sorted by period then date, each a dict with keys ``period``,
+        ``date``, ``company``, ``position``, ``activity``, ``apply_url``.
 
     Raises:
         ValueError: If ``group_by``, ``week_start``, or ``max_per_period`` is
@@ -107,8 +114,10 @@ def export_rows(
 
     issues_by_number = {issue["number"]: issue for issue in issues}
     return [
-        _build_row(issues_by_number[issue_number], event)
-        for _period, issue_number, event in kept
+        _build_row(
+            issues_by_number[issue_number], event, _period_label(period, group_by)
+        )
+        for period, issue_number, event in kept
     ]
 
 
@@ -165,6 +174,23 @@ def _period_start(event_date: dt.date, group_by: str, week_start_index: int) -> 
     return event_date - dt.timedelta(days=days_since_week_start)
 
 
+def _period_label(period_start: dt.date, group_by: str) -> str:
+    """Format a period's ``"YYYY-MM"`` (monthly) or ``"YYYY-Www"`` (weekly) label.
+
+    For monthly, ``period_start`` is always the 1st of the month (see
+    ``_period_start``), so this is exact. For weekly, the label is the ISO
+    week containing ``period_start`` -- exact when ``week_start="monday"``
+    (JobGitOps periods then coincide with real ISO weeks); for any other
+    ``week_start``, the custom Mon-independent period can span two ISO week
+    numbers, so the label reflects the week ``period_start`` falls in, not
+    necessarily every day inside the period.
+    """
+    if group_by == "monthly":
+        return f"{period_start.year:04d}-{period_start.month:02d}"
+    iso_year, iso_week, _ = period_start.isocalendar()
+    return f"{iso_year:04d}-W{iso_week:02d}"
+
+
 def _dedupe_per_period(
     events: list[_ActivityEvent], group_by: str, week_start_index: int
 ) -> dict[tuple[int, dt.date], _ActivityEvent]:
@@ -211,12 +237,18 @@ def _apply_cap(
     return kept
 
 
-def _build_row(issue: dict[str, Any], event: _ActivityEvent) -> dict[str, str]:
+def _build_row(
+    issue: dict[str, Any], event: _ActivityEvent, period_label: str
+) -> dict[str, str]:
     """Resolve one export row (specs/esd-export.md §7) for a winning event."""
     details = parse_job_details(issue.get("body"), issue.get("title"))
     if event.label == "applied":
-        source = details.get("source", "")
-        activity = f"Applied online via {source}" if source else "Applied online"
+        # Not "Applied online via {source}": `source` only records which job
+        # board the *listing* was scraped from, not how the claimant actually
+        # submitted the application (often a company's own site, not the
+        # board it was found on) -- claiming a specific channel would
+        # overclaim in a document filed with a government agency.
+        activity = "Applied online"
         apply_url = details.get("apply_url", "")
     elif event.label == "in-loop":
         activity = _ACTIVITY_TEXT_IN_LOOP
@@ -224,13 +256,14 @@ def _build_row(issue: dict[str, Any], event: _ActivityEvent) -> dict[str, str]:
     else:
         # ACTIVITY_LABELS (status_model.py) currently has exactly these two
         # members; fail loudly rather than silently mislabeling a future
-        # third label as "Interviewed for position" in a filing someone
-        # submits to a government agency.
+        # third label as "Interview scheduled" in a filing someone submits
+        # to a government agency.
         raise AssertionError(
             f"Unhandled activity label {event.label!r}; ACTIVITY_LABELS grew "
             "without a matching _build_row branch."
         )
     return {
+        "period": period_label,
         "date": event.created_at.astimezone(dt.UTC).date().isoformat(),
         "company": _neutralize_formula(details.get("company", "")),
         "position": _neutralize_formula(details.get("role", "")),
@@ -260,8 +293,8 @@ def write_rows(rows: list[dict[str, str]], output_path: str | Path, fmt: str) ->
     """Write export rows to a CSV or XLSX file (specs/esd-export.md §6.2, §7).
 
     Args:
-        rows: Rows from ``export_rows``, each with keys ``date``, ``company``,
-            ``position``, ``activity``, ``apply_url``.
+        rows: Rows from ``export_rows``, each with keys ``period``, ``date``,
+            ``company``, ``position``, ``activity``, ``apply_url``.
         output_path: Destination file path.
         fmt: ``"csv"`` or ``"xlsx"``.
 
