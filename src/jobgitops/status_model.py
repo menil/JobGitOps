@@ -37,6 +37,14 @@ STATUS_TO_LABEL: dict[str, str] = {
     status: label for label, status in LABEL_TO_STATUS.items()
 }
 
+# Lifecycle labels that represent an activity the *claimant themselves*
+# performed, as opposed to an outcome an employer imposed on them. Used by
+# the ESD export (specs/esd-export.md §4) to decide which label-add events
+# count as a job-search "activity": submitting an application or
+# participating in an interview, but not a rejection or an offer, since
+# those are things that happened *to* the claimant, not actions they took.
+ACTIVITY_LABELS: frozenset[str] = frozenset({"applied", "in-loop"})
+
 # Statuses the reverse (column -> label) sync is allowed to act on. Triage
 # Pending is excluded deliberately: dragging a card back to it must not re-add
 # the triage-pending label, which would re-trigger a full AI re-triage via
