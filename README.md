@@ -8,22 +8,22 @@ A serverless, GitOps-driven job application and tracking system. GitEmployed tre
   <img width="800" height="582" alt="Example of the GitEmployed issue view and kanban board" src="https://github.com/user-attachments/assets/86576825-9e25-4acd-b58a-3def59f34e5d" />
 </p>
 
-## Example job search repository: `jobgitops-example`
+## Example job search repository: `gitemployed-example`
 
-#### 🔍 [Issue View](https://github.com/menil/jobgitops-example/issues)
+#### 🔍 [Issue View](https://github.com/menil/gitemployed-example/issues)
 #### 🗂️ [Kanban Board View](https://github.com/users/menil/projects/13)
 
 ---
 
 ## Features
 
-- 🤖 **Automated Role Discovery**: A scheduled Actions cron ([Daily Job Scraper](https://github.com/menil/jobgitops-example/actions/workflows/scrape-jobs.yml)) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
-- 🧠 **AI Triage & Tailoring**: A two-pass LLM engine ([Triage and Tailor Issue](https://github.com/menil/jobgitops-example/actions/workflows/triage-issue.yml)) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
+- 🤖 **Automated Role Discovery**: A scheduled Actions cron ([Daily Job Scraper](https://github.com/menil/gitemployed-example/actions/workflows/scrape-jobs.yml)) scrapes LinkedIn, Indeed, and ZipRecruiter via `python-jobspy`, generating search queries from your resume skills, and files new roles as GitHub Issues labeled `triage-pending`.
+- 🧠 **AI Triage & Tailoring**: A two-pass LLM engine ([Triage and Tailor Issue](https://github.com/menil/gitemployed-example/actions/workflows/triage-issue.yml)) scores each listing against your resume across 5 dimensions (tech stack, experience, location, salary, domain). Matches above your `fit_threshold` get a tailored resume; mismatches are auto-closed with a reasons comment.
 - 📄 **Resume-as-Code**: Your base resume lives in versioned YAML (`resumes/resume.yaml`, JSON Resume schema). Tailored variants are rendered to print-ready PDFs via a [JSON Resume theme](https://jsonresume.org/themes) of your choosing on dedicated application branches — every version you send is a clean, reviewable Git diff, complete with side-by-side visual PDF diffs via [pdf-vdiff](https://github.com/menil/pdf-vdiff).
-- 💬 **Issue Assistant**: A tool-using agent ([Respond to Issue](https://github.com/menil/jobgitops-example/actions/workflows/respond-issue.yml)) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
-- 📬 **Gmail Sync** *(optional)*: An hourly cron ([Gmail Sync](https://github.com/menil/jobgitops-example/actions/workflows/gmail-sync.yml)) reads a label-scoped, DMARC-authenticated slice of your Gmail inbox, matches lifecycle emails (interview invites, rejections, offers) to open applications via a single LLM call, and applies the same status-update side effects the Issue Assistant already provides. Off by default. The installer wizard can set this up for you (creates a one-time Google OAuth consent step in your browser, no copy-pasting); see [DEVELOPMENT.md](DEVELOPMENT.md#gmail-sync-setup-optional) for the one-time Google Cloud setup either path needs, and for adding it to an already-installed repo.
+- 💬 **Issue Assistant**: A tool-using agent ([Respond to Issue](https://github.com/menil/gitemployed-example/actions/workflows/respond-issue.yml)) answers questions on issue threads via live web research (search + fetch with cited sources), recognizes conversational status intents ("I applied", "phone screen scheduled") to apply labels, and auto-triages issues opened with a bare job URL.
+- 📬 **Gmail Sync** *(optional)*: An hourly cron ([Gmail Sync](https://github.com/menil/gitemployed-example/actions/workflows/gmail-sync.yml)) reads a label-scoped, DMARC-authenticated slice of your Gmail inbox, matches lifecycle emails (interview invites, rejections, offers) to open applications via a single LLM call, and applies the same status-update side effects the Issue Assistant already provides. Off by default. The installer wizard can set this up for you (creates a one-time Google OAuth consent step in your browser, no copy-pasting); see [DEVELOPMENT.md](DEVELOPMENT.md#gmail-sync-setup-optional) for the one-time Google Cloud setup either path needs, and for adding it to an already-installed repo.
 - 🗂️ **Kanban Lifecycle Tracking**: Roles flow through GitHub Issues + Projects V2 (`Triage Pending → Ready to Apply → Applied → In Loop → Rejected`) with label-based automation and a label-only fallback.
-- 📤 **ESD Export**: A manually-triggered workflow ([ESD Export](https://github.com/menil/jobgitops-example/actions/workflows/esd-export.yml)) turns your `applied`/`in-loop` label history into a CSV or XLSX activity log — grouped weekly or monthly, with a configurable per-period row cap — for filing with a state unemployment department. Downloads as a workflow artifact; see [DEVELOPMENT.md](DEVELOPMENT.md#running-the-esd-export) for how to run it.
+- 📤 **ESD Export**: A manually-triggered workflow ([ESD Export](https://github.com/menil/gitemployed-example/actions/workflows/esd-export.yml)) turns your `applied`/`in-loop` label history into a CSV or XLSX activity log — grouped weekly or monthly, with a configurable per-period row cap — for filing with a state unemployment department. Downloads as a workflow artifact; see [DEVELOPMENT.md](DEVELOPMENT.md#running-the-esd-export) for how to run it.
 
 ---
 
