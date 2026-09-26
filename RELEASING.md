@@ -1,4 +1,4 @@
-# Releasing JobGitOps
+# Releasing GitEmployed
 
 Releases are **automatic** — no manual tag cutting (spec
 `specs/bootstrap-installer.md` §8).
@@ -29,7 +29,7 @@ Every merge to `main` runs `.github/workflows/release-on-merge.yml`:
 - **No bump step needed.** Users run the installer using npx:
 
   ```bash
-  npx jobgitops-installer
+  npx gitemployed-installer
   ```
 
   Releases publish the npm package only when files under `installer/` changed
@@ -44,7 +44,7 @@ tag and HEAD touches `installer/`. Template/shell-plane-only releases skip it.
 
 The job authenticates via **npm trusted publishing (OIDC)** — no `NPM_TOKEN`
 secret is stored. The registry verifies the OIDC token's repo
-(`menil/JobGitOps`) and workflow filename (`release-on-merge.yml`) against the
+(`menil/GitEmployed`) and workflow filename (`release-on-merge.yml`) against the
 package's trusted-publisher config, then generates a provenance attestation
 automatically.
 
@@ -71,7 +71,7 @@ One-time setup:
    `prepublishOnly` rejects it outright before anything ships.
 
 3. On npmjs.com → package → **Settings → Trusted Publisher**, add:
-   GitHub Actions · `menil/JobGitOps` (match GitHub's canonical casing —
+   GitHub Actions · `menil/GitEmployed` (match GitHub's canonical casing —
    npm compares it strictly against the OIDC token claim) · workflow
    filename `release-on-merge.yml` · no environment. Then enable "require
    trusted publishing only" so stolen tokens cannot publish to the package.
@@ -99,13 +99,13 @@ The repo and GHCR package must be public so users can install without
 credentials:
 
 ```bash
-gh repo edit menil/jobgitops --visibility public
-gh api --method POST /user/packages/container/jobgitops/visibility \
+gh repo edit menil/gitemployed --visibility public
+gh api --method POST /user/packages/container/gitemployed/visibility \
   -f visibility=public
 ```
 
 Verify the package flip with
-`gh api /user/packages/container/jobgitops/visibility --jq .visibility` →
+`gh api /user/packages/container/gitemployed/visibility --jq .visibility` →
 `public`. Until both are public, `codeload`/`raw.githubusercontent.com` return
 404 and the `curl | sh` one-liner cannot be live-tested (pre-release note in
 [scripts/e2e.md](scripts/e2e.md)).
@@ -115,15 +115,15 @@ Verify the package flip with
 Keep the source repo private for now and still run the installer yourself:
 
 ```bash
-GEMINI_API_KEY=... npx --prefix installer tsx installer/src/index.ts jobgitops-e2e --yes --tag main
+GEMINI_API_KEY=... npx --prefix installer tsx installer/src/index.ts gitemployed-e2e --yes --tag main
 ```
 
-`JOBGITOPS_TAG=main` bypasses the release-tag lookup, and when the anonymous
+`GITEMPLOYED_TAG=main` bypasses the release-tag lookup, and when the anonymous
 codeload download fails, the installer falls back to the authenticated API
-tarball (`gh api repos/menil/jobgitops/tarball/main`), which serves the private
+tarball (`gh api repos/menil/gitemployed/tarball/main`), which serves the private
 repo using your `gh` auth. `scripts/sync-template.sh` does the same. Note: the
 GHCR **package** must still be public for the consumer repo's workflows to
-pull `ghcr.io/menil/jobgitops:latest` — flipping the package alone does not
+pull `ghcr.io/menil/gitemployed:latest` — flipping the package alone does not
 expose the source repo.
 
 ## Verification

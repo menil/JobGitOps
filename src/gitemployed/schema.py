@@ -1,4 +1,4 @@
-"""Data schemas and dataclasses for JobGitOps."""
+"""Data schemas and dataclasses for GitEmployed."""
 
 import datetime
 import re
@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 import pydantic
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
-from jobgitops.fit_grades import FIT_GRADE_B_MIN
+from gitemployed.fit_grades import FIT_GRADE_B_MIN
 
 
 class ValidationError(ValueError):
@@ -708,7 +708,7 @@ class Basics(BaseModel):
                 @jsonresume/jsonresume-theme-professional) assume this key
                 exists and crash on `basics.profiles.find(...)` when it's
                 absent entirely, confirmed by hands-on testing while
-                building JobGitOps-184. When False (used for the canonical
+                building GitEmployed-184. When False (used for the canonical
                 resumes/resume.yaml), omit it when empty instead, so an
                 author who never wrote `profiles` isn't forced to -- see
                 loader.py's render_resume_yaml.

@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from jobgitops.git_ops import (
+from gitemployed.git_ops import (
     GitOpsError,
     allocate_lengths,
     build_commit_message,

@@ -1,4 +1,4 @@
-"""Normalize a resume YAML file to the canonical JobGitOps format.
+"""Normalize a resume YAML file to the canonical GitEmployed format.
 
 Usage:
     python scripts/format_resume.py [PATH]           # rewrite in place
@@ -14,7 +14,7 @@ import argparse
 import pathlib
 import sys
 
-from jobgitops.loader import load_resume, render_resume_yaml, resume_yaml_is_canonical
+from gitemployed.loader import load_resume, render_resume_yaml, resume_yaml_is_canonical
 
 RESUME_PATH = (
     pathlib.Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "resume.yaml"
@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
 
     resume_path = args.path
     current = resume_path.read_text(encoding="utf-8")
-    if "__JOBGITOPS_SETUP_PENDING__" in current:
+    if "__GITEMPLOYED_SETUP_PENDING__" in current:
         print(f"Setup is pending for {resume_path} - skipping format.")
         return 0
 

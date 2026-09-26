@@ -1,6 +1,6 @@
-"""Job scraper bot CLI entry point for JobGitOps.
+"""Job scraper bot CLI entry point for GitEmployed.
 
-Imports run_scraper from jobgitops.scraper and executes it with parsed arguments.
+Imports run_scraper from gitemployed.scraper and executes it with parsed arguments.
 """
 
 import argparse
@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 
-from jobgitops.scraper import run_scraper
+from gitemployed.scraper import run_scraper
 
 
 def main() -> None:

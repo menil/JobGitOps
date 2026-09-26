@@ -1,1 +1,1 @@
-"""JobGitOps test suite."""
+"""GitEmployed test suite."""

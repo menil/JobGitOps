@@ -47,7 +47,7 @@ jobs:
           PREV_TAG="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n 1)"
           if [ -z "$PREV_TAG" ]; then
             # No baseline yet (first release) — publish so `npx
-            # jobgitops-installer` works from day one.
+            # gitemployed-installer` works from day one.
             echo "installer_changed=true" >> "$GITHUB_OUTPUT"
           elif [ -n "$(git diff --name-only "$PREV_TAG" "$GITHUB_SHA" -- installer/)" ]; then
             echo "installer_changed=true" >> "$GITHUB_OUTPUT"

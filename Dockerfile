@@ -96,7 +96,7 @@ ENV PATH="/opt/bun/bin:${PATH}"
 #   Is it installed?". The global bin's shebang (`#!/usr/bin/env node`) also
 #   won't run on its own since this image has no `node` binary, only `bun`
 #   -- `bun` must be the explicit interpreter. Any additionally-installed
-#   theme (see JobGitOps-9ru) must also be installed with `bun add -g` into
+#   theme (see GitEmployed-9ru) must also be installed with `bun add -g` into
 #   this same global tree for the same reason.
 # - `resumed export` still needs `--puppeteer-arg=--no-sandbox` even when
 #   run as `pptruser`, not because of a missing non-root user (there is
@@ -110,7 +110,7 @@ ENV PATH="/opt/bun/bin:${PATH}"
 #   `pptruser` instead of root still meaningfully narrows the blast radius
 #   of a Chromium renderer compromise even with `--no-sandbox` (no write
 #   access to system files, no ability to tamper with installed packages).
-#   As additional defense in depth, whatever code invokes this (JobGitOps-
+#   As additional defense in depth, whatever code invokes this (GitEmployed-
 #   nx0) should strip GITHUB_TOKEN/GH_PAT/LLM API keys from the subprocess
 #   environment before running as `pptruser`, since a dropped-privilege
 #   child process otherwise still inherits the full parent environment.
@@ -127,6 +127,6 @@ WORKDIR /workspace
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 
-# Sync dependencies AND install the project system-wide, so the jobgitops CLI
+# Sync dependencies AND install the project system-wide, so the gitemployed CLI
 # runs from any working directory without PYTHONPATH or a src/ checkout
 RUN uv sync --frozen

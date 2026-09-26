@@ -5,11 +5,11 @@ from unittest import mock
 
 import pytest
 
-from jobgitops.cli.triage import run_triage
-from jobgitops.github_client import GitHubClient
-from jobgitops.llm import LLMClient, TriageResult
-from jobgitops.renderer import generate_pdf_diff
-from jobgitops.schema import Resume, Settings
+from gitemployed.cli.triage import run_triage
+from gitemployed.github_client import GitHubClient
+from gitemployed.llm import LLMClient, TriageResult
+from gitemployed.renderer import generate_pdf_diff
+from gitemployed.schema import Resume, Settings
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ def test_generate_pdf_diff_with_custom_options(tmp_path: pathlib.Path) -> None:
                 "/usr/local/bin/pdf-vdiff" if cmd == "pdf-vdiff" else None
             ),
         ),
-        mock.patch("jobgitops.renderer.subprocess.run") as mock_run,
+        mock.patch("gitemployed.renderer.subprocess.run") as mock_run,
     ):
         mock_run.return_value = mock.MagicMock(returncode=1, stderr="", stdout="")
         result = generate_pdf_diff(
@@ -87,13 +87,13 @@ def test_generate_pdf_diff_with_custom_options(tmp_path: pathlib.Path) -> None:
         assert "line" in cmd
 
 
-@mock.patch("jobgitops.cli.triage.generate_pdf_diff")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed", return_value="theme-pkg")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.generate_pdf_diff")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed", return_value="theme-pkg")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.push_branch")
 def test_full_triage_visual_diff_integration(
     mock_push: mock.MagicMock,
     mock_commit: mock.MagicMock,
@@ -121,7 +121,7 @@ def test_full_triage_visual_diff_integration(
     mock_llm.tailor_resume.return_value = tailored_resume
 
     mock_gh = mock.MagicMock(spec=GitHubClient)
-    mock_gh.repo = "menil/JobGitOps"
+    mock_gh.repo = "menil/GitEmployed"
     mock_gh.project_id = "PVT_123"
 
     settings = Settings.from_dict(

@@ -45,7 +45,7 @@ jobs:
       - name: Run Issue Responder
         run: |
           set -e
-          python -m jobgitops.cli.respond --event-path "$GITHUB_EVENT_PATH"
+          python -m gitemployed.cli.respond --event-path "$GITHUB_EVENT_PATH"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}

@@ -4,8 +4,8 @@ import argparse
 import pathlib
 import sys
 
-from jobgitops.loader import load_resume
-from jobgitops.schema import ValidationError
+from gitemployed.loader import load_resume
+from gitemployed.schema import ValidationError
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         resume = load_resume(args.path)
         if args.check_canonical:
-            from jobgitops.loader import render_resume_yaml
+            from gitemployed.loader import render_resume_yaml
 
             canonical = render_resume_yaml(resume)
             current = args.path.read_text(encoding="utf-8")

@@ -76,7 +76,7 @@ skills:
   - WeasyPrint
   - pytest
 projects:
-- name: JobGitOps
+- name: GitEmployed
   description: A GitOps-driven job application and tracking system utilizing GitHub
     Issues, Projects, and Actions.
   highlights:
@@ -88,4 +88,4 @@ projects:
   - GitHub Actions
   startDate: '2026-06-01'
   endDate: '2026-07-01'
-  url: https://github.com/mbirkenbaum/JobGitOps
+  url: https://github.com/mbirkenbaum/GitEmployed

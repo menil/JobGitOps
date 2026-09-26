@@ -1,4 +1,4 @@
-"""Unit tests for the job scraper bot (jobgitops/scraper.py)."""
+"""Unit tests for the job scraper bot (gitemployed/scraper.py)."""
 
 import os
 from unittest.mock import MagicMock, patch
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from jobgitops.scraper import (
+from gitemployed.scraper import (
     ScrapedJob,
     build_issue_body,
     fetch_existing_jobs_cache,
@@ -246,9 +246,9 @@ def test_publish_job_success() -> None:
     mock_client.update_project_status.assert_called_once_with("ND101", "Triage Pending")
 
 
-@patch("jobgitops.scraper.time.sleep")
-@patch("jobgitops.scraper.load_settings")
-@patch("jobgitops.scraper.load_resume")
+@patch("gitemployed.scraper.time.sleep")
+@patch("gitemployed.scraper.load_settings")
+@patch("gitemployed.scraper.load_resume")
 def test_run_scraper_success(
     mock_load_resume,
     mock_load_settings,
@@ -348,8 +348,8 @@ def test_run_scraper_success(
     )
 
 
-@patch("jobgitops.scraper.load_settings")
-@patch("jobgitops.scraper.load_resume")
+@patch("gitemployed.scraper.load_settings")
+@patch("gitemployed.scraper.load_resume")
 def test_run_scraper_missing_env(
     mock_load_resume,
     mock_load_settings,
@@ -366,9 +366,9 @@ def test_run_scraper_missing_env(
     assert "Missing GITHUB_TOKEN" in str(exc_info.value)
 
 
-@patch("jobgitops.scraper.time.sleep")
-@patch("jobgitops.scraper.load_settings")
-@patch("jobgitops.scraper.load_resume")
+@patch("gitemployed.scraper.time.sleep")
+@patch("gitemployed.scraper.load_settings")
+@patch("gitemployed.scraper.load_resume")
 def test_run_scraper_robustness(
     mock_load_resume,
     mock_load_settings,
@@ -426,8 +426,8 @@ def test_run_scraper_robustness(
     mock_sleep.assert_called_once()
 
 
-@patch("jobgitops.scraper.load_settings")
-@patch("jobgitops.scraper.load_resume")
+@patch("gitemployed.scraper.load_settings")
+@patch("gitemployed.scraper.load_resume")
 def test_run_scraper_dry_run(
     mock_load_resume,
     mock_load_settings,
@@ -482,8 +482,8 @@ def test_run_scraper_dry_run(
     mock_github_client.create_issue.assert_not_called()
 
 
-@patch("jobgitops.scraper.load_settings")
-@patch("jobgitops.scraper.load_resume")
+@patch("gitemployed.scraper.load_settings")
+@patch("gitemployed.scraper.load_resume")
 def test_run_scraper_overrides(
     mock_load_resume,
     mock_load_settings,
@@ -530,7 +530,7 @@ def test_run_scraper_overrides(
     )
 
 
-@patch("jobgitops.cli.scrape.run_scraper")
+@patch("gitemployed.cli.scrape.run_scraper")
 @patch(
     "sys.argv",
     [
@@ -546,7 +546,7 @@ def test_run_scraper_overrides(
 )
 def test_scrape_cli_args(mock_run_scraper) -> None:
     """Verify scrape.py CLI entry point parses overrides correctly."""
-    from jobgitops.cli.scrape import main as cli_main
+    from gitemployed.cli.scrape import main as cli_main
 
     cli_main()
     mock_run_scraper.assert_called_once_with(
@@ -561,7 +561,7 @@ def test_scrape_cli_args(mock_run_scraper) -> None:
 
 def test_classify_work_type() -> None:
     """Verify classify_work_type correctly classifies jobs."""
-    from jobgitops.scraper import classify_work_type
+    from gitemployed.scraper import classify_work_type
 
     assert classify_work_type("Remote", "This is hybrid") == "hybrid"
     assert classify_work_type("San Francisco (Remote)", "hybrid work") == "hybrid"
@@ -584,8 +584,8 @@ def test_classify_work_type() -> None:
     assert classify_work_type("Chicago, IL", "Plain text") == "onsite"
 
 
-@patch("jobgitops.scraper.load_settings")
-@patch("jobgitops.scraper.load_resume")
+@patch("gitemployed.scraper.load_settings")
+@patch("gitemployed.scraper.load_resume")
 def test_run_scraper_skips_hybrid(
     mock_load_resume,
     mock_load_settings,
@@ -645,8 +645,8 @@ def test_run_scraper_skips_hybrid(
     assert "Remote Engineer" in kwargs["title"]
 
 
-@patch("jobgitops.scraper.load_settings")
-@patch("jobgitops.scraper.load_resume")
+@patch("gitemployed.scraper.load_settings")
+@patch("gitemployed.scraper.load_resume")
 def test_run_scraper_disabled(
     mock_load_resume,
     mock_load_settings,
@@ -673,7 +673,7 @@ def test_run_scraper_disabled(
 
 def test_is_local_proximity_match() -> None:
     """Verify is_local_proximity_match maps state names and enforces word boundaries."""
-    from jobgitops.scraper import is_local_proximity_match
+    from gitemployed.scraper import is_local_proximity_match
 
     # State matching
     assert is_local_proximity_match("Seattle, WA", "Seattle", "WA")
@@ -688,8 +688,8 @@ def test_is_local_proximity_match() -> None:
     assert is_local_proximity_match("Seattle, FL", "Seattle", "wa")
 
 
-@patch("jobgitops.scraper.load_settings")
-@patch("jobgitops.scraper.load_resume")
+@patch("gitemployed.scraper.load_settings")
+@patch("gitemployed.scraper.load_resume")
 def test_run_scraper_proximity_filtering(
     mock_load_resume,
     mock_load_settings,

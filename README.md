@@ -1,11 +1,11 @@
-# JobGitOps
+# GitEmployed
 
-A serverless, GitOps-driven job application and tracking system. JobGitOps treats the job search like software deployment: GitHub Issues are your pipeline, GitHub Projects is your Kanban board, and GitHub Actions is the automation plane that scrapes roles, AI-triages fit, and tailors your resume — all running free on GitHub's infrastructure.
+A serverless, GitOps-driven job application and tracking system. GitEmployed treats the job search like software deployment: GitHub Issues are your pipeline, GitHub Projects is your Kanban board, and GitHub Actions is the automation plane that scrapes roles, AI-triages fit, and tailors your resume — all running free on GitHub's infrastructure.
 
 ---
 
 <p align="center">
-  <img width="800" height="582" alt="Example of the JobGitOps issue view and kanban board" src="https://github.com/user-attachments/assets/86576825-9e25-4acd-b58a-3def59f34e5d" />
+  <img width="800" height="582" alt="Example of the GitEmployed issue view and kanban board" src="https://github.com/user-attachments/assets/86576825-9e25-4acd-b58a-3def59f34e5d" />
 </p>
 
 ## Example job search repository: `jobgitops-example`
@@ -38,7 +38,7 @@ You must have the [GitHub CLI (`gh`)](https://cli.github.com/) installed and aut
 Install into a new private repository with a single command. The interactive installer will check your GitHub CLI connection, walk you through setting up credentials (including a GitHub token and a Gemini, OpenRouter, or Claude Code LLM key), and configure your initial resume:
 
 ```bash
-npx jobgitops-installer
+npx gitemployed-installer
 ```
 
 Then:
@@ -126,7 +126,7 @@ search:
 #   model: ""                         # optional override; empty = provider default
 ```
 
-- **`theme`**: Selects the [JSON Resume theme](https://jsonresume.org/themes) used to render `resume.pdf` — browse [npm](https://www.npmjs.com/search?q=jsonresume-theme) or GitHub for options. Accepts either an npm package pinned to an exact version (`"<package>@<version>"`) or a GitHub-only theme pinned to a full 40-character commit SHA (`"github:<owner>/<repo>#<sha>"`). JobGitOps installs the theme package — running its own code in the process — and later renders with it, so always pin to an exact version or commit SHA, never a floating branch, tag, or dist-tag like `latest`. Omit this key to fall back to a pinned default theme.
+- **`theme`**: Selects the [JSON Resume theme](https://jsonresume.org/themes) used to render `resume.pdf` — browse [npm](https://www.npmjs.com/search?q=jsonresume-theme) or GitHub for options. Accepts either an npm package pinned to an exact version (`"<package>@<version>"`) or a GitHub-only theme pinned to a full 40-character commit SHA (`"github:<owner>/<repo>#<sha>"`). GitEmployed installs the theme package — running its own code in the process — and later renders with it, so always pin to an exact version or commit SHA, never a floating branch, tag, or dist-tag like `latest`. Omit this key to fall back to a pinned default theme.
 - **`search.desired_salary_min`**: Optional minimum acceptable annual salary (positive integer in USD) passed to the AI triage prompt. When configured, jobs at or above your minimum receive top salary alignment scores (4.5–5.0), while jobs below it are scaled down proportionally. If omitted, the triage LLM evaluates compensation fit against market rates for your seniority level alone.
 - **`custom_queries`**: When non-empty, the scraper uses these queries instead of auto-generating them from your resume — useful for targeting new stacks or domains.
 - **`projects_v2`**: When configured, issue cards move through your Projects V2 board automatically and column moves are reflected back as labels. Without it (or while the placeholder is in place), the system falls back to repository labels (`ready-to-apply`, `applied`, `in-loop`, `rejected`).
@@ -140,7 +140,7 @@ Off by default. Enabling it lets the hourly `gmail-sync.yml` cron read a label-s
 # one-time manual OAuth setup in DEVELOPMENT.md and three repo secrets.
 gmail:
   enabled: true
-  label: "JobGitOps"        # required when enabled: only mail carrying this
+  label: "GitEmployed"        # required when enabled: only mail carrying this
                              # Gmail label is ever read (see DEVELOPMENT.md
                              # for how to create the label + a Gmail filter).
   query: ""                 # optional: further narrows every fetch beyond
@@ -157,7 +157,7 @@ gmail:
 - **Check workflow logs**: every run is visible under the **Actions** tab, with the exact command and error output per step.
 - **Scraping works but nothing is triaged**: confirm your LLM provider key is configured in repository secrets; otherwise triage fails on every run.
 - **LLM quota / rate limit (Exit 75)**: the daily scraper stops triaging for the day when the LLM provider reports quota exhaustion; per-issue failures post a comment on the issue. To recover, wait for the daily quota reset and manually trigger the daily scrape workflow via Actions **workflow_dispatch**, or remove and re-apply the `triage-pending` label on stalled issues.
-- **Setup pending / No jobs scraped**: verify `resumes/resume.yaml` has been updated with real content and no longer contains the `__JOBGITOPS_SETUP_PENDING__` sentinel string.
+- **Setup pending / No jobs scraped**: verify `resumes/resume.yaml` has been updated with real content and no longer contains the `__GITEMPLOYED_SETUP_PENDING__` sentinel string.
 - **`applied` label set but the board card never moves**: the Projects V2 move only happens when `projects_v2` is configured in `config/settings.yaml` with a real `PVT_...` node ID; otherwise the label alone tracks state.
 - **Board moves but the label never updates (or vice-versa)**: verify your configuration has Projects V2 enabled. To reconcile out-of-sync board columns and issue labels, see the manual sync procedures in [DEVELOPMENT.md](DEVELOPMENT.md#project-sync-and-reconciliation-cli).
 - **Web research or job URL fetch fails**: if pages fail to parse due to anti-bot protection or rate limiting, add a Jina API key to your secrets or configure a dedicated search provider in `config/settings.yaml`.
@@ -174,6 +174,6 @@ Updates to the core execution engine arrive automatically via the shared contain
 
 ## Architecture & Development
 
-For technical details about how JobGitOps works internally, including architecture diagrams, GitHub Actions workflows, issue label definitions, local environment setup, and repository layout, please see the [DEVELOPMENT.md](DEVELOPMENT.md) guide.
+For technical details about how GitEmployed works internally, including architecture diagrams, GitHub Actions workflows, issue label definitions, local environment setup, and repository layout, please see the [DEVELOPMENT.md](DEVELOPMENT.md) guide.
 
 Detailed developer environment guidelines and validation/issue-tracking helper instructions can also be found in [AGENTS.md](AGENTS.md).

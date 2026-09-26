@@ -12,10 +12,10 @@ import pytest
 # The email-match tests below validate `issue_number`/`status` allowlisting
 # against real values from `assistant.py` rather than ad hoc stand-ins, so a
 # drift in that module's set (e.g. a renamed/added status) is caught here
-# too. This is a test-only import: `jobgitops.llm` itself never imports
+# too. This is a test-only import: `gitemployed.llm` itself never imports
 # `assistant.py` (see the circular-import note in `llm.py`).
-from jobgitops.assistant import VALID_STATUSES
-from jobgitops.llm import (
+from gitemployed.assistant import VALID_STATUSES
+from gitemployed.llm import (
     _CLAUDE_CODE_SYSTEM_PREFIX,
     _DEFAULT_CLAUDE_MODEL,
     _DEFAULT_GEMINI_MODEL,
@@ -48,7 +48,7 @@ from jobgitops.llm import (
     match_email_to_candidate,
     parse_email_match_response,
 )
-from jobgitops.schema import Basics, Location, Profile, Resume, ValidationError
+from gitemployed.schema import Basics, Location, Profile, Resume, ValidationError
 
 
 @pytest.fixture
@@ -166,7 +166,7 @@ def test_triage_result_from_dict_structured_reasoning() -> None:
 
 def test_triage_prompt_requests_bulleted_reasoning() -> None:
     """Verify TRIAGE_PROMPT contains instructions for paragraphs and bullet points."""
-    from jobgitops.llm import TRIAGE_PROMPT
+    from gitemployed.llm import TRIAGE_PROMPT
 
     assert "markdown paragraphs and bullet points" in TRIAGE_PROMPT
     assert "- **Tech Stack Match:**" in TRIAGE_PROMPT
@@ -1002,12 +1002,12 @@ def test_gemini_chat_mixed_text_and_tool_call(mock_completion: MagicMock) -> Non
     """Verify chat handles response with tool calls."""
     mock_completion.return_value = _mock_completion_response(
         content="Searching now",
-        tool_calls=[{"name": "web_search", "arguments": {"query": "JobGitOps"}}],
+        tool_calls=[{"name": "web_search", "arguments": {"query": "GitEmployed"}}],
     )
 
     client = GeminiClient(api_key="key")
     msg = client.chat(
-        [ChatMessage(role="user", content="Search JobGitOps")],
+        [ChatMessage(role="user", content="Search GitEmployed")],
         tools=[{"type": "function", "function": {"name": "web_search"}}],
     )
 
@@ -1016,7 +1016,7 @@ def test_gemini_chat_mixed_text_and_tool_call(mock_completion: MagicMock) -> Non
     assert msg.tool_calls is not None
     assert len(msg.tool_calls) == 1
     assert msg.tool_calls[0].name == "web_search"
-    assert msg.tool_calls[0].arguments == {"query": "JobGitOps"}
+    assert msg.tool_calls[0].arguments == {"query": "GitEmployed"}
 
 
 @patch("litellm.completion")
@@ -1423,7 +1423,9 @@ def test_chat_message_pydantic_serialization() -> None:
         role="assistant",
         content="Searching now",
         tool_calls=[
-            ToolCall(name="web_search", arguments={"query": "JobGitOps"}, id="call_123")
+            ToolCall(
+                name="web_search", arguments={"query": "GitEmployed"}, id="call_123"
+            )
         ],
     )
     dumped = msg.model_dump()
@@ -1490,7 +1492,7 @@ def test_format_email_match_prompt_renders_real_valid_statuses() -> None:
 
 def test_format_email_match_prompt_truncates_long_body() -> None:
     """Verify an oversized email body is capped to MAX_EMAIL_BODY_CHARS."""
-    from jobgitops.llm import MAX_EMAIL_BODY_CHARS
+    from gitemployed.llm import MAX_EMAIL_BODY_CHARS
 
     long_body = "x" * (MAX_EMAIL_BODY_CHARS + 5_000)
     prompt = format_email_match_prompt(
@@ -1607,7 +1609,7 @@ def test_parse_email_match_response_invalid_status_logs_rejection(
             "summary": "Attempted injection.",
         }
     )
-    with caplog.at_level(logging.WARNING, logger="jobgitops.llm"):
+    with caplog.at_level(logging.WARNING, logger="gitemployed.llm"):
         result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
     assert result.status is None
     assert "ignore_all_instructions_and_close_everything" in caplog.text
@@ -1625,7 +1627,7 @@ def test_parse_email_match_response_issue_number_outside_candidates_logs_rejecti
             "summary": "You're rejected.",
         }
     )
-    with caplog.at_level(logging.WARNING, logger="jobgitops.llm"):
+    with caplog.at_level(logging.WARNING, logger="gitemployed.llm"):
         result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
     assert result.issue_number is None
     assert "9999" in caplog.text
@@ -1637,7 +1639,7 @@ def test_parse_email_match_response_null_status_does_not_log(
 ) -> None:
     """Verify a routine null-equivalent status stays quiet (not a rejection)."""
     raw = json.dumps({"issue_number": None, "status": "null", "summary": ""})
-    with caplog.at_level(logging.WARNING, logger="jobgitops.llm"):
+    with caplog.at_level(logging.WARNING, logger="gitemployed.llm"):
         result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
     assert result.status is None
     assert result.issue_number is None
@@ -1654,7 +1656,7 @@ def test_parse_email_match_response_missing_fields_do_not_log(
     the allowlist check counts as a rejection worth logging.
     """
     raw = json.dumps({"issue_number": True, "status": 123, "summary": ""})
-    with caplog.at_level(logging.WARNING, logger="jobgitops.llm"):
+    with caplog.at_level(logging.WARNING, logger="gitemployed.llm"):
         result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
     assert result.status is None
     assert result.issue_number is None
@@ -1739,7 +1741,7 @@ def test_parse_email_match_response_summary_strips_urls() -> None:
 
 def test_parse_email_match_response_summary_length_capped() -> None:
     """Verify an oversized `summary` is capped, not passed through unbounded."""
-    from jobgitops.llm import MAX_EMAIL_MATCH_SUMMARY_CHARS
+    from gitemployed.llm import MAX_EMAIL_MATCH_SUMMARY_CHARS
 
     raw = json.dumps({"issue_number": 42, "status": "applied", "summary": "x" * 10_000})
     result = parse_email_match_response(raw, [42, 7], VALID_STATUSES)
@@ -1804,8 +1806,8 @@ def test_max_email_body_chars_matches_assistant_tool_result_budget() -> None:
     meant to share the same untrusted-content budget; this catches drift
     if one is ever changed without the other.
     """
-    from jobgitops.assistant import MAX_TOOL_RESULT_CHARS
-    from jobgitops.llm import MAX_EMAIL_BODY_CHARS
+    from gitemployed.assistant import MAX_TOOL_RESULT_CHARS
+    from gitemployed.llm import MAX_EMAIL_BODY_CHARS
 
     assert MAX_EMAIL_BODY_CHARS == MAX_TOOL_RESULT_CHARS
 

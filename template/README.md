@@ -1,4 +1,4 @@
-# JobGitOps
+# GitEmployed
 
 [![Setup](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/setup-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/check-setup.yml)
 [![Resume Format](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/__OWNER__/__GIST_ID__/raw/format-status.json&maxAge=0)](https://github.com/__OWNER__/__REPO__/actions/workflows/format-resume.yml)
@@ -30,11 +30,11 @@ Per-user options live in `config/settings.yaml` and are edited directly in that 
 - An npm package pinned to an exact version: `"<package>@<version>"`, e.g. `"@jsonresume/jsonresume-theme-professional@1.0.22"`
 - A GitHub-only theme pinned to a full 40-character commit SHA: `"github:<owner>/<repo>#<sha>"`
 
-JobGitOps installs the theme package — running its own code in the process — and later renders with it, so always pin to an exact version or commit SHA, never a floating branch, tag, or dist-tag like `latest`, since a theme maintainer could otherwise push new code that runs unreviewed in your repo's Actions. Omit this key to use the built-in default theme.
+GitEmployed installs the theme package — running its own code in the process — and later renders with it, so always pin to an exact version or commit SHA, never a floating branch, tag, or dist-tag like `latest`, since a theme maintainer could otherwise push new code that runs unreviewed in your repo's Actions. Omit this key to use the built-in default theme.
 
 ## Docs
 
-Full setup, configuration, and workflow documentation: <https://github.com/menil/jobgitops>
+Full setup, configuration, and workflow documentation: <https://github.com/menil/gitemployed>
 
 ## Your Job Search on GitHub
 
@@ -44,7 +44,7 @@ Each scraped job listing becomes a GitHub Issue. The AI triage engine scores eve
 
 ### [Projects](https://github.com/__OWNER__/__REPO__/projects)
 
-An optional Kanban board for tracking your application lifecycle (Triage Pending → Ready to Apply → Applied → In Loop → Rejected). Requires [Project V2 setup](https://github.com/menil/jobgitops#enabling-projects-v2); without it, issue labels track state instead.
+An optional Kanban board for tracking your application lifecycle (Triage Pending → Ready to Apply → Applied → In Loop → Rejected). Requires [Project V2 setup](https://github.com/menil/gitemployed#enabling-projects-v2); without it, issue labels track state instead.
 
 ### [Secrets & Variables](https://github.com/__OWNER__/__REPO__/settings/secrets/actions)
 
@@ -61,7 +61,7 @@ Configure these under **Settings > Secrets and variables > Actions**:
 | `TAVILY_API_KEY` | Optional. Enables the Tavily search provider for the Issue Assistant's web research |
 | `BRAVE_API_KEY` | Optional. Enables the Brave search provider for the Issue Assistant's web research |
 | `JINA_API_KEY` | Optional. Raises page-fetch rate limits from 20 to 500 RPM for JS-heavy job boards |
-| `GMAIL_CLIENT_ID` | Optional. Required only to enable Gmail Sync — see [DEVELOPMENT.md](https://github.com/menil/jobgitops/blob/main/DEVELOPMENT.md#gmail-sync-setup-optional) for the one-time OAuth setup |
+| `GMAIL_CLIENT_ID` | Optional. Required only to enable Gmail Sync — see [DEVELOPMENT.md](https://github.com/menil/gitemployed/blob/main/DEVELOPMENT.md#gmail-sync-setup-optional) for the one-time OAuth setup |
 | `GMAIL_CLIENT_SECRET` | Optional. Required only to enable Gmail Sync (paired with `GMAIL_CLIENT_ID`) |
 | `GMAIL_REFRESH_TOKEN` | Optional. Required only to enable Gmail Sync; long-lived, read-only (`gmail.readonly`) |
 

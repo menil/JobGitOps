@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from jobgitops.esd_export import _ActivityEvent, _build_row, export_rows, write_rows
+from gitemployed.esd_export import _ActivityEvent, _build_row, export_rows, write_rows
 
 
 def _issue(

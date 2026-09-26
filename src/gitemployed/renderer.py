@@ -9,9 +9,9 @@ import shlex
 import shutil
 import subprocess
 
-from jobgitops.schema import Resume, theme_looks_pinned
+from gitemployed.schema import Resume, theme_looks_pinned
 
-logger = logging.getLogger("jobgitops.renderer")
+logger = logging.getLogger("gitemployed.renderer")
 
 
 class ThemeInstallError(Exception):
@@ -164,7 +164,7 @@ def _validate_theme_interface(bare_name: str) -> None:
         # hands-on testing that without this, a theme with its own
         # dependencies (e.g. the default theme's react/react-dom) fails to
         # resolve them when this runs from an arbitrary caller CWD (e.g.
-        # /workspace, jobgitops' own directory, which has no relation to the
+        # /workspace, gitemployed' own directory, which has no relation to the
         # installed theme's dependency tree).
         cwd=_BUN_GLOBAL_NODE_MODULES,
         env=_filtered_env(),
@@ -223,7 +223,7 @@ def ensure_theme_installed(theme_spec: str) -> str:
         # a caller outside triage.py's normal path invoked this directly.
         logger.warning(
             "Theme spec %r is not pinned to an exact version or commit SHA. "
-            "JobGitOps installs and executes this package's code at render "
+            "GitEmployed installs and executes this package's code at render "
             "time -- an unpinned spec can silently change what code runs "
             "between renders.",
             theme_spec,

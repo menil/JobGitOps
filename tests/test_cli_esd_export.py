@@ -1,4 +1,4 @@
-"""Unit tests for the ESD export CLI entry point (jobgitops.cli.esd_export)."""
+"""Unit tests for the ESD export CLI entry point (gitemployed.cli.esd_export)."""
 
 import datetime as dt
 import os
@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobgitops.cli.esd_export import main
-from jobgitops.github_client import GitHubClientError
+from gitemployed.cli.esd_export import main
+from gitemployed.github_client import GitHubClientError
 
 DEFAULT_ENV = {"GITHUB_TOKEN": "test_token", "GITHUB_REPOSITORY": "owner/repo"}
 DEFAULT_ARGV = [
@@ -41,9 +41,9 @@ def run_main(
         return exc_info.value.code
 
 
-@patch("jobgitops.cli.esd_export.write_rows")
-@patch("jobgitops.cli.esd_export.export_rows")
-@patch("jobgitops.cli.esd_export.GitHubClient")
+@patch("gitemployed.cli.esd_export.write_rows")
+@patch("gitemployed.cli.esd_export.export_rows")
+@patch("gitemployed.cli.esd_export.GitHubClient")
 def test_missing_token_exits_before_client_construction(
     mock_client_class: MagicMock,
     mock_export_rows: MagicMock,
@@ -57,7 +57,7 @@ def test_missing_token_exits_before_client_construction(
     mock_write_rows.assert_not_called()
 
 
-@patch("jobgitops.cli.esd_export.GitHubClient")
+@patch("gitemployed.cli.esd_export.GitHubClient")
 def test_missing_repository_exits_before_client_construction(
     mock_client_class: MagicMock, caplog
 ) -> None:
@@ -66,9 +66,9 @@ def test_missing_repository_exits_before_client_construction(
     mock_client_class.assert_not_called()
 
 
-@patch("jobgitops.cli.esd_export.write_rows")
-@patch("jobgitops.cli.esd_export.export_rows")
-@patch("jobgitops.cli.esd_export.GitHubClient")
+@patch("gitemployed.cli.esd_export.write_rows")
+@patch("gitemployed.cli.esd_export.export_rows")
+@patch("gitemployed.cli.esd_export.GitHubClient")
 def test_happy_path_wires_args_through_to_pipeline_and_writer(
     mock_client_class: MagicMock,
     mock_export_rows: MagicMock,
@@ -114,9 +114,9 @@ def test_happy_path_wires_args_through_to_pipeline_and_writer(
     assert "Wrote 2 row(s) to /tmp/out.xlsx" in caplog.text
 
 
-@patch("jobgitops.cli.esd_export.write_rows")
-@patch("jobgitops.cli.esd_export.export_rows")
-@patch("jobgitops.cli.esd_export.GitHubClient")
+@patch("gitemployed.cli.esd_export.write_rows")
+@patch("gitemployed.cli.esd_export.export_rows")
+@patch("gitemployed.cli.esd_export.GitHubClient")
 def test_defaults_are_week_start_monday_and_unlimited_cap(
     mock_client_class: MagicMock,
     mock_export_rows: MagicMock,
@@ -134,36 +134,36 @@ def test_defaults_are_week_start_monday_and_unlimited_cap(
     )
 
 
-@patch("jobgitops.cli.esd_export.GitHubClient")
+@patch("gitemployed.cli.esd_export.GitHubClient")
 def test_export_rows_value_error_exits_with_message(
     mock_client_class: MagicMock, caplog
 ) -> None:
     with patch(
-        "jobgitops.cli.esd_export.export_rows", side_effect=ValueError("bad input")
+        "gitemployed.cli.esd_export.export_rows", side_effect=ValueError("bad input")
     ):
         run_main(expected_code=1)
     assert "Failed to build ESD export: bad input" in caplog.text
 
 
-@patch("jobgitops.cli.esd_export.GitHubClient")
+@patch("gitemployed.cli.esd_export.GitHubClient")
 def test_export_rows_github_client_error_exits_with_message(
     mock_client_class: MagicMock, caplog
 ) -> None:
     with patch(
-        "jobgitops.cli.esd_export.export_rows",
+        "gitemployed.cli.esd_export.export_rows",
         side_effect=GitHubClientError("API down"),
     ):
         run_main(expected_code=1)
     assert "Failed to build ESD export: API down" in caplog.text
 
 
-@patch("jobgitops.cli.esd_export.export_rows", return_value=[])
-@patch("jobgitops.cli.esd_export.GitHubClient")
+@patch("gitemployed.cli.esd_export.export_rows", return_value=[])
+@patch("gitemployed.cli.esd_export.GitHubClient")
 def test_write_rows_failure_exits_with_message(
     mock_client_class: MagicMock, mock_export_rows: MagicMock, caplog
 ) -> None:
     with patch(
-        "jobgitops.cli.esd_export.write_rows",
+        "gitemployed.cli.esd_export.write_rows",
         side_effect=OSError("disk full"),
     ):
         run_main(expected_code=1)
@@ -247,9 +247,9 @@ def test_max_per_period_unlimited_is_case_insensitive() -> None:
         "UNLIMITED",
     ]
     with (
-        patch("jobgitops.cli.esd_export.GitHubClient"),
-        patch("jobgitops.cli.esd_export.write_rows"),
-        patch("jobgitops.cli.esd_export.export_rows", return_value=[]) as mock_export,
+        patch("gitemployed.cli.esd_export.GitHubClient"),
+        patch("gitemployed.cli.esd_export.write_rows"),
+        patch("gitemployed.cli.esd_export.export_rows", return_value=[]) as mock_export,
     ):
         run_main(argv=argv)
     assert mock_export.call_args.kwargs["max_per_period"] is None

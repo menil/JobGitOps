@@ -14,11 +14,11 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlparse
 
-from jobgitops.cli.triage import parse_job_details
-from jobgitops.github_client import GitHubClient, extract_label_names
-from jobgitops.status_model import CLOSURE_LABELS, LIFECYCLE_LABELS
+from gitemployed.cli.triage import parse_job_details
+from gitemployed.github_client import GitHubClient, extract_label_names
+from gitemployed.status_model import CLOSURE_LABELS, LIFECYCLE_LABELS
 
-logger = logging.getLogger("jobgitops.gmail_match")
+logger = logging.getLogger("gitemployed.gmail_match")
 
 # Number of issues requested per GitHub API page. Mirrors the pagination
 # pattern already used by `triage.py` (`BATCH_PAGE_SIZE`) and `scraper.py`:

@@ -1,4 +1,4 @@
-# JobGitOps System Configuration
+# GitEmployed System Configuration
 
 # Minimum fit score (1.0 to 5.0) required to tailor a resume and apply.
 # The AI Triage evaluates fit across tech stack, experience, location, salary, and domain.
@@ -7,10 +7,10 @@ fit_threshold: 3.5
 # Visual theme for resumes/resume.pdf, sourced from the JSON Resume theme
 # ecosystem (https://jsonresume.org/themes) and rendered via the `resumed`
 # CLI. Not set here, or missing entirely (e.g. a repo installed before this
-# key existed)? JobGitOps silently falls back to a pinned default -- no
+# key existed)? GitEmployed silently falls back to a pinned default -- no
 # warning, no error, no migration step required.
 # Accepts either form below, always pinned -- never a floating name, branch,
-# or tag -- since JobGitOps installs and executes this package's code at
+# or tag -- since GitEmployed installs and executes this package's code at
 # render time:
 #   - an npm package name with an exact version, where the version is
 #     everything after the LAST "@" (scoped packages have two "@"s):
@@ -58,7 +58,7 @@ custom_queries: []
 # the installer wizard or done manually (see DEVELOPMENT.md).
 # gmail:
 #   enabled: true
-#   label: "JobGitOps"        # required when enabled: only mail carrying this
+#   label: "GitEmployed"        # required when enabled: only mail carrying this
 #                              # Gmail label is ever read (see DEVELOPMENT.md
 #                              # for how to create the label + a Gmail filter).
 #   query: ""                 # optional: further narrows every fetch beyond

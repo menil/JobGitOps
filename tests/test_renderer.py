@@ -6,7 +6,7 @@ from unittest import mock
 
 import pytest
 
-from jobgitops.renderer import (
+from gitemployed.renderer import (
     _ALLOWED_ENV_VARS,
     _BUN_BIN,
     ThemeInstallError,
@@ -19,7 +19,7 @@ from jobgitops.renderer import (
     ensure_theme_installed,
     generate_pdf_diff,
 )
-from jobgitops.schema import Resume
+from gitemployed.schema import Resume
 
 
 @pytest.fixture
@@ -116,7 +116,7 @@ def test_resume_serialization_optional_fields() -> None:
     fields like basics.profiles or the top-level work/education/skills/
     projects arrays exist and crash on a bare `.find()`/`.map()` call when
     the key is omitted entirely -- confirmed by hands-on testing while
-    building JobGitOps-184.
+    building GitEmployed-184.
     """
     minimal_data = {
         "basics": {
@@ -305,7 +305,7 @@ def test_theme_is_installed_checks_bun_global_node_modules(
     tmp_path, monkeypatch
 ) -> None:
     """Verify the real (unmocked) presence check against the actual filesystem."""
-    monkeypatch.setattr("jobgitops.renderer._BUN_GLOBAL_NODE_MODULES", tmp_path)
+    monkeypatch.setattr("gitemployed.renderer._BUN_GLOBAL_NODE_MODULES", tmp_path)
 
     assert _theme_is_installed("some-theme") is False
 
@@ -321,9 +321,10 @@ def test_ensure_theme_installed_skips_install_when_already_present() -> None:
     this test only asserts that `bun add -g` itself is skipped.
     """
     with (
-        mock.patch("jobgitops.renderer._theme_is_installed", return_value=True),
+        mock.patch("gitemployed.renderer._theme_is_installed", return_value=True),
         mock.patch(
-            "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+            "gitemployed.renderer.subprocess.run",
+            return_value=_fake_completed_process(),
         ) as mock_run,
     ):
         result = ensure_theme_installed(
@@ -346,8 +347,10 @@ def test_ensure_theme_installed_still_validates_already_installed_theme() -> Non
     """
     validate_failure = _fake_completed_process(returncode=1)
     with (
-        mock.patch("jobgitops.renderer._theme_is_installed", return_value=True),
-        mock.patch("jobgitops.renderer.subprocess.run", return_value=validate_failure),
+        mock.patch("gitemployed.renderer._theme_is_installed", return_value=True),
+        mock.patch(
+            "gitemployed.renderer.subprocess.run", return_value=validate_failure
+        ),
         pytest.raises(ThemeInstallError, match="does not export a usable"),
     ):
         ensure_theme_installed("@jsonresume/jsonresume-theme-professional@1.0.22")
@@ -361,9 +364,9 @@ def test_ensure_theme_installed_installs_npm_spec_when_missing() -> None:
     validate_result = _fake_completed_process()
 
     with (
-        mock.patch("jobgitops.renderer._theme_is_installed", return_value=False),
+        mock.patch("gitemployed.renderer._theme_is_installed", return_value=False),
         mock.patch(
-            "jobgitops.renderer.subprocess.run",
+            "gitemployed.renderer.subprocess.run",
             side_effect=[install_result, validate_result],
         ) as mock_run,
     ):
@@ -390,9 +393,9 @@ def test_ensure_theme_installed_uses_filtered_env_for_install_and_validate(
     validate_result = _fake_completed_process()
 
     with (
-        mock.patch("jobgitops.renderer._theme_is_installed", return_value=False),
+        mock.patch("gitemployed.renderer._theme_is_installed", return_value=False),
         mock.patch(
-            "jobgitops.renderer.subprocess.run",
+            "gitemployed.renderer.subprocess.run",
             side_effect=[install_result, validate_result],
         ) as mock_run,
     ):
@@ -411,7 +414,7 @@ def test_ensure_theme_installed_resolves_github_spec_name_from_output() -> None:
     validate_result = _fake_completed_process()
 
     with mock.patch(
-        "jobgitops.renderer.subprocess.run",
+        "gitemployed.renderer.subprocess.run",
         side_effect=[install_result, validate_result],
     ):
         # No _theme_is_installed mock needed: a github spec's bare name is
@@ -434,8 +437,8 @@ def test_ensure_theme_installed_raises_on_install_failure(caplog) -> None:
         returncode=1, stderr="GET https://registry.npmjs.org/some-theme - 404"
     )
     with (
-        mock.patch("jobgitops.renderer._theme_is_installed", return_value=False),
-        mock.patch("jobgitops.renderer.subprocess.run", return_value=failure),
+        mock.patch("gitemployed.renderer._theme_is_installed", return_value=False),
+        mock.patch("gitemployed.renderer.subprocess.run", return_value=failure),
         pytest.raises(ThemeInstallError) as exc_info,
     ):
         ensure_theme_installed("some-theme@9.9.9")
@@ -451,9 +454,9 @@ def test_ensure_theme_installed_raises_on_non_conforming_package() -> None:
     validate_failure = _fake_completed_process(returncode=1)
 
     with (
-        mock.patch("jobgitops.renderer._theme_is_installed", return_value=False),
+        mock.patch("gitemployed.renderer._theme_is_installed", return_value=False),
         mock.patch(
-            "jobgitops.renderer.subprocess.run",
+            "gitemployed.renderer.subprocess.run",
             side_effect=[install_result, validate_failure],
         ),
         pytest.raises(ThemeInstallError, match="does not export a usable"),
@@ -464,9 +467,10 @@ def test_ensure_theme_installed_raises_on_non_conforming_package() -> None:
 def test_ensure_theme_installed_warns_on_unpinned_spec(caplog) -> None:
     """Verify an unpinned theme spec logs a warning before installing."""
     with (
-        mock.patch("jobgitops.renderer._theme_is_installed", return_value=True),
+        mock.patch("gitemployed.renderer._theme_is_installed", return_value=True),
         mock.patch(
-            "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+            "gitemployed.renderer.subprocess.run",
+            return_value=_fake_completed_process(),
         ),
     ):
         ensure_theme_installed("@jsonresume/jsonresume-theme-professional")
@@ -490,7 +494,7 @@ def test_compile_resume_pdf_invokes_resumed_as_pptruser(
     output_pdf = tmp_path / "resume.pdf"
 
     with mock.patch(
-        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+        "gitemployed.renderer.subprocess.run", return_value=_fake_completed_process()
     ) as mock_run:
         compile_resume_pdf(
             resume_json, "@jsonresume/jsonresume-theme-professional", output_pdf
@@ -532,10 +536,11 @@ def test_compile_resume_pdf_chgrps_and_narrows_output_dir_to_render_user_group(
     fake_group = mock.MagicMock(gr_gid=4242)
     with (
         mock.patch(
-            "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+            "gitemployed.renderer.subprocess.run",
+            return_value=_fake_completed_process(),
         ),
-        mock.patch("jobgitops.renderer.grp.getgrnam", return_value=fake_group),
-        mock.patch("jobgitops.renderer.os.chown") as mock_chown,
+        mock.patch("gitemployed.renderer.grp.getgrnam", return_value=fake_group),
+        mock.patch("gitemployed.renderer.os.chown") as mock_chown,
     ):
         compile_resume_pdf(resume_json, "some-theme", output_pdf)
 
@@ -554,7 +559,7 @@ def test_compile_resume_pdf_falls_back_to_world_writable_dir_outside_container(
     grp.getgrnam to force this path explicitly rather than relying on the
     ambient test environment lacking a "pptruser" group -- CI's own
     `validate` job runs inside the actual runtime image (ghcr.io/menil/
-    jobgitops:latest), which does have a real pptruser group, so that
+    gitemployed:latest), which does have a real pptruser group, so that
     assumption silently doesn't hold everywhere this suite runs.
     """
     resume = Resume.from_dict(sample_resume_data)
@@ -567,10 +572,11 @@ def test_compile_resume_pdf_falls_back_to_world_writable_dir_outside_container(
 
     with (
         mock.patch(
-            "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+            "gitemployed.renderer.subprocess.run",
+            return_value=_fake_completed_process(),
         ),
         mock.patch(
-            "jobgitops.renderer.grp.getgrnam", side_effect=KeyError("no such group")
+            "gitemployed.renderer.grp.getgrnam", side_effect=KeyError("no such group")
         ),
     ):
         compile_resume_pdf(resume_json, "some-theme", output_pdf)
@@ -587,9 +593,9 @@ def test_compile_resume_pdf_uses_bare_theme_name(sample_resume_data, tmp_path) -
     output_pdf = tmp_path / "resume.pdf"
 
     with mock.patch(
-        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+        "gitemployed.renderer.subprocess.run", return_value=_fake_completed_process()
     ) as mock_run:
-        # Caller passes the bare name resolved by JobGitOps-4dk/9ru, never a
+        # Caller passes the bare name resolved by GitEmployed-4dk/9ru, never a
         # pinned "name@version" spec -- resumed's import() doesn't take one.
         compile_resume_pdf(
             resume_json, "@jsonresume/jsonresume-theme-professional", output_pdf
@@ -630,7 +636,7 @@ def test_compile_resume_pdf_only_passes_allowed_env_vars(
     monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin")
 
     with mock.patch(
-        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+        "gitemployed.renderer.subprocess.run", return_value=_fake_completed_process()
     ) as mock_run:
         compile_resume_pdf(resume_json, "some-theme", output_pdf)
 
@@ -669,7 +675,7 @@ def test_compile_resume_pdf_raises_on_nonzero_exit(
         returncode=1, stderr="Could not load theme some-theme. Is it installed?"
     )
     with (
-        mock.patch("jobgitops.renderer.subprocess.run", return_value=failure),
+        mock.patch("gitemployed.renderer.subprocess.run", return_value=failure),
         pytest.raises(RuntimeError) as exc_info,
     ):
         compile_resume_pdf(resume_json, "some-theme", output_pdf)
@@ -698,7 +704,7 @@ def test_compile_resume_full_pipeline(sample_resume_data, tmp_path) -> None:
     assert not output_json.exists()
 
     with mock.patch(
-        "jobgitops.renderer.subprocess.run", return_value=_fake_completed_process()
+        "gitemployed.renderer.subprocess.run", return_value=_fake_completed_process()
     ) as mock_run:
         compile_resume(
             resume, "@jsonresume/jsonresume-theme-professional", output_pdf, output_json
@@ -749,7 +755,7 @@ def test_generate_pdf_diff_pdf_vdiff_binary(tmp_path) -> None:
             ),
         ),
         mock.patch(
-            "jobgitops.renderer.subprocess.run",
+            "gitemployed.renderer.subprocess.run",
             return_value=_fake_completed_process(returncode=1),
         ) as mock_run,
     ):
@@ -784,7 +790,7 @@ def test_generate_pdf_diff_nix_fallback(tmp_path) -> None:
             side_effect=lambda cmd: "/usr/bin/nix" if cmd == "nix" else None,
         ),
         mock.patch(
-            "jobgitops.renderer.subprocess.run",
+            "gitemployed.renderer.subprocess.run",
             return_value=_fake_completed_process(returncode=0),
         ) as mock_run,
     ):
@@ -832,7 +838,7 @@ def test_generate_pdf_diff_fatal_error(tmp_path) -> None:
             ),
         ),
         mock.patch(
-            "jobgitops.renderer.subprocess.run",
+            "gitemployed.renderer.subprocess.run",
             return_value=_fake_completed_process(returncode=2, stderr="syntax error"),
         ),
         pytest.raises(

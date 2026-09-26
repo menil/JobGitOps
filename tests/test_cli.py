@@ -2,7 +2,7 @@
 
 import argparse
 
-from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
+from gitemployed.cli import add_repo_path_argument, resolve_repo_path, setup_logging
 
 
 def test_add_repo_path_argument_defaults() -> None:

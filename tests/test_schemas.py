@@ -1,12 +1,12 @@
-"""Tests for JobGitOps data schemas and loading utilities."""
+"""Tests for GitEmployed data schemas and loading utilities."""
 
 import pathlib
 from unittest.mock import patch
 
 import pytest
 
-from jobgitops.loader import load_resume, load_settings
-from jobgitops.schema import (
+from gitemployed.loader import load_resume, load_settings
+from gitemployed.schema import (
     Basics,
     GmailConfig,
     ResearchConfig,
@@ -1086,13 +1086,13 @@ def test_gmail_config_valid_parsing() -> None:
     gmail = GmailConfig.from_dict(
         {
             "enabled": True,
-            "label": "JobGitOps",
+            "label": "GitEmployed",
             "query": "in:inbox",
             "days_back": 14,
         }
     )
     assert gmail.enabled is True
-    assert gmail.label == "JobGitOps"
+    assert gmail.label == "GitEmployed"
     assert gmail.query == "in:inbox"
     assert gmail.days_back == 14
 
@@ -1162,11 +1162,11 @@ def test_settings_without_gmail_section_parses_unchanged() -> None:
 def test_settings_with_gmail_section_parses() -> None:
     """Test that Settings.from_dict wires a gmail section into GmailConfig."""
     settings = Settings.from_dict(
-        {"gmail": {"enabled": True, "label": "JobGitOps", "days_back": 3}}
+        {"gmail": {"enabled": True, "label": "GitEmployed", "days_back": 3}}
     )
     assert settings.gmail is not None
     assert settings.gmail.enabled is True
-    assert settings.gmail.label == "JobGitOps"
+    assert settings.gmail.label == "GitEmployed"
     assert settings.gmail.days_back == 3
 
 

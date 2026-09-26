@@ -48,7 +48,7 @@ on:
 
 # This job only ever reads issues and their label history; it never writes
 # labels, comments, or Projects V2 state, so it gets a narrower token scope
-# than every other JobGitOps workflow (specs/esd-export.md §6.4).
+# than every other GitEmployed workflow (specs/esd-export.md §6.4).
 permissions:
   contents: read
   issues: read
@@ -98,7 +98,7 @@ jobs:
             ARGS+=("--end-date" "$INPUT_END_DATE")
           fi
 
-          python -m jobgitops.cli.esd_export "${ARGS[@]}"
+          python -m gitemployed.cli.esd_export "${ARGS[@]}"
 
       - name: Upload Export Artifact
         uses: actions/upload-artifact@v4

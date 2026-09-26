@@ -9,11 +9,11 @@ import pathlib
 import sys
 from typing import Any
 
-from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
-from jobgitops.github_client import GitHubClient, GitHubClientError
-from jobgitops.loader import load_settings
-from jobgitops.schema import ProjectsV2Config
-from jobgitops.status_model import (
+from gitemployed.cli import add_repo_path_argument, resolve_repo_path, setup_logging
+from gitemployed.github_client import GitHubClient, GitHubClientError
+from gitemployed.loader import load_settings
+from gitemployed.schema import ProjectsV2Config
+from gitemployed.status_model import (
     CLOSURE_LABELS,
     LABEL_TO_STATUS,
     resolve_closed_lifecycle_label,

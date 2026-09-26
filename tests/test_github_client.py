@@ -6,7 +6,7 @@ from unittest import mock
 
 import pytest
 
-from jobgitops.github_client import (
+from gitemployed.github_client import (
     GitHubClient,
     GitHubClientError,
     extract_label_names,
@@ -197,7 +197,7 @@ def test_remove_label_other_error_raises(mock_urlopen: mock.MagicMock) -> None:
 
     client = GitHubClient(token="my-token", repo="owner/repo")
     with (
-        mock.patch("jobgitops.github_client.time.sleep"),
+        mock.patch("gitemployed.github_client.time.sleep"),
         pytest.raises(GitHubClientError) as exc_info,
     ):
         client.remove_label(issue_number=42, label="some-label")
@@ -853,7 +853,7 @@ def test_api_http_error_read_exception(mock_urlopen: mock.MagicMock) -> None:
 
     client = GitHubClient(token="my-token", repo="owner/repo")
     with (
-        mock.patch("jobgitops.github_client.time.sleep"),
+        mock.patch("gitemployed.github_client.time.sleep"),
         pytest.raises(GitHubClientError) as exc_info,
     ):
         client.close_issue(issue_number=42)
@@ -1105,7 +1105,7 @@ def test_update_status_field_options_graphql_error(
     assert "Option in use" in str(exc_info.value)
 
 
-@mock.patch("jobgitops.github_client.time.sleep")
+@mock.patch("gitemployed.github_client.time.sleep")
 @mock.patch("urllib.request.urlopen")
 def test_request_retries_on_rate_limit(
     mock_urlopen: mock.MagicMock, mock_sleep: mock.MagicMock
@@ -1133,7 +1133,7 @@ def test_request_retries_on_rate_limit(
     assert mock_sleep.call_count == 1
 
 
-@mock.patch("jobgitops.github_client.time.sleep")
+@mock.patch("gitemployed.github_client.time.sleep")
 @mock.patch("urllib.request.urlopen")
 def test_request_retries_exhausted(
     mock_urlopen: mock.MagicMock, mock_sleep: mock.MagicMock

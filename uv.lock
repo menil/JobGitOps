@@ -787,6 +787,55 @@ wheels = [
 ]
 
 [[package]]
+name = "gitemployed"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "ddgs" },
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
+    { name = "google-generativeai" },
+    { name = "litellm" },
+    { name = "numpy" },
+    { name = "openpyxl" },
+    { name = "pandas" },
+    { name = "pydantic" },
+    { name = "python-jobspy" },
+    { name = "pyyaml" },
+    { name = "trafilatura" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ddgs", specifier = ">=9.14.4" },
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
+    { name = "google-generativeai" },
+    { name = "litellm", specifier = ">=1.40.0" },
+    { name = "numpy", specifier = ">=1.26.0" },
+    { name = "openpyxl", specifier = ">=3.1.0" },
+    { name = "pandas", specifier = ">=2.2.0" },
+    { name = "pydantic", specifier = ">=2.7.0" },
+    { name = "python-jobspy" },
+    { name = "pyyaml" },
+    { name = "trafilatura", specifier = ">=2.2.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[[package]]
 name = "google-ai-generativelanguage"
 version = "0.6.15"
 source = { registry = "https://pypi.org/simple" }
@@ -1280,55 +1329,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247fb5d1763a6cbe46eff7222eaeebafd9fa65d4bf5cb11/jmespath-1.1.0.tar.gz", hash = "sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d", size = 27377, upload-time = "2026-01-22T16:35:26.279Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
-]
-
-[[package]]
-name = "jobgitops"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "ddgs" },
-    { name = "google-api-python-client" },
-    { name = "google-auth" },
-    { name = "google-generativeai" },
-    { name = "litellm" },
-    { name = "numpy" },
-    { name = "openpyxl" },
-    { name = "pandas" },
-    { name = "pydantic" },
-    { name = "python-jobspy" },
-    { name = "pyyaml" },
-    { name = "trafilatura" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "ddgs", specifier = ">=9.14.4" },
-    { name = "google-api-python-client" },
-    { name = "google-auth" },
-    { name = "google-generativeai" },
-    { name = "litellm", specifier = ">=1.40.0" },
-    { name = "numpy", specifier = ">=1.26.0" },
-    { name = "openpyxl", specifier = ">=3.1.0" },
-    { name = "pandas", specifier = ">=2.2.0" },
-    { name = "pydantic", specifier = ">=2.7.0" },
-    { name = "python-jobspy" },
-    { name = "pyyaml" },
-    { name = "trafilatura", specifier = ">=2.2.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
 ]
 
 [[package]]

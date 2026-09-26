@@ -14,12 +14,12 @@ import pydantic
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
-from jobgitops.schema import Basics, Resume, ValidationError
+from gitemployed.schema import Basics, Resume, ValidationError
 
 litellm.telemetry = False
 litellm.suppress_debug_info = True
 
-logger = logging.getLogger("jobgitops.llm")
+logger = logging.getLogger("gitemployed.llm")
 
 
 class QuotaExceededError(Exception):
@@ -682,7 +682,7 @@ class LLMClient(ABC):
 # This module deliberately does not import from `assistant.py` (which owns
 # `VALID_STATUSES`) or `gmail_match.py` (which owns the `Candidate`
 # dataclass): `assistant.py` already imports from this module, and
-# `gmail_match.py` imports `jobgitops.cli.triage`, which itself imports this
+# `gmail_match.py` imports `gitemployed.cli.triage`, which itself imports this
 # module -- either import here would be circular. Callers instead pass the
 # allowlisted status set and a plain `{number, title, company, role}` dict
 # per candidate (dropping `Candidate.apply_url`, which the model doesn't

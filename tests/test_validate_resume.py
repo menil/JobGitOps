@@ -2,9 +2,9 @@
 
 import pathlib
 
-from jobgitops.cli import validate_resume
-from jobgitops.loader import render_resume_yaml
-from jobgitops.schema import Resume
+from gitemployed.cli import validate_resume
+from gitemployed.loader import render_resume_yaml
+from gitemployed.schema import Resume
 
 
 def _write_canonical_resume(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -59,5 +59,5 @@ def test_validate_unexpected_exception(monkeypatch) -> None:
     def mock_load_resume(*args, **kwargs):
         raise RuntimeError("Unexpected error")
 
-    monkeypatch.setattr("jobgitops.cli.validate_resume.load_resume", mock_load_resume)
+    monkeypatch.setattr("gitemployed.cli.validate_resume.load_resume", mock_load_resume)
     assert validate_resume.main(["dummy.yaml"]) == 1

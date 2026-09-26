@@ -25,34 +25,34 @@ import sys
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from jobgitops.assistant import (
+from gitemployed.assistant import (
     ACTION_STATUS_UPDATE,
     GMAIL_NOTICE_MARKER,
     STATUS_CONFIRMATION_MARKER,
     VALID_STATUSES,
     AgentAction,
 )
-from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
-from jobgitops.cli.respond import execute_action
-from jobgitops.git_ops import GitOpsError, run_git
-from jobgitops.github_client import GitHubClient, extract_label_names
-from jobgitops.gmail_client import (
+from gitemployed.cli import add_repo_path_argument, resolve_repo_path, setup_logging
+from gitemployed.cli.respond import execute_action
+from gitemployed.git_ops import GitOpsError, run_git
+from gitemployed.github_client import GitHubClient, extract_label_names
+from gitemployed.gmail_client import (
     GmailClient,
     GmailMessageNotFoundError,
     build_gmail_permalink,
     is_authentic,
 )
-from jobgitops.gmail_match import Candidate, get_candidate_pool, prefilter_candidates
-from jobgitops.llm import (
+from gitemployed.gmail_match import Candidate, get_candidate_pool, prefilter_candidates
+from gitemployed.llm import (
     QuotaExceededError,
     ValidationError,
     get_llm_client,
     match_email_to_candidate,
 )
-from jobgitops.loader import load_resume, load_settings
-from jobgitops.schema import GmailConfig, Resume, Settings
+from gitemployed.loader import load_resume, load_settings
+from gitemployed.schema import GmailConfig, Resume, Settings
 
-logger = logging.getLogger("jobgitops.gmail_sync")
+logger = logging.getLogger("gitemployed.gmail_sync")
 
 # POSIX exit code for temporary quota/rate-limit failure (EX_TEMPFAIL),
 # matching respond.py's/triage.py's existing convention.
@@ -608,7 +608,7 @@ def _finalize_cursor(repo_path: pathlib.Path, cursor: dict[str, Any]) -> None:
 
     The restore matters because this process does not own the whole CI job:
     `gmail-sync.yml` runs further steps (badge updates) against the same
-    checkout after `python -m jobgitops.cli.gmail_sync` exits, and those
+    checkout after `python -m gitemployed.cli.gmail_sync` exits, and those
     steps need files (e.g. `.github/scripts/update_badge.py`) that only
     exist on the original branch, not on the disconnected orphan
     `gmail-sync-state` branch this function checks out.

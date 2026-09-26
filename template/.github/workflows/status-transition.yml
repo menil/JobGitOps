@@ -21,7 +21,7 @@ jobs:
     # Any lifecycle label addition or issue closure owns a column move. The
     # reverse direction lives in project-status-sync.yml.
     # This list MUST stay in sync with `LIFECYCLE_LABELS` in
-    # src/jobgitops/status_model.py (the single source of truth).
+    # src/gitemployed/status_model.py (the single source of truth).
     if: |
       github.event.action == 'closed' ||
       (github.event.action == 'labeled' && contains(fromJSON('["triage-pending","ready-to-apply","applied","in-loop","offer-received","rejected","triage-mismatched"]'), github.event.label.name))
@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Status Transition Script
-        run: python -m jobgitops.cli.status_transition --event-path "$GITHUB_EVENT_PATH"
+        run: python -m gitemployed.cli.status_transition --event-path "$GITHUB_EVENT_PATH"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}

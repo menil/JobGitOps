@@ -16,15 +16,15 @@ from typing import Any
 
 import yaml
 
-from jobgitops.llm import (
+from gitemployed.llm import (
     ChatMessage,
     LLMClient,
     ToolCall,
     ValidationError,
     clean_json_string,
 )
-from jobgitops.schema import ResearchConfig, Resume
-from jobgitops.web import (
+from gitemployed.schema import ResearchConfig, Resume
+from gitemployed.web import (
     TOOLS,
     WebClient,
     tools_to_openai,
@@ -59,18 +59,28 @@ STATUS_LABELS = {
 
 # Hidden prefix on status-update confirmations; respond.py's comment-flow guard
 # matches on it to skip re-triggers deterministically (spec §6.2/§9.3).
-STATUS_CONFIRMATION_MARKER = "<!-- jobgitops:status-update -->"
+STATUS_CONFIRMATION_MARKER = "<!-- gitemployed:status-update -->"
 
 # Hidden prefix on the Gmail integration's ambiguous-match heads-up comment
 # (spec §5.2 step 5e). That comment is posted with a real-user-like token and
 # is not a status update, but still needs the same re-trigger guard as
 # STATUS_CONFIRMATION_MARKER so it doesn't loop back into respond-issue.yml
 # (spec §9.7).
-GMAIL_NOTICE_MARKER = "<!-- jobgitops:gmail-notice -->"
+GMAIL_NOTICE_MARKER = "<!-- gitemployed:gmail-notice -->"
+
+# Legacy markers retained for backward compatibility with issues opened under
+# the previous JobGitOps naming.
+LEGACY_STATUS_CONFIRMATION_MARKER = "<!-- jobgitops:status-update -->"
+LEGACY_GMAIL_NOTICE_MARKER = "<!-- jobgitops:gmail-notice -->"
 
 # Every hidden automation marker respond.py's bot-loop guard recognizes.
 # Single source of truth so a future marker only needs adding here.
-AUTOMATION_MARKERS = (STATUS_CONFIRMATION_MARKER, GMAIL_NOTICE_MARKER)
+AUTOMATION_MARKERS = (
+    STATUS_CONFIRMATION_MARKER,
+    GMAIL_NOTICE_MARKER,
+    LEGACY_STATUS_CONFIRMATION_MARKER,
+    LEGACY_GMAIL_NOTICE_MARKER,
+)
 
 # Concise fallback reply when the model never produces a parseable action, per
 # spec §9.5 (fail with a clear comment rather than loop or fail silently).
@@ -201,7 +211,7 @@ def build_system_prompt(
     tools_block = "\n".join(f"- {tool.name}: {tool.description}" for tool in TOOLS)
 
     return (
-        "You are the JobGitOps Issue Assistant, answering the repository "
+        "You are the GitEmployed Issue Assistant, answering the repository "
         "owner on a private job-search issue thread. You help with company "
         "research, profile-fit questions, status updates, and job-post "
         "triage.\n\n"

@@ -4,7 +4,7 @@ See specs/esd-export.md for the full design. This module implements the
 pipeline: fetch issues, reconstruct activity history from GitHub's issue
 timeline, bucket into reporting periods, dedupe, and cap -- and a writer
 that hands the resulting rows to pandas for CSV/XLSX serialization. The CLI
-(jobgitops/cli/esd_export.py) wires both together.
+(gitemployed/cli/esd_export.py) wires both together.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from typing import Any
 
 import pandas as pd
 
-from jobgitops.cli.triage import parse_job_details
-from jobgitops.github_client import GitHubClient
-from jobgitops.status_model import ACTIVITY_LABELS
+from gitemployed.cli.triage import parse_job_details
+from gitemployed.github_client import GitHubClient
+from gitemployed.status_model import ACTIVITY_LABELS
 
 WEEKDAYS: tuple[str, ...] = (
     "monday",
@@ -180,7 +180,7 @@ def _period_label(period_start: dt.date, group_by: str) -> str:
     For monthly, ``period_start`` is always the 1st of the month (see
     ``_period_start``), so this is exact. For weekly, the label is the ISO
     week containing ``period_start`` -- exact when ``week_start="monday"``
-    (JobGitOps periods then coincide with real ISO weeks); for any other
+    (GitEmployed periods then coincide with real ISO weeks); for any other
     ``week_start``, the custom Mon-independent period can span two ISO week
     numbers, so the label reflects the week ``period_start`` falls in, not
     necessarily every day inside the period.
