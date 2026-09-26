@@ -27,7 +27,7 @@ jobs:
       (github.event.action == 'labeled' && contains(fromJSON('["triage-pending","ready-to-apply","applied","in-loop","offer-received","rejected","triage-mismatched"]'), github.event.label.name))
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/menil/jobgitops:latest
+      image: ghcr.io/menil/gitemployed:latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4

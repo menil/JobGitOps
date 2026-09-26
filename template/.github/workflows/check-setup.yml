@@ -16,7 +16,7 @@ jobs:
   check-setup:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/menil/jobgitops:latest
+      image: ghcr.io/menil/gitemployed:latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
