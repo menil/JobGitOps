@@ -29,7 +29,7 @@ import re
 import sys
 from typing import Any
 
-from jobgitops.assistant import (
+from gitemployed.assistant import (
     ACTION_REPLY,
     ACTION_SKIP,
     ACTION_STATUS_UPDATE,
@@ -40,22 +40,26 @@ from jobgitops.assistant import (
     AgentAction,
     run_agent,
 )
-from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
-from jobgitops.github_client import GitHubClient, GitHubClientError, extract_label_names
-from jobgitops.llm import QuotaExceededError, get_llm_client
-from jobgitops.loader import load_resume, load_settings
-from jobgitops.schema import Resume, Settings
-from jobgitops.status_model import (
+from gitemployed.cli import add_repo_path_argument, resolve_repo_path, setup_logging
+from gitemployed.github_client import (
+    GitHubClient,
+    GitHubClientError,
+    extract_label_names,
+)
+from gitemployed.llm import QuotaExceededError, get_llm_client
+from gitemployed.loader import load_resume, load_settings
+from gitemployed.schema import Resume, Settings
+from gitemployed.status_model import (
     CLOSURE_LABELS,
     LABEL_TO_STATUS,
     LIFECYCLE_LABELS,
     sync_lifecycle_label,
 )
-from jobgitops.web import WebClient
+from gitemployed.web import WebClient
 
 from . import triage
 
-logger = logging.getLogger("jobgitops.respond")
+logger = logging.getLogger("gitemployed.respond")
 
 # POSIX exit code for temporary quota/rate-limit failure (EX_TEMPFAIL).
 EXIT_QUOTA_EXCEEDED = 75

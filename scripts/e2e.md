@@ -9,13 +9,13 @@ allowlist (§3).
 
 - `gh` installed and authenticated with the `repo` **and** `workflow` scopes
   (`gh auth refresh -s repo,workflow` if the check fails).
-- A disposable repo name, e.g. `jobgitops-e2e-<username>`.
+- A disposable repo name, e.g. `gitemployed-e2e-<username>`.
 - For the live run: a `GEMINI_API_KEY` (or `OPENROUTER_API_KEY`) to install as a
   repo secret.
 - Inside the devenv shell (`devenv shell` or `direnv allow`).
 
 > **Pre-release note:** until the first public release exists, the repo is
-> private, so `npx jobgitops-installer` cannot be run globally from the public registry.
+> private, so `npx gitemployed-installer` cannot be run globally from the public registry.
 > Run the installer locally instead using `npx --prefix installer tsx installer/src/index.ts`
 > with `--tag main` (which bypasses the release lookup and falls back to fetching the private repo
 > tarball using your `gh` auth credentials).
@@ -23,7 +23,7 @@ allowlist (§3).
 ## 1. Dry-run
 
 ```bash
-npx --prefix installer tsx installer/src/index.ts jobgitops-e2e --dry-run
+npx --prefix installer tsx installer/src/index.ts gitemployed-e2e --dry-run
 ```
 
 Verify: every command is printed and *nothing runs* — no repo created, no
@@ -47,7 +47,7 @@ Verify: The script falls back gracefully to standard numbered line inputs for LL
 ## 2. Live install
 
 ```bash
-GEMINI_API_KEY=... npx --prefix installer tsx installer/src/index.ts jobgitops-e2e --yes
+GEMINI_API_KEY=... npx --prefix installer tsx installer/src/index.ts gitemployed-e2e --yes
 ```
 
 Verify, in order:
@@ -66,11 +66,11 @@ Verify, in order:
 **2a. Rejected key fails fast**
 
 ```bash
-GEMINI_API_KEY=not-a-valid-key npx --prefix installer tsx installer/src/index.ts jobgitops-e2e-badkey --yes
+GEMINI_API_KEY=not-a-valid-key npx --prefix installer tsx installer/src/index.ts gitemployed-e2e-badkey --yes
 ```
 
 Verify: the installer dies with `Gemini key rejected by the API` **before** any
-repo is created, secret set, or API mutation — `gh repo view jobgitops-e2e-badkey`
+repo is created, secret set, or API mutation — `gh repo view gitemployed-e2e-badkey`
 still reports "not found". A transport failure (e.g. network down) must instead
 report `could not reach the ... API`, never a false "rejected".
 
@@ -86,11 +86,11 @@ trigger a scrape (path filter).
 1. Replace `resumes/resume.yaml` with real content (sentinel removed), commit,
    push.
 2. Verify exactly **one** scrape run fires (Actions tab).
-3. Verify the `JOBGITOPS_INITIALIZED` variable is now `true`:
+3. Verify the `GITEMPLOYED_INITIALIZED` variable is now `true`:
    `gh variable list`.
 4. Push another resume edit → **no** new scrape.
 5. Re-run once more with a resume edit after forcing the variable off
-   (`gh variable delete JOBGITOPS_INITIALIZED`) to confirm the bootstrap
+   (`gh variable delete GITEMPLOYED_INITIALIZED`) to confirm the bootstrap
    self-heals — exactly one scrape fires again.
 
 ## 5. Static setup badge (S2)
@@ -104,13 +104,13 @@ After the first successful scrape, remove the badge manually and push.
 From the maintainer repo, against the throwaway repo (or any target):
 
 ```bash
-sh scripts/sync-template.sh <owner>/jobgitops-e2e
+sh scripts/sync-template.sh <owner>/gitemployed-e2e
 ```
 
 Verify:
 
 1. Branch `sync/upstream-template` is created from the default branch HEAD.
-2. A PR is opened titled `chore: sync .github/ from JobGitOps <tag>`, body
+2. A PR is opened titled `chore: sync .github/ from GitEmployed <tag>`, body
    lists the changed files and links the release.
 3. Only the shell-plane allowlist paths can appear in the diff — never
    `config/`, `resumes/`, `status/`, or `README.md` — and never maintainer
@@ -119,13 +119,13 @@ Verify:
 5. Re-run the script immediately: no diff → exit 0 with **no** new PR (the
    existing open PR is reused if the diff changed).
 
-Pre-release: `JOBGITOPS_TAG=main sh scripts/sync-template.sh <owner>/repo`
+Pre-release: `GITEMPLOYED_TAG=main sh scripts/sync-template.sh <owner>/repo`
 exercises the tag→branch fallback.
 
 ## 7. Cleanup
 
 ```bash
-gh repo delete <owner>/jobgitops-e2e --yes --confirm   # delete the throwaway
+gh repo delete <owner>/gitemployed-e2e --yes --confirm   # delete the throwaway
 gh pr close <number> --repo <owner>/repo               # if a sync PR was left open
 gh branch -D sync/upstream-template                    # after the PR is closed
 ```

@@ -19,7 +19,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-logger = logging.getLogger("jobgitops.gmail_client")
+logger = logging.getLogger("gitemployed.gmail_client")
 
 # The only two hosts this module ever contacts (spec §9.5): the OAuth token
 # endpoint (used transparently by `Credentials` for lazy refresh) and the

@@ -1,6 +1,6 @@
-"""JobGitOps source package."""
+"""GitEmployed source package."""
 
-from jobgitops.git_ops import (
+from gitemployed.git_ops import (
     GitOpsError,
     build_commit_message,
     commit_changes,
@@ -10,8 +10,8 @@ from jobgitops.git_ops import (
     run_git,
     slugify,
 )
-from jobgitops.github_client import GitHubClient, GitHubClientError
-from jobgitops.llm import (
+from gitemployed.github_client import GitHubClient, GitHubClientError
+from gitemployed.llm import (
     ClaudeClient,
     GeminiClient,
     LiteLLMClient,
@@ -20,16 +20,16 @@ from jobgitops.llm import (
     TriageResult,
     get_llm_client,
 )
-from jobgitops.loader import load_resume, load_settings
-from jobgitops.renderer import (
+from gitemployed.loader import load_resume, load_settings
+from gitemployed.renderer import (
     ThemeInstallError,
     compile_resume,
     compile_resume_json,
     compile_resume_pdf,
     ensure_theme_installed,
 )
-from jobgitops.schema import Resume, Settings, ValidationError
-from jobgitops.scraper import ScrapedJob, parse_job_row, run_scraper
+from gitemployed.schema import Resume, Settings, ValidationError
+from gitemployed.scraper import ScrapedJob, parse_job_row, run_scraper
 
 __all__ = [
     "TriageResult",

@@ -1,10 +1,10 @@
-"""YAML file loading and validation helpers for JobGitOps."""
+"""YAML file loading and validation helpers for GitEmployed."""
 
 import pathlib
 
 import yaml
 
-from jobgitops.schema import Resume, Settings, ValidationError
+from gitemployed.schema import Resume, Settings, ValidationError
 
 
 def load_settings(path: str | pathlib.Path) -> Settings:

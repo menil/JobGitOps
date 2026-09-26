@@ -34,15 +34,15 @@ on:
 
 # Auto-Format Resume can complete twice during bootstrap -- once for the
 # installer's initial commit, once for its own reformatting commit -- firing
-# this workflow_run trigger twice in quick succession. JOBGITOPS_INITIALIZED
+# this workflow_run trigger twice in quick succession. GITEMPLOYED_INITIALIZED
 # is only set once a scrape succeeds (up to 30 min later), so without this
 # group the two runs' "check" jobs would both see it unset and both scrape
 # concurrently. cancel-in-progress: false means the second of those two runs
 # queues and waits rather than racing, so by the time it starts it always
-# sees an up-to-date JOBGITOPS_INITIALIZED and correctly no-ops via the
+# sees an up-to-date GITEMPLOYED_INITIALIZED and correctly no-ops via the
 # existing guard below. (GitHub Actions only holds one queued run per group,
 # so a third overlapping trigger would replace the queued run rather than
-# stack behind it -- fine here, since JOBGITOPS_INITIALIZED is already
+# stack behind it -- fine here, since GITEMPLOYED_INITIALIZED is already
 # current whenever a run does execute.)
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -80,17 +80,17 @@ jobs:
         run: |
           # S4: a placeholder resume means setup is pending — never scrape on
           # it. Applies to every event type (dispatch, schedule, workflow_run).
-          if [ -f resumes/resume.yaml ] && grep -q '__JOBGITOPS_SETUP_PENDING__' resumes/resume.yaml; then
+          if [ -f resumes/resume.yaml ] && grep -q '__GITEMPLOYED_SETUP_PENDING__' resumes/resume.yaml; then
             echo "Setup pending — replace resumes/resume.yaml and push to main. Skipping scrape."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # S2: the bootstrap trigger (workflow_run of Auto-Format Resume) is one-time.
-          # Once a scrape succeeds, JOBGITOPS_INITIALIZED is set and later
+          # Once a scrape succeeds, GITEMPLOYED_INITIALIZED is set and later
           # resume pushes no longer fire a scrape; self-healing if unset.
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            INITIALIZED=$(gh variable get JOBGITOPS_INITIALIZED 2>/dev/null || echo "false")
+            INITIALIZED=$(gh variable get GITEMPLOYED_INITIALIZED 2>/dev/null || echo "false")
             if [ "$INITIALIZED" = "true" ]; then
               echo "Bootstrap scrape already completed; skipping."
               echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -128,7 +128,7 @@ jobs:
         id: verify
         run: |
           if [ -f resumes/resume.yaml ]; then
-            if python -m jobgitops.cli.validate_resume --check-canonical resumes/resume.yaml; then
+            if python -m gitemployed.cli.validate_resume --check-canonical resumes/resume.yaml; then
               echo "valid=true" >> "$GITHUB_OUTPUT"
             else
               echo "Resume is not canonically formatted or valid. Skipping scrape and keeping status pending."
@@ -173,7 +173,7 @@ jobs:
               ARGS+=("--dry-run")
             fi
           fi
-          python -m jobgitops.cli.scrape "${ARGS[@]}"
+          python -m gitemployed.cli.scrape "${ARGS[@]}"
 
       # Mark the bootstrap as complete (one-time). PATCH 404s when the variable
       # doesn't exist yet, so fall back to create. If both fail, the step fails
@@ -183,13 +183,13 @@ jobs:
         if: steps.verify.outputs.valid == 'true'
         run: |
           if [ -n "$GH_TOKEN" ]; then
-            gh api --method PATCH "repos/${{ github.repository }}/actions/variables/JOBGITOPS_INITIALIZED" \
+            gh api --method PATCH "repos/${{ github.repository }}/actions/variables/GITEMPLOYED_INITIALIZED" \
               -f value=true \
               || gh api --method POST "repos/${{ github.repository }}/actions/variables" \
-                   -f name=JOBGITOPS_INITIALIZED -f value=true \
-              || echo "::warning::Failed to update JOBGITOPS_INITIALIZED variable. Ensure your GH_PAT has the 'Variables' write permission, or set it manually in Settings -> Secrets and variables -> Actions -> Variables."
+                   -f name=GITEMPLOYED_INITIALIZED -f value=true \
+              || echo "::warning::Failed to update GITEMPLOYED_INITIALIZED variable. Ensure your GH_PAT has the 'Variables' write permission, or set it manually in Settings -> Secrets and variables -> Actions -> Variables."
           else
-            echo "::warning::GH_PAT is not set. GITHUB_TOKEN does not have permission to write repository variables. Please set JOBGITOPS_INITIALIZED to 'true' manually in your repository Settings -> Secrets and variables -> Actions -> Variables to prevent the bootstrap trigger from refiring on future resume pushes."
+            echo "::warning::GH_PAT is not set. GITHUB_TOKEN does not have permission to write repository variables. Please set GITEMPLOYED_INITIALIZED to 'true' manually in your repository Settings -> Secrets and variables -> Actions -> Variables to prevent the bootstrap trigger from refiring on future resume pushes."
           fi
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}

@@ -29,7 +29,7 @@ import trafilatura
 from ddgs import DDGS
 from pydantic import BaseModel, ConfigDict
 
-from jobgitops.schema import ResearchConfig, ValidationError
+from gitemployed.schema import ResearchConfig, ValidationError
 
 logger = logging.getLogger(__name__)
 

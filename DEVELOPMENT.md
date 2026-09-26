@@ -1,6 +1,6 @@
-# JobGitOps Development Guide
+# GitEmployed Development Guide
 
-This guide is for developers and contributors looking to understand the architecture, inner workings, and development workflows of JobGitOps. 
+This guide is for developers and contributors looking to understand the architecture, inner workings, and development workflows of GitEmployed. 
 
 For end-user installation, setup, and configuration instructions, please refer to the main [README.md](README.md).
 
@@ -8,7 +8,7 @@ For end-user installation, setup, and configuration instructions, please refer t
 
 ## System Architecture
 
-JobGitOps is designed to run entirely "serverless" on GitHub's free execution infrastructure, using GitHub Actions as the processing plane and GitHub Issues/Projects as the database and user interface.
+GitEmployed is designed to run entirely "serverless" on GitHub's free execution infrastructure, using GitHub Actions as the processing plane and GitHub Issues/Projects as the database and user interface.
 
 ```mermaid
 flowchart TD
@@ -64,7 +64,7 @@ These workflows run inside a pre-built Docker container hosting Bun, Chromium/Pu
 ### Running the ESD Export
 
 `esd-export.yml` is manual-only — there's no cron, since ESD filings happen
-on the agency's schedule, not JobGitOps's. To run it: open the **Actions**
+on the agency's schedule, not GitEmployed's. To run it: open the **Actions**
 tab, select **ESD Export**, click **Run workflow**, and fill in the inputs:
 
 - **group_by** (`weekly`/`monthly`) and, if weekly, **week_start** — how
@@ -153,8 +153,8 @@ export GITHUB_TOKEN="ghp_..."
 export GITHUB_REPOSITORY="owner/repo"
 
 # Run setup commands
-python -m jobgitops.cli.project_sync field-options              # Initialize/prune Projects V2 columns
-python -m jobgitops.cli.project_sync backfill --reverse         # Reconcile board columns to issue labels
+python -m gitemployed.cli.project_sync field-options              # Initialize/prune Projects V2 columns
+python -m gitemployed.cli.project_sync backfill --reverse         # Reconcile board columns to issue labels
 ```
 
 ### Local Troubleshooting & Resolution Tips
@@ -162,13 +162,13 @@ python -m jobgitops.cli.project_sync backfill --reverse         # Reconcile boar
 - **Coverage Gate Failures**:
   If `just validate` fails the 90% test coverage requirement, run coverage with term-missing line reporting to find untested blocks:
   ```bash
-  pytest --cov=src/jobgitops --cov-report=term-missing tests/
+  pytest --cov=src/gitemployed --cov-report=term-missing tests/
   ```
 - **Dry-Run Local Scraping & Validation**:
   Test scraping and resume format checking locally without creating remote GitHub issues:
   ```bash
-  python -m jobgitops.cli.scrape --dry-run
-  python -m jobgitops.cli.validate_resume resumes/resume.yaml
+  python -m gitemployed.cli.scrape --dry-run
+  python -m gitemployed.cli.validate_resume resumes/resume.yaml
   ```
 
 ---
@@ -176,8 +176,8 @@ python -m jobgitops.cli.project_sync backfill --reverse         # Reconcile boar
 ## Repository Layout
 
 ```text
-src/jobgitops/cli/            # CLI entry points (scrape, triage, respond, status_transition, project_sync)
-src/jobgitops/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper, status_model)
+src/gitemployed/cli/            # CLI entry points (scrape, triage, respond, status_transition, project_sync)
+src/gitemployed/                # Core library (llm, renderer, git_ops, github_client, schema, loader, fit_grades, scraper, status_model)
 scripts/format_resume.py      # Canonical resume.yaml formatter
 installer/                    # TypeScript bootstrap installer package (see [specs/bootstrap-installer.md](specs/bootstrap-installer.md))
 template/                     # Installer user-repo content: config defaults, placeholder resume, README, .gitignore
@@ -190,7 +190,7 @@ specs/                        # Architecture specs + user stories
 
 ## Developer Fork-and-Run Setup
 
-While the interactive installer package is the recommended installation path, JobGitOps can also be set up manually by developers testing modifications in a personal fork:
+While the interactive installer package is the recommended installation path, GitEmployed can also be set up manually by developers testing modifications in a personal fork:
 
 1. **Fork the repository** to your personal GitHub account.
 2. **Configure secrets & variables** — see [API Key Setup](#api-key-setup) below.
@@ -252,21 +252,21 @@ If you choose to enable the Projects V2 Kanban board manually on your fork:
 
    You can initialize status options and reconcile cards by running:
    ```bash
-   devenv shell -- python -m jobgitops.cli.project_sync field-options   # create missing options
-   devenv shell -- python -m jobgitops.cli.project_sync backfill --reverse   # one-time reconciliation
-   devenv shell -- python -m jobgitops.cli.project_sync field-options --prune   # drop stale defaults (e.g. Done)
+   devenv shell -- python -m gitemployed.cli.project_sync field-options   # create missing options
+   devenv shell -- python -m gitemployed.cli.project_sync backfill --reverse   # one-time reconciliation
+   devenv shell -- python -m gitemployed.cli.project_sync field-options --prune   # drop stale defaults (e.g. Done)
    ```
 
    > [!TIP]
-   > Run the prune step once cards are off the default columns: removing the `Done` option permanently disarms GitHub's built-in "item closed → Done" automation, which otherwise races the pipeline's own column moves on every issue close (see `ensure_project_status` in `src/jobgitops/github_client.py`).
+   > Run the prune step once cards are off the default columns: removing the `Done` option permanently disarms GitHub's built-in "item closed → Done" automation, which otherwise races the pipeline's own column moves on every issue close (see `ensure_project_status` in `src/gitemployed/github_client.py`).
 
 ### Gmail Sync Setup (Optional)
 
-Gmail Sync (`gmail-sync.yml`) is off by default: `config/settings.yaml` has no `gmail` section until you enable one. Enabling it always needs your own Google Cloud OAuth client (never a JobGitOps-shared one — see below) plus a Gmail label/filter; from there you can either let the **installer wizard automate the rest**, or do it **manually** (required if you're adding Gmail Sync to an already-installed repo, or setting it up headless).
+Gmail Sync (`gmail-sync.yml`) is off by default: `config/settings.yaml` has no `gmail` section until you enable one. Enabling it always needs your own Google Cloud OAuth client (never a GitEmployed-shared one — see below) plus a Gmail label/filter; from there you can either let the **installer wizard automate the rest**, or do it **manually** (required if you're adding Gmail Sync to an already-installed repo, or setting it up headless).
 
 1. **Create a Google Cloud project** at [console.cloud.google.com](https://console.cloud.google.com/), then enable the **Gmail API** for it (APIs & Services > Library > search "Gmail API" > Enable).
 
-2. **Add yourself as a test user — do not skip this.** APIs & Services > **OAuth consent screen** > **Audience** tab > **Test users** > add your own Google account's email > Save. Test-mode consent screens work indefinitely for the developer's own account — no Google review needed, since only you ever authorize this client. *(A single JobGitOps-shared OAuth client would let the wizard skip this step entirely, but `gmail.readonly` is a restricted scope: a shared client serving many different users' accounts would need to pass Google's app verification/security assessment, and every user would see an "unverified app" warning until then. Keeping the client per-user avoids that entirely.)*
+2. **Add yourself as a test user — do not skip this.** APIs & Services > **OAuth consent screen** > **Audience** tab > **Test users** > add your own Google account's email > Save. Test-mode consent screens work indefinitely for the developer's own account — no Google review needed, since only you ever authorize this client. *(A single GitEmployed-shared OAuth client would let the wizard skip this step entirely, but `gmail.readonly` is a restricted scope: a shared client serving many different users' accounts would need to pass Google's app verification/security assessment, and every user would see an "unverified app" warning until then. Keeping the client per-user avoids that entirely.)*
 
    > [!WARNING]
    > Skipping this step is the single most common snag: you'll get all the way through the Google sign-in and see **"Access blocked: `<app name>` has not completed the Google verification process... The app is currently being tested, and can only be accessed by developer-approved testers"** instead of the permission screen. If you hit that, this is the step you missed — go add yourself as a test user and try again.
@@ -279,7 +279,7 @@ Gmail Sync (`gmail-sync.yml`) is off by default: `config/settings.yaml` has no `
 
 5. **Get your refresh token, secrets, and config set up** — pick one:
 
-   **Automated (recommended, during initial repo setup only):** run the installer (`npx jobgitops-installer`) and answer "yes" when it asks about Gmail Sync. If you don't have a Client ID/Secret yet, say so when asked and it opens the Google Cloud Console credentials page for you, printing steps 1-3 above right in your terminal. Paste the resulting Client ID/Secret in, plus your label from step 4; it then opens your browser to Google's consent screen, catches the redirect on a short-lived local server (nothing is ever typed or copy-pasted), exchanges the code for a refresh token, and writes `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REFRESH_TOKEN` to your repo's secrets plus `gmail.enabled`/`gmail.label` into `config/settings.yaml` for you. Non-interactive/scripted installs can pass `--gmail --gmail-client-id ... --gmail-client-secret ... --gmail-refresh-token ...` (mint the token manually first, per below) or `--gmail-label`; see `npx jobgitops-installer --help`.
+   **Automated (recommended, during initial repo setup only):** run the installer (`npx gitemployed-installer`) and answer "yes" when it asks about Gmail Sync. If you don't have a Client ID/Secret yet, say so when asked and it opens the Google Cloud Console credentials page for you, printing steps 1-3 above right in your terminal. Paste the resulting Client ID/Secret in, plus your label from step 4; it then opens your browser to Google's consent screen, catches the redirect on a short-lived local server (nothing is ever typed or copy-pasted), exchanges the code for a refresh token, and writes `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REFRESH_TOKEN` to your repo's secrets plus `gmail.enabled`/`gmail.label` into `config/settings.yaml` for you. Non-interactive/scripted installs can pass `--gmail --gmail-client-id ... --gmail-client-secret ... --gmail-refresh-token ...` (mint the token manually first, per below) or `--gmail-label`; see `npx gitemployed-installer --help`.
 
    **Manual (for an already-installed repo, or a headless machine):** mint the refresh token yourself, once, in a scratch virtual environment (`google-auth-oauthlib` is intentionally not a project dependency, since nothing in the shipped engine needs it — only this one-time script does):
 
@@ -324,7 +324,7 @@ Gmail Sync (`gmail-sync.yml`) is off by default: `config/settings.yaml` has no `
    ```yaml
    gmail:
      enabled: true
-     label: "JobGitOps"   # must exactly match the label name you created in step 4
+     label: "GitEmployed"   # must exactly match the label name you created in step 4
    ```
 
 > [!NOTE]

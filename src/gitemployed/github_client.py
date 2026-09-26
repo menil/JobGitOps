@@ -1,4 +1,4 @@
-"""GitHub API client wrapper for JobGitOps."""
+"""GitHub API client wrapper for GitEmployed."""
 
 import json
 import logging
@@ -11,7 +11,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
-logger = logging.getLogger("jobgitops.github_client")
+logger = logging.getLogger("gitemployed.github_client")
 
 
 class GitHubClientError(Exception):
@@ -167,7 +167,7 @@ class GitHubClient:
         req_headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "JobGitOps",
+            "User-Agent": "GitEmployed",
         }
         if headers:
             # Normalize headers by updating base headers dict

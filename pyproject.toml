@@ -3,7 +3,7 @@ requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jobgitops"
+name = "gitemployed"
 version = "0.1.0"
 description = "GitOps-driven job application and tracking system"
 readme = "README.md"
@@ -35,13 +35,13 @@ dependencies = [
 ]
 
 [project.scripts]
-jobgitops-scrape = "jobgitops.cli.scrape:main"
-jobgitops-triage = "jobgitops.cli.triage:main"
-jobgitops-respond = "jobgitops.cli.respond:main"
-jobgitops-project-sync = "jobgitops.cli.project_sync:main"
-jobgitops-status-transition = "jobgitops.cli.status_transition:main"
-jobgitops-validate-resume = "jobgitops.cli.validate_resume:main"
-jobgitops-esd-export = "jobgitops.cli.esd_export:main"
+gitemployed-scrape = "gitemployed.cli.scrape:main"
+gitemployed-triage = "gitemployed.cli.triage:main"
+gitemployed-respond = "gitemployed.cli.respond:main"
+gitemployed-project-sync = "gitemployed.cli.project_sync:main"
+gitemployed-status-transition = "gitemployed.cli.status_transition:main"
+gitemployed-validate-resume = "gitemployed.cli.validate_resume:main"
+gitemployed-esd-export = "gitemployed.cli.esd_export:main"
 
 [dependency-groups]
 dev = [
@@ -64,7 +64,7 @@ select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "PTH"]
 [tool.coverage.run]
 source = ["src"]
 omit = [
-    "src/jobgitops/__init__.py",
+    "src/gitemployed/__init__.py",
 ]
 
 [tool.coverage.report]

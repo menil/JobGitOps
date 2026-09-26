@@ -94,9 +94,9 @@ jobs:
 
       - name: Run Project Status Sync
         run: |
-          python -m jobgitops.cli.project_sync field-options
-          python -m jobgitops.cli.project_sync backfill --reverse
-          python -m jobgitops.cli.project_sync field-options --prune
+          python -m gitemployed.cli.project_sync field-options
+          python -m gitemployed.cli.project_sync backfill --reverse
+          python -m gitemployed.cli.project_sync field-options --prune
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}

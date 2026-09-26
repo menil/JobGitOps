@@ -16,16 +16,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobgitops.assistant import (
+from gitemployed.assistant import (
     GMAIL_NOTICE_MARKER,
     STATUS_CONFIRMATION_MARKER,
     STATUS_LABELS,
     AgentAction,
 )
-from jobgitops.cli import respond, triage
-from jobgitops.github_client import GitHubClientError
-from jobgitops.llm import ChatMessage, QuotaExceededError
-from jobgitops.schema import ProjectsV2Config, Resume, Settings
+from gitemployed.cli import respond, triage
+from gitemployed.github_client import GitHubClientError
+from gitemployed.llm import ChatMessage, QuotaExceededError
+from gitemployed.schema import ProjectsV2Config, Resume, Settings
 
 DEFAULT_ENV = {"GITHUB_TOKEN": "test_token", "GITHUB_REPOSITORY": "owner/repo"}
 
@@ -234,7 +234,7 @@ def _run_comment_flow(
 ) -> list:
     """Drive handle_comment_event with patched run_agent and fakes."""
     with patch(
-        "jobgitops.cli.respond.run_agent",
+        "gitemployed.cli.respond.run_agent",
         return_value=action,
         side_effect=run_agent_side_effect,
     ) as mocked:
@@ -270,7 +270,7 @@ def test_comment_flow_skips_blocklisted_login() -> None:
 
     with (
         patch.dict(os.environ, {"AGENT_BOT_LOGINS": "claude-code"}, clear=True),
-        patch("jobgitops.cli.respond.run_agent") as mocked,
+        patch("gitemployed.cli.respond.run_agent") as mocked,
     ):
         respond.handle_comment_event(
             event,
@@ -372,7 +372,7 @@ def test_handle_comment_event_with_applied_intent() -> None:
         ),
     )
 
-    with patch("jobgitops.cli.respond.execute_action") as execute_mock:
+    with patch("gitemployed.cli.respond.execute_action") as execute_mock:
         respond.handle_comment_event(
             event,
             gh_client=gh,
@@ -632,7 +632,7 @@ def test_execute_action_status_update_marker_only_without_reply() -> None:
 def test_execute_action_triage_skipped_when_triage_pending() -> None:
     """A triage action is skipped when the issue is labeled triage-pending."""
     gh = FakeGitHubClient(labels=["triage-pending"])
-    with patch("jobgitops.cli.respond.triage.run_triage") as mocked_run:
+    with patch("gitemployed.cli.respond.triage.run_triage") as mocked_run:
         respond.execute_action(
             AgentAction(action="triage"),
             issue_number=5,
@@ -653,7 +653,7 @@ def test_execute_action_triage_skipped_when_triage_pending() -> None:
 def test_execute_action_triage_runs_shared_core() -> None:
     """A triage action runs the shared triage core with fresh context."""
     gh = FakeGitHubClient(labels=["ready-to-apply"])
-    with patch("jobgitops.cli.respond.triage.run_triage") as mocked_run:
+    with patch("gitemployed.cli.respond.triage.run_triage") as mocked_run:
         respond.execute_action(
             AgentAction(action="triage"),
             issue_number=5,
@@ -767,8 +767,8 @@ def test_handle_opened_event_skips_triage_pending() -> None:
     """A triage-pending labeled issue is left to the triage webhook."""
     event = opened_event(labels=["triage-pending"])
     with (
-        patch("jobgitops.cli.respond.triage.run_triage") as mocked_run,
-        patch("jobgitops.cli.respond.triage.fetch_job_page") as mocked_fetch,
+        patch("gitemployed.cli.respond.triage.run_triage") as mocked_run,
+        patch("gitemployed.cli.respond.triage.fetch_job_page") as mocked_fetch,
     ):
         respond.handle_opened_event(
             event,
@@ -791,8 +791,8 @@ def test_handle_opened_event_skips_structured_or_labeled() -> None:
         opened_event(body="no url here"),
     ):
         with (
-            patch("jobgitops.cli.respond.triage.run_triage") as mocked_run,
-            patch("jobgitops.cli.respond.triage.fetch_job_page") as mocked_fetch,
+            patch("gitemployed.cli.respond.triage.run_triage") as mocked_run,
+            patch("gitemployed.cli.respond.triage.fetch_job_page") as mocked_fetch,
         ):
             respond.handle_opened_event(
                 event,
@@ -812,15 +812,16 @@ def test_handle_opened_event_fetch_failure_posts_comment() -> None:
     gh = FakeGitHubClient()
     with (
         patch(
-            "jobgitops.cli.respond.run_agent", return_value=AgentAction(action="triage")
+            "gitemployed.cli.respond.run_agent",
+            return_value=AgentAction(action="triage"),
         ),
-        patch("jobgitops.cli.respond.triage.run_triage") as mocked_run,
+        patch("gitemployed.cli.respond.triage.run_triage") as mocked_run,
         patch(
-            "jobgitops.cli.respond.triage.fetch_job_page",
+            "gitemployed.cli.respond.triage.fetch_job_page",
             side_effect=triage.JobFetchError("blocked by bot"),
         ) as mocked_fetch,
         patch(
-            "jobgitops.cli.respond.triage.post_fetch_failure_comment"
+            "gitemployed.cli.respond.triage.post_fetch_failure_comment"
         ) as mocked_comment,
     ):
         respond.handle_opened_event(
@@ -856,14 +857,15 @@ def test_handle_opened_event_runs_triage_with_canonical_body() -> None:
     }
     with (
         patch(
-            "jobgitops.cli.respond.run_agent", return_value=AgentAction(action="triage")
+            "gitemployed.cli.respond.run_agent",
+            return_value=AgentAction(action="triage"),
         ),
-        patch("jobgitops.cli.respond.triage.fetch_job_page", return_value=fetched),
+        patch("gitemployed.cli.respond.triage.fetch_job_page", return_value=fetched),
         patch(
-            "jobgitops.cli.respond.triage.infer_job_details_from_page",
+            "gitemployed.cli.respond.triage.infer_job_details_from_page",
             return_value=details,
         ),
-        patch("jobgitops.cli.respond.triage.run_triage") as mocked_run,
+        patch("gitemployed.cli.respond.triage.run_triage") as mocked_run,
     ):
         respond.handle_opened_event(
             opened_event(),
@@ -939,13 +941,13 @@ def test_handle_opened_event_skips_intent_classification_for_bare_url() -> None:
     event["issue"]["title"] = "Acme Job"
 
     with (
-        patch("jobgitops.cli.respond.run_agent") as mock_run_agent,
-        patch("jobgitops.cli.respond.triage.fetch_job_page", return_value=fetched),
+        patch("gitemployed.cli.respond.run_agent") as mock_run_agent,
+        patch("gitemployed.cli.respond.triage.fetch_job_page", return_value=fetched),
         patch(
-            "jobgitops.cli.respond.triage.infer_job_details_from_page",
+            "gitemployed.cli.respond.triage.infer_job_details_from_page",
             return_value=details,
         ),
-        patch("jobgitops.cli.respond.triage.run_triage") as mocked_run,
+        patch("gitemployed.cli.respond.triage.run_triage") as mocked_run,
     ):
         respond.handle_opened_event(
             event,
@@ -981,14 +983,15 @@ def test_handle_opened_event_runs_intent_classification_for_non_bare_url() -> No
 
     with (
         patch(
-            "jobgitops.cli.respond.run_agent", return_value=AgentAction(action="triage")
+            "gitemployed.cli.respond.run_agent",
+            return_value=AgentAction(action="triage"),
         ) as mock_run_agent,
-        patch("jobgitops.cli.respond.triage.fetch_job_page", return_value=fetched),
+        patch("gitemployed.cli.respond.triage.fetch_job_page", return_value=fetched),
         patch(
-            "jobgitops.cli.respond.triage.infer_job_details_from_page",
+            "gitemployed.cli.respond.triage.infer_job_details_from_page",
             return_value=details,
         ),
-        patch("jobgitops.cli.respond.triage.run_triage"),
+        patch("gitemployed.cli.respond.triage.run_triage"),
     ):
         respond.handle_opened_event(
             event,
@@ -1046,15 +1049,15 @@ def test_handle_opened_event_with_applied_intent() -> None:
 
     with (
         patch(
-            "jobgitops.cli.respond.triage.fetch_job_page",
+            "gitemployed.cli.respond.triage.fetch_job_page",
             return_value=fetched,
         ) as fetch_mock,
         patch(
-            "jobgitops.cli.respond.triage.infer_job_details_from_page",
+            "gitemployed.cli.respond.triage.infer_job_details_from_page",
             return_value=details,
         ),
-        patch("jobgitops.cli.respond.execute_action") as execute_mock,
-        patch("jobgitops.cli.respond.triage.run_triage") as triage_mock,
+        patch("gitemployed.cli.respond.execute_action") as execute_mock,
+        patch("gitemployed.cli.respond.triage.run_triage") as triage_mock,
     ):
         respond.handle_opened_event(
             event,
@@ -1120,15 +1123,15 @@ def test_handle_opened_event_with_interviewing_intent() -> None:
 
     with (
         patch(
-            "jobgitops.cli.respond.triage.fetch_job_page",
+            "gitemployed.cli.respond.triage.fetch_job_page",
             return_value=fetched,
         ) as fetch_mock,
         patch(
-            "jobgitops.cli.respond.triage.infer_job_details_from_page",
+            "gitemployed.cli.respond.triage.infer_job_details_from_page",
             return_value=details,
         ),
-        patch("jobgitops.cli.respond.execute_action") as execute_mock,
-        patch("jobgitops.cli.respond.triage.run_triage") as triage_mock,
+        patch("gitemployed.cli.respond.execute_action") as execute_mock,
+        patch("gitemployed.cli.respond.triage.run_triage") as triage_mock,
     ):
         respond.handle_opened_event(
             event,
@@ -1217,11 +1220,11 @@ def _run_main(
     with (
         patch.dict(os.environ, DEFAULT_ENV if env is None else env, clear=True),
         patch("sys.argv", argv),
-        patch("jobgitops.cli.respond.load_settings", return_value=sample_settings()),
-        patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
-        patch("jobgitops.cli.respond.GitHubClient", return_value=FakeGitHubClient()),
-        patch("jobgitops.cli.respond.WebClient", return_value=MagicMock()),
-        patch("jobgitops.cli.respond.get_llm_client", return_value=MagicMock()),
+        patch("gitemployed.cli.respond.load_settings", return_value=sample_settings()),
+        patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.respond.GitHubClient", return_value=FakeGitHubClient()),
+        patch("gitemployed.cli.respond.WebClient", return_value=MagicMock()),
+        patch("gitemployed.cli.respond.get_llm_client", return_value=MagicMock()),
         pytest.raises(SystemExit) as exc_info,
     ):
         respond.main()
@@ -1238,13 +1241,13 @@ def test_main_comment_flow_happy_path(tmp_path: Path) -> None:
             "sys.argv",
             ["respond.py", "--event-path", event_path, "--repo-path", str(tmp_path)],
         ),
-        patch("jobgitops.cli.respond.load_settings", return_value=sample_settings()),
-        patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
-        patch("jobgitops.cli.respond.GitHubClient", return_value=gh),
-        patch("jobgitops.cli.respond.WebClient", return_value=MagicMock()),
-        patch("jobgitops.cli.respond.get_llm_client", return_value=MagicMock()),
+        patch("gitemployed.cli.respond.load_settings", return_value=sample_settings()),
+        patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.respond.GitHubClient", return_value=gh),
+        patch("gitemployed.cli.respond.WebClient", return_value=MagicMock()),
+        patch("gitemployed.cli.respond.get_llm_client", return_value=MagicMock()),
         patch(
-            "jobgitops.cli.respond.run_agent",
+            "gitemployed.cli.respond.run_agent",
             return_value=AgentAction(action="reply", reply="Acme is private."),
         ),
     ):
@@ -1262,12 +1265,12 @@ def test_main_opened_event_dispatch(tmp_path: Path) -> None:
             "sys.argv",
             ["respond.py", "--event-path", event_path, "--repo-path", str(tmp_path)],
         ),
-        patch("jobgitops.cli.respond.load_settings", return_value=sample_settings()),
-        patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
-        patch("jobgitops.cli.respond.GitHubClient", return_value=FakeGitHubClient()),
-        patch("jobgitops.cli.respond.WebClient", return_value=MagicMock()),
-        patch("jobgitops.cli.respond.get_llm_client", return_value=MagicMock()),
-        patch("jobgitops.cli.respond.handle_opened_event") as mocked_opened,
+        patch("gitemployed.cli.respond.load_settings", return_value=sample_settings()),
+        patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.respond.GitHubClient", return_value=FakeGitHubClient()),
+        patch("gitemployed.cli.respond.WebClient", return_value=MagicMock()),
+        patch("gitemployed.cli.respond.get_llm_client", return_value=MagicMock()),
+        patch("gitemployed.cli.respond.handle_opened_event") as mocked_opened,
     ):
         respond.main()
 
@@ -1278,7 +1281,7 @@ def test_main_opened_event_dispatch(tmp_path: Path) -> None:
 def test_main_quota_exceeded_exits_75(tmp_path: Path) -> None:
     """A QuotaExceededError exits with code 75 (stop-triage-today convention)."""
     with patch(
-        "jobgitops.cli.respond.handle_comment_event",
+        "gitemployed.cli.respond.handle_comment_event",
         side_effect=QuotaExceededError("quota"),
     ) as mocked:
         code = _run_main(tmp_path, comment_event())
@@ -1290,9 +1293,9 @@ def test_main_unexpected_failure_posts_diagnostic_and_exits_1(tmp_path: Path) ->
     """Other failures post a diagnostic comment and exit 1."""
     gh = FakeGitHubClient()
     with (
-        patch("jobgitops.cli.respond.GitHubClient", return_value=gh),
+        patch("gitemployed.cli.respond.GitHubClient", return_value=gh),
         patch(
-            "jobgitops.cli.respond.handle_comment_event",
+            "gitemployed.cli.respond.handle_comment_event",
             side_effect=RuntimeError("boom"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -1311,12 +1314,12 @@ def test_main_unexpected_failure_posts_diagnostic_and_exits_1(tmp_path: Path) ->
                 ],
             ),
             patch(
-                "jobgitops.cli.respond.load_settings", return_value=sample_settings()
+                "gitemployed.cli.respond.load_settings", return_value=sample_settings()
             ),
-            patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
-            patch("jobgitops.cli.respond.GitHubClient", return_value=gh),
-            patch("jobgitops.cli.respond.WebClient", return_value=MagicMock()),
-            patch("jobgitops.cli.respond.get_llm_client", return_value=MagicMock()),
+            patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
+            patch("gitemployed.cli.respond.GitHubClient", return_value=gh),
+            patch("gitemployed.cli.respond.WebClient", return_value=MagicMock()),
+            patch("gitemployed.cli.respond.get_llm_client", return_value=MagicMock()),
         ):
             respond.main()
 
@@ -1334,7 +1337,7 @@ def test_main_ignores_event_from_unsupported_action(tmp_path: Path) -> None:
     """A comment event with a non-created action is ignored (no side effects)."""
     gh = FakeGitHubClient()
     with (
-        patch("jobgitops.cli.respond.GitHubClient", return_value=gh),
+        patch("gitemployed.cli.respond.GitHubClient", return_value=gh),
         pytest.raises(SystemExit) as exc_info,
     ):
         event_path = write_event(tmp_path, comment_event(action="deleted"))
@@ -1351,12 +1354,12 @@ def test_main_ignores_event_from_unsupported_action(tmp_path: Path) -> None:
                 ],
             ),
             patch(
-                "jobgitops.cli.respond.load_settings", return_value=sample_settings()
+                "gitemployed.cli.respond.load_settings", return_value=sample_settings()
             ),
-            patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
-            patch("jobgitops.cli.respond.GitHubClient", return_value=gh),
-            patch("jobgitops.cli.respond.WebClient", return_value=MagicMock()),
-            patch("jobgitops.cli.respond.get_llm_client", return_value=MagicMock()),
+            patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
+            patch("gitemployed.cli.respond.GitHubClient", return_value=gh),
+            patch("gitemployed.cli.respond.WebClient", return_value=MagicMock()),
+            patch("gitemployed.cli.respond.get_llm_client", return_value=MagicMock()),
         ):
             respond.main()
     assert exc_info.value.code == 0
@@ -1392,12 +1395,12 @@ def test_main_repository_from_event_payload(tmp_path: Path) -> None:
             "sys.argv",
             ["respond.py", "--event-path", event_path, "--repo-path", str(tmp_path)],
         ),
-        patch("jobgitops.cli.respond.load_settings", return_value=sample_settings()),
-        patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
-        patch("jobgitops.cli.respond.GitHubClient") as mocked_gh,
-        patch("jobgitops.cli.respond.WebClient", return_value=MagicMock()),
-        patch("jobgitops.cli.respond.get_llm_client", return_value=MagicMock()),
-        patch("jobgitops.cli.respond.handle_comment_event"),
+        patch("gitemployed.cli.respond.load_settings", return_value=sample_settings()),
+        patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.respond.GitHubClient") as mocked_gh,
+        patch("gitemployed.cli.respond.WebClient", return_value=MagicMock()),
+        patch("gitemployed.cli.respond.get_llm_client", return_value=MagicMock()),
+        patch("gitemployed.cli.respond.handle_comment_event"),
     ):
         respond.main()
 
@@ -1412,8 +1415,8 @@ def test_main_missing_event_path(
     with (
         patch.dict(os.environ, DEFAULT_ENV, clear=True),
         patch("sys.argv", ["respond.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.respond.load_settings", return_value=sample_settings()),
-        patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.respond.load_settings", return_value=sample_settings()),
+        patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
         pytest.raises(SystemExit) as exc_info,
     ):
         respond.main()
@@ -1433,8 +1436,8 @@ def test_main_invalid_event_json(
             "sys.argv",
             ["respond.py", "--event-path", str(bad_path), "--repo-path", str(tmp_path)],
         ),
-        patch("jobgitops.cli.respond.load_settings", return_value=sample_settings()),
-        patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.respond.load_settings", return_value=sample_settings()),
+        patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
         pytest.raises(SystemExit) as exc_info,
     ):
         respond.main()
@@ -1453,7 +1456,7 @@ def test_main_load_failure_exits_1(
             ["respond.py", "--event-path", write_event(tmp_path, comment_event())],
         ),
         patch(
-            "jobgitops.cli.respond.load_settings",
+            "gitemployed.cli.respond.load_settings",
             side_effect=RuntimeError("bad settings"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -1474,9 +1477,11 @@ def test_main_client_init_failure_exits_1(
             "sys.argv",
             ["respond.py", "--event-path", event_path, "--repo-path", str(tmp_path)],
         ),
-        patch("jobgitops.cli.respond.load_settings", return_value=sample_settings()),
-        patch("jobgitops.cli.respond.load_resume", return_value=sample_resume()),
-        patch("jobgitops.cli.respond.GitHubClient", side_effect=ValueError("bad repo")),
+        patch("gitemployed.cli.respond.load_settings", return_value=sample_settings()),
+        patch("gitemployed.cli.respond.load_resume", return_value=sample_resume()),
+        patch(
+            "gitemployed.cli.respond.GitHubClient", side_effect=ValueError("bad repo")
+        ),
         pytest.raises(SystemExit) as exc_info,
     ):
         respond.main()

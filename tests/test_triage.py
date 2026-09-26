@@ -10,7 +10,7 @@ from unittest import mock
 
 import pytest
 
-from jobgitops.cli.triage import (
+from gitemployed.cli.triage import (
     _DEFAULT_RESUME_THEME,
     BATCH_PAGE_SIZE,
     EXIT_QUOTA_EXCEEDED,
@@ -31,11 +31,11 @@ from jobgitops.cli.triage import (
     run_all_pending,
     run_triage,
 )
-from jobgitops.git_ops import GitOpsError
-from jobgitops.github_client import GitHubClient
-from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult
-from jobgitops.schema import Resume, SearchConfig, Settings, ValidationError
-from jobgitops.web import PageContent
+from gitemployed.git_ops import GitOpsError
+from gitemployed.github_client import GitHubClient
+from gitemployed.llm import LLMClient, QuotaExceededError, TriageResult
+from gitemployed.schema import Resume, SearchConfig, Settings, ValidationError
+from gitemployed.web import PageContent
 
 
 @pytest.fixture
@@ -535,12 +535,12 @@ def test_run_triage_mismatch_no_reason_labels(
     mock_gh_client.update_project_status.assert_not_called()
 
 
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 @pytest.mark.parametrize(
     ("fit_score", "expected_label"),
     [
@@ -676,12 +676,12 @@ def test_run_triage_match_approved(
     )
 
 
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_run_triage_uses_settings_theme_when_set(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -748,7 +748,7 @@ def test_run_triage_uses_settings_theme_when_set(
     assert mock_compile.call_args.args[1] == mock_ensure_theme_installed.return_value
 
 
-@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+@mock.patch("gitemployed.cli.triage._get_resume_yaml_diff")
 def test_build_inline_diff_section_wraps_diff(mock_get_diff: mock.MagicMock) -> None:
     """A non-empty diff is wrapped in a collapsible fenced diff block."""
     mock_get_diff.return_value = "-old\n+new\n"
@@ -760,7 +760,7 @@ def test_build_inline_diff_section_wraps_diff(mock_get_diff: mock.MagicMock) -> 
     assert section.endswith("</details>\n")
 
 
-@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+@mock.patch("gitemployed.cli.triage._get_resume_yaml_diff")
 def test_build_inline_diff_section_escapes_triple_backticks(
     mock_get_diff: mock.MagicMock,
 ) -> None:
@@ -774,7 +774,7 @@ def test_build_inline_diff_section_escapes_triple_backticks(
     assert f"````diff\n{tricky_diff}\n````\n" in section
 
 
-@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+@mock.patch("gitemployed.cli.triage._get_resume_yaml_diff")
 def test_build_inline_diff_section_empty_diff(
     mock_get_diff: mock.MagicMock, tmp_path: pathlib.Path
 ) -> None:
@@ -784,7 +784,7 @@ def test_build_inline_diff_section_empty_diff(
     assert _build_inline_diff_section(tmp_path, "applications/x") == ""
 
 
-@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+@mock.patch("gitemployed.cli.triage._get_resume_yaml_diff")
 def test_build_inline_diff_section_git_error(
     mock_get_diff: mock.MagicMock, tmp_path: pathlib.Path
 ) -> None:
@@ -794,7 +794,7 @@ def test_build_inline_diff_section_git_error(
     assert _build_inline_diff_section(tmp_path, "applications/x") == ""
 
 
-@mock.patch("jobgitops.cli.triage._get_resume_yaml_diff")
+@mock.patch("gitemployed.cli.triage._get_resume_yaml_diff")
 def test_build_inline_diff_section_truncates_at_line_boundary(
     mock_get_diff: mock.MagicMock, tmp_path: pathlib.Path
 ) -> None:
@@ -811,10 +811,10 @@ def test_build_inline_diff_section_truncates_at_line_boundary(
         assert line.startswith("-abcdef")
 
 
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_run_triage_tailoring_failure(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -880,12 +880,12 @@ def test_run_triage_tailoring_failure(
     mock_run_git.assert_any_call(["checkout", "-f", "main-branch"], cwd=tmp_path)
 
 
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_run_triage_bare_url_body_fetches_and_substitutes(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -1156,7 +1156,7 @@ def test_run_triage_updates_issue_title(
         "Build things."
     )
 
-    with caplog.at_level(logging.INFO, logger="jobgitops.triage"):
+    with caplog.at_level(logging.INFO, logger="gitemployed.triage"):
         run_triage(
             issue_number=15,
             issue_title="Salesforce Job Request",
@@ -1182,12 +1182,12 @@ def test_run_triage_updates_issue_title(
     assert "[REDACTED]" in caplog.text
 
 
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_run_triage_already_applied(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -1261,12 +1261,12 @@ def test_run_triage_already_applied(
     mock_gh_client.update_project_status.assert_called_once_with("node_xyz", "Applied")
 
 
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_run_triage_interviewing(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -1332,11 +1332,11 @@ def test_run_triage_interviewing(
     mock_gh_client.update_project_status.assert_called_once_with("node_xyz", "In Loop")
 
 
-@mock.patch("jobgitops.cli.triage.get_llm_client")
-@mock.patch("jobgitops.cli.triage.load_settings")
-@mock.patch("jobgitops.cli.triage.load_resume")
-@mock.patch("jobgitops.cli.triage.GitHubClient")
-@mock.patch("jobgitops.cli.triage.run_triage")
+@mock.patch("gitemployed.cli.triage.get_llm_client")
+@mock.patch("gitemployed.cli.triage.load_settings")
+@mock.patch("gitemployed.cli.triage.load_resume")
+@mock.patch("gitemployed.cli.triage.GitHubClient")
+@mock.patch("gitemployed.cli.triage.run_triage")
 def test_main_cli_args(
     mock_run_triage: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -1405,11 +1405,11 @@ def test_main_cli_args(
     )
 
 
-@mock.patch("jobgitops.cli.triage.get_llm_client")
-@mock.patch("jobgitops.cli.triage.load_settings")
-@mock.patch("jobgitops.cli.triage.load_resume")
-@mock.patch("jobgitops.cli.triage.GitHubClient")
-@mock.patch("jobgitops.cli.triage.run_triage")
+@mock.patch("gitemployed.cli.triage.get_llm_client")
+@mock.patch("gitemployed.cli.triage.load_settings")
+@mock.patch("gitemployed.cli.triage.load_resume")
+@mock.patch("gitemployed.cli.triage.GitHubClient")
+@mock.patch("gitemployed.cli.triage.run_triage")
 def test_main_event_path(
     mock_run_triage: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -1479,7 +1479,7 @@ def test_main_event_path(
     )
 
 
-@mock.patch("jobgitops.cli.triage.load_settings")
+@mock.patch("gitemployed.cli.triage.load_settings")
 def test_main_load_settings_failure(mock_load_settings: mock.MagicMock) -> None:
     """Test main exits with sys.exit(1) when loading configuration settings fails."""
     mock_load_settings.side_effect = ValueError("Invalid YAML")
@@ -1494,11 +1494,11 @@ def test_main_load_settings_failure(mock_load_settings: mock.MagicMock) -> None:
     assert exc_info.value.code == 1
 
 
-@mock.patch("jobgitops.cli.triage.get_llm_client")
-@mock.patch("jobgitops.cli.triage.load_settings")
-@mock.patch("jobgitops.cli.triage.load_resume")
-@mock.patch("jobgitops.cli.triage.GitHubClient")
-@mock.patch("jobgitops.cli.triage.run_triage")
+@mock.patch("gitemployed.cli.triage.get_llm_client")
+@mock.patch("gitemployed.cli.triage.load_settings")
+@mock.patch("gitemployed.cli.triage.load_resume")
+@mock.patch("gitemployed.cli.triage.GitHubClient")
+@mock.patch("gitemployed.cli.triage.run_triage")
 def test_main_issue_number_env(
     mock_run_triage: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -1555,11 +1555,11 @@ def test_main_issue_number_env(
     )
 
 
-@mock.patch("jobgitops.cli.triage.get_llm_client")
-@mock.patch("jobgitops.cli.triage.load_settings")
-@mock.patch("jobgitops.cli.triage.load_resume")
-@mock.patch("jobgitops.cli.triage.GitHubClient")
-@mock.patch("jobgitops.cli.triage.run_triage")
+@mock.patch("gitemployed.cli.triage.get_llm_client")
+@mock.patch("gitemployed.cli.triage.load_settings")
+@mock.patch("gitemployed.cli.triage.load_resume")
+@mock.patch("gitemployed.cli.triage.GitHubClient")
+@mock.patch("gitemployed.cli.triage.run_triage")
 def test_main_quota_exceeded(
     mock_run_triage: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -1603,7 +1603,7 @@ def test_main_quota_exceeded(
     assert exc_info.value.code == EXIT_QUOTA_EXCEEDED
 
 
-@mock.patch("jobgitops.cli.triage.run_triage")
+@mock.patch("gitemployed.cli.triage.run_triage")
 def test_run_all_pending_triages_each_labeled_issue(
     mock_run_triage: mock.MagicMock,
     mock_resume: Resume,
@@ -1682,7 +1682,7 @@ def test_run_all_pending_triages_each_labeled_issue(
     )
 
 
-@mock.patch("jobgitops.cli.triage.run_triage")
+@mock.patch("gitemployed.cli.triage.run_triage")
 def test_run_all_pending_paginates_through_all_pending_issues(
     mock_run_triage: mock.MagicMock,
     mock_resume: Resume,
@@ -1741,7 +1741,7 @@ def test_run_all_pending_paginates_through_all_pending_issues(
     ]
 
 
-@mock.patch("jobgitops.cli.triage.run_triage")
+@mock.patch("gitemployed.cli.triage.run_triage")
 def test_run_all_pending_continues_on_individual_failure(
     mock_run_triage: mock.MagicMock,
     mock_resume: Resume,
@@ -1780,7 +1780,7 @@ def test_run_all_pending_continues_on_individual_failure(
     assert mock_run_triage.call_count == 2
 
 
-@mock.patch("jobgitops.cli.triage.run_triage")
+@mock.patch("gitemployed.cli.triage.run_triage")
 def test_run_all_pending_returns_quota_exit_code(
     mock_run_triage: mock.MagicMock,
     mock_resume: Resume,
@@ -1819,11 +1819,11 @@ def test_run_all_pending_returns_quota_exit_code(
     assert mock_run_triage.call_count == 1
 
 
-@mock.patch("jobgitops.cli.triage.get_llm_client")
-@mock.patch("jobgitops.cli.triage.load_settings")
-@mock.patch("jobgitops.cli.triage.load_resume")
-@mock.patch("jobgitops.cli.triage.GitHubClient")
-@mock.patch("jobgitops.cli.triage.run_all_pending")
+@mock.patch("gitemployed.cli.triage.get_llm_client")
+@mock.patch("gitemployed.cli.triage.load_settings")
+@mock.patch("gitemployed.cli.triage.load_resume")
+@mock.patch("gitemployed.cli.triage.GitHubClient")
+@mock.patch("gitemployed.cli.triage.run_all_pending")
 def test_main_all_pending_mode(
     mock_run_all_pending: mock.MagicMock,
     mock_gh_class: mock.MagicMock,
@@ -1867,8 +1867,8 @@ def test_main_all_pending_mode(
     mock_get_llm.assert_called_once()
 
 
-@mock.patch("jobgitops.cli.triage.run_git")
-@mock.patch("jobgitops.cli.triage._create_tailored_application_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage._create_tailored_application_branch")
 def test_run_triage_forwards_header_location(
     mock_create_branch: mock.MagicMock,
     mock_run_git: mock.MagicMock,
@@ -1925,8 +1925,8 @@ def test_run_triage_forwards_header_location(
     mock_create_branch.assert_called_once()
 
 
-@mock.patch("jobgitops.cli.triage.run_git")
-@mock.patch("jobgitops.cli.triage._create_tailored_application_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage._create_tailored_application_branch")
 def test_run_triage_passes_desired_salary_min(
     mock_create_branch: mock.MagicMock,
     mock_run_git: mock.MagicMock,
@@ -2042,8 +2042,8 @@ def test_run_triage_mismatch_structured_reasoning(
     )
 
 
-@mock.patch("jobgitops.cli.triage.run_git")
-@mock.patch("jobgitops.cli.triage._create_tailored_application_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage._create_tailored_application_branch")
 def test_run_triage_match_approved_structured_reasoning(
     mock_create_branch: mock.MagicMock,
     mock_run_git: mock.MagicMock,
@@ -2148,12 +2148,12 @@ def test_get_resume_filenames() -> None:
     )
 
 
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_create_tailored_application_branch_slugged_filenames(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -2223,12 +2223,12 @@ def test_create_tailored_application_branch_slugged_filenames(
     assert (tmp_path / "resumes" / "resume.yaml").exists()
 
 
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_create_tailored_application_branch_fallback_when_name_missing(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -2279,13 +2279,13 @@ def test_create_tailored_application_branch_fallback_when_name_missing(
     )
 
 
-@mock.patch("jobgitops.cli.triage.generate_pdf_diff")
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.generate_pdf_diff")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_create_tailored_application_branch_generates_pdf_diff(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -2327,14 +2327,14 @@ def test_create_tailored_application_branch_generates_pdf_diff(
 
 
 @mock.patch(
-    "jobgitops.cli.triage.generate_pdf_diff", side_effect=RuntimeError("no nix")
+    "gitemployed.cli.triage.generate_pdf_diff", side_effect=RuntimeError("no nix")
 )
-@mock.patch("jobgitops.cli.triage.push_branch")
-@mock.patch("jobgitops.cli.triage.commit_changes")
-@mock.patch("jobgitops.cli.triage.compile_resume")
-@mock.patch("jobgitops.cli.triage.ensure_theme_installed")
-@mock.patch("jobgitops.cli.triage.create_or_checkout_branch")
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.push_branch")
+@mock.patch("gitemployed.cli.triage.commit_changes")
+@mock.patch("gitemployed.cli.triage.compile_resume")
+@mock.patch("gitemployed.cli.triage.ensure_theme_installed")
+@mock.patch("gitemployed.cli.triage.create_or_checkout_branch")
+@mock.patch("gitemployed.cli.triage.run_git")
 def test_create_tailored_application_branch_diff_failure_resilience(
     mock_run_git: mock.MagicMock,
     mock_checkout_branch: mock.MagicMock,
@@ -2371,9 +2371,9 @@ def test_create_tailored_application_branch_diff_failure_resilience(
     assert "resumes/jane_doe_resume_diff.pdf" not in mock_commit.call_args.args[1]
 
 
-@mock.patch("jobgitops.cli.triage.run_git")
+@mock.patch("gitemployed.cli.triage.run_git")
 @mock.patch(
-    "jobgitops.cli.triage._create_tailored_application_branch", return_value=True
+    "gitemployed.cli.triage._create_tailored_application_branch", return_value=True
 )
 def test_run_triage_approval_comment_includes_visual_diff_link(
     mock_create_branch: mock.MagicMock,

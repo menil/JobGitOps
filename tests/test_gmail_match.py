@@ -2,8 +2,8 @@
 
 from unittest import mock
 
-from jobgitops.github_client import GitHubClient
-from jobgitops.gmail_match import PAGE_SIZE, Candidate, get_candidate_pool
+from gitemployed.github_client import GitHubClient
+from gitemployed.gmail_match import PAGE_SIZE, Candidate, get_candidate_pool
 
 
 def _issue(

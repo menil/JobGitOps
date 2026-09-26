@@ -33,11 +33,11 @@ jobs:
           if [ ! -f resumes/resume.yaml ]; then
             echo "setup_required=true" >> "$GITHUB_OUTPUT"
             echo "Setup is required (resume.yaml missing)."
-          elif grep -q "__JOBGITOPS_SETUP_PENDING__" resumes/resume.yaml; then
+          elif grep -q "__GITEMPLOYED_SETUP_PENDING__" resumes/resume.yaml; then
             echo "setup_required=true" >> "$GITHUB_OUTPUT"
             echo "Setup is required (placeholder still present)."
           else
-            if VALIDATE_OUTPUT=$(python -m jobgitops.cli.validate_resume resumes/resume.yaml 2>&1); then
+            if VALIDATE_OUTPUT=$(python -m gitemployed.cli.validate_resume resumes/resume.yaml 2>&1); then
               echo "setup_required=false" >> "$GITHUB_OUTPUT"
               echo "Setup is complete!"
             else
@@ -85,8 +85,8 @@ jobs:
         if: steps.status.outputs.is_template == 'false' && steps.status.outputs.has_gist == 'true'
         continue-on-error: true
         run: |
-          python -m jobgitops.cli.project_sync field-options
-          python -m jobgitops.cli.project_sync field-options --prune
+          python -m gitemployed.cli.project_sync field-options
+          python -m gitemployed.cli.project_sync field-options --prune
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}

@@ -9,9 +9,9 @@ from unittest import mock
 
 import pytest
 
-import jobgitops.web as web
-from jobgitops.schema import ResearchConfig, ValidationError
-from jobgitops.web import (
+import gitemployed.web as web
+from gitemployed.schema import ResearchConfig, ValidationError
+from gitemployed.web import (
     TOOLS,
     PageContent,
     SearchResult,
@@ -149,7 +149,7 @@ def test_web_search_tavily_request_shape(monkeypatch) -> None:
     )
     client = make_client(search_provider="tavily", max_results=3)
 
-    with mock.patch("jobgitops.web.urllib.request.urlopen", mock_urlopen):
+    with mock.patch("gitemployed.web.urllib.request.urlopen", mock_urlopen):
         result = client.web_search("tavily query")
 
     assert result == [SearchResult(title="T1", url="https://x.com", snippet="Snippet")]
@@ -179,7 +179,7 @@ def test_web_search_brave_request_shape(monkeypatch) -> None:
     )
     client = make_client(search_provider="brave", max_results=2)
 
-    with mock.patch("jobgitops.web.urllib.request.urlopen", mock_urlopen):
+    with mock.patch("gitemployed.web.urllib.request.urlopen", mock_urlopen):
         result = client.web_search("brave query")
 
     assert result == [SearchResult(title="T1", url="https://x.com", snippet="S")]
@@ -232,7 +232,7 @@ def test_web_search_network_error_returned(monkeypatch) -> None:
         url="https://api.tavily.com", code=500, msg="Server Error", hdrs=None, fp=None
     )
     client = make_client(search_provider="tavily")
-    with mock.patch("jobgitops.web.urllib.request.urlopen", mock_urlopen):
+    with mock.patch("gitemployed.web.urllib.request.urlopen", mock_urlopen):
         result = client.web_search("q")
     assert isinstance(result, dict)
     assert "Tavily search failed" in result["error"]
@@ -290,7 +290,7 @@ def test_fetch_url_private_ip_blocking_disabled() -> None:
     )
     client = make_client(block_private_ips=False)
     with (
-        mock.patch("jobgitops.web.urllib.request.build_opener", return_value=opener),
+        mock.patch("gitemployed.web.urllib.request.build_opener", return_value=opener),
         mock.patch.object(web, "_extract_text", return_value="Local text"),
     ):
         result = client.fetch_url("http://127.0.0.1/x")
@@ -331,7 +331,7 @@ def test_fetch_url_success() -> None:
     client = make_client()
 
     with (
-        mock.patch("jobgitops.web.urllib.request.build_opener", return_value=opener),
+        mock.patch("gitemployed.web.urllib.request.build_opener", return_value=opener),
         mock.patch.object(web, "_host_is_public", return_value=True),
         mock.patch.object(web, "_extract_text", return_value="Join us"),
     ):
@@ -351,7 +351,7 @@ def test_fetch_url_size_cap() -> None:
     client = make_client(max_content_bytes=10, use_jina_reader=False)
 
     with (
-        mock.patch("jobgitops.web.urllib.request.build_opener", return_value=opener),
+        mock.patch("gitemployed.web.urllib.request.build_opener", return_value=opener),
         mock.patch.object(web, "_host_is_public", return_value=True),
     ):
         result = client.fetch_url("https://example.com/big")
@@ -368,7 +368,7 @@ def test_fetch_url_gzip_decode() -> None:
     client = make_client()
 
     with (
-        mock.patch("jobgitops.web.urllib.request.build_opener", return_value=opener),
+        mock.patch("gitemployed.web.urllib.request.build_opener", return_value=opener),
         mock.patch.object(web, "_host_is_public", return_value=True),
         mock.patch.object(web, "_extract_text", return_value="Compressed") as extract,
     ):
@@ -394,7 +394,7 @@ def test_fetch_url_gzip_bomb_rejected() -> None:
     client = make_client(max_content_bytes=1_000, use_jina_reader=False)
 
     with (
-        mock.patch("jobgitops.web.urllib.request.build_opener", return_value=opener),
+        mock.patch("gitemployed.web.urllib.request.build_opener", return_value=opener),
         mock.patch.object(web, "_host_is_public", return_value=True),
     ):
         result = client.fetch_url("https://example.com/bomb")
@@ -416,7 +416,7 @@ def test_fetch_url_http_error_returned() -> None:
     client = make_client(use_jina_reader=False)
 
     with (
-        mock.patch("jobgitops.web.urllib.request.build_opener", return_value=opener),
+        mock.patch("gitemployed.web.urllib.request.build_opener", return_value=opener),
         mock.patch.object(web, "_host_is_public", return_value=True),
     ):
         result = client.fetch_url("https://example.com/missing")
@@ -540,7 +540,7 @@ def test_fetch_url_jina_fallback_on_empty() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener",
+            "gitemployed.web.urllib.request.build_opener",
             side_effect=[direct_opener, jina_opener],
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
@@ -565,7 +565,7 @@ def test_fetch_url_jina_fallback_on_js_heavy() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener", return_value=jina_opener
+            "gitemployed.web.urllib.request.build_opener", return_value=jina_opener
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
     ):
@@ -586,7 +586,7 @@ def test_fetch_url_jina_sends_api_key_header() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener", return_value=jina_opener
+            "gitemployed.web.urllib.request.build_opener", return_value=jina_opener
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
         mock.patch.dict(os.environ, {"JINA_API_KEY": "jina_test_secret"}, clear=False),
@@ -609,7 +609,7 @@ def test_fetch_url_jina_no_key_sends_no_auth() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener", return_value=jina_opener
+            "gitemployed.web.urllib.request.build_opener", return_value=jina_opener
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
         mock.patch.dict(os.environ, {}, clear=True),
@@ -631,7 +631,7 @@ def test_fetch_url_jina_skipped_when_js_heavy_and_disabled() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener", return_value=direct_opener
+            "gitemployed.web.urllib.request.build_opener", return_value=direct_opener
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
         mock.patch.object(web, "_extract_text", return_value="Direct text"),
@@ -652,7 +652,7 @@ def test_fetch_url_jina_disabled() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener",
+            "gitemployed.web.urllib.request.build_opener",
             return_value=direct_opener,
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
@@ -680,7 +680,7 @@ def test_fetch_url_jina_cap() -> None:
     client = make_client(max_jina_calls=1)
 
     with (
-        mock.patch("jobgitops.web.urllib.request.build_opener", return_value=opener),
+        mock.patch("gitemployed.web.urllib.request.build_opener", return_value=opener),
         mock.patch.object(web, "_host_is_public", return_value=True),
         mock.patch.object(web, "_extract_text", return_value=""),
     ):
@@ -710,7 +710,7 @@ def test_fetch_url_jina_fallback_to_direct_on_failure() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener",
+            "gitemployed.web.urllib.request.build_opener",
             side_effect=[failing_jina_opener, direct_opener],
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
@@ -734,7 +734,7 @@ def test_fetch_url_jina_failure_returns_direct_error() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener",
+            "gitemployed.web.urllib.request.build_opener",
             side_effect=[direct_opener, failing_jina_opener],
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
@@ -753,7 +753,7 @@ def test_fetch_url_jina_cap_zero() -> None:
 
     with (
         mock.patch(
-            "jobgitops.web.urllib.request.build_opener", return_value=direct_opener
+            "gitemployed.web.urllib.request.build_opener", return_value=direct_opener
         ),
         mock.patch.object(web, "_host_is_public", return_value=True),
         mock.patch.object(web, "_extract_text", return_value=""),
@@ -786,7 +786,7 @@ def test_fetch_url_memoization() -> None:
     client = make_client()
 
     with (
-        mock.patch("jobgitops.web.urllib.request.build_opener", return_value=opener),
+        mock.patch("gitemployed.web.urllib.request.build_opener", return_value=opener),
         mock.patch.object(web, "_host_is_public", return_value=True),
         mock.patch.object(web, "_extract_text", return_value="text"),
     ):

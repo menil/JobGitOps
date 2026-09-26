@@ -1,4 +1,4 @@
-# JobGitOps System Configuration
+# GitEmployed System Configuration
 
 # Minimum fit score (1.0 to 5.0) required to tailor a resume and apply.
 # The AI Triage evaluates fit across tech stack, experience, location, salary, and domain.
@@ -39,7 +39,7 @@ custom_queries:
 #   tracking) until you replace it with a real node ID. A placeholder is
 #   treated exactly like an unset value by the automation.
 # status_field_name: name of the single-select Status field on the board. The
-#   option names must match the lifecycle statuses in src/jobgitops/status_model.py
+#   option names must match the lifecycle statuses in src/gitemployed/status_model.py
 #   exactly (e.g. "Triage Pending", "Ready to Apply"); run
 #   `src/project_sync.py field-options` to align them.
 #

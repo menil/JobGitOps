@@ -10,9 +10,9 @@ import logging
 import os
 import sys
 
-from jobgitops.cli import setup_logging
-from jobgitops.esd_export import FORMATS, WEEKDAYS, export_rows, write_rows
-from jobgitops.github_client import GitHubClient, GitHubClientError
+from gitemployed.cli import setup_logging
+from gitemployed.esd_export import FORMATS, WEEKDAYS, export_rows, write_rows
+from gitemployed.github_client import GitHubClient, GitHubClientError
 
 logger = logging.getLogger("esd_export")
 

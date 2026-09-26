@@ -5,7 +5,7 @@ resolve -- the candidate list handed to the (separate) LLM match call.
 
 import pytest
 
-from jobgitops.gmail_match import Candidate, PreFilterResult, prefilter_candidates
+from gitemployed.gmail_match import Candidate, PreFilterResult, prefilter_candidates
 
 
 def _candidate(

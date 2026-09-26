@@ -71,9 +71,9 @@ export async function runInstallation(
 
   // 1. Create a safe temporary scratch directory
   const workDir = await fs.mkdtemp(
-    path.join(os.tmpdir(), "jobgitops-install-"),
+    path.join(os.tmpdir(), "gitemployed-install-"),
   );
-  const tarballPath = path.join(workDir, `jobgitops-${targetTag}.tgz`);
+  const tarballPath = path.join(workDir, `gitemployed-${targetTag}.tgz`);
   const extractDir = path.join(workDir, "extracted");
   const appDir = path.join(workDir, "app");
 
@@ -171,7 +171,7 @@ export async function runInstallation(
         },
       };
       const createdGistId = await createGist(
-        `JobGitOps status badges mapping store for ${owner}/${repoName}`,
+        `GitEmployed status badges mapping store for ${owner}/${repoName}`,
         files,
         resolvedToken,
       );
@@ -262,7 +262,7 @@ export async function runInstallation(
     // 8. Success Report
     console.log(
       pc.green(
-        `\n✨ Done! Your JobGitOps repository is live: https://github.com/${owner}/${repoName}`,
+        `\n✨ Done! Your GitEmployed repository is live: https://github.com/${owner}/${repoName}`,
       ),
     );
     console.log(`\n${pc.bold("Next steps:")}`);
@@ -289,7 +289,7 @@ async function downloadAndExtractTemplate(
   token: string | undefined,
   dryRun: boolean,
 ): Promise<string> {
-  const spinner = ora("Downloading JobGitOps release assets...").start();
+  const spinner = ora("Downloading GitEmployed release assets...").start();
   if (!dryRun) {
     await downloadTarball(targetTag, tarballPath, token);
     spinner.succeed("Download complete.");
@@ -689,7 +689,11 @@ async function initializeGitAndPush(
     await execa("git", ["add", "-A"], { cwd: appDir });
     await execa(
       "git",
-      ["commit", "-m", `chore: bootstrap from JobGitOps template ${targetTag}`],
+      [
+        "commit",
+        "-m",
+        `chore: bootstrap from GitEmployed template ${targetTag}`,
+      ],
       { cwd: appDir },
     );
 
@@ -717,7 +721,7 @@ async function resolveLatestTag(token?: string): Promise<string> {
   try {
     const { stdout } = await execa(
       "gh",
-      ["api", "repos/menil/jobgitops/releases/latest", "--jq", ".tag_name"],
+      ["api", "repos/menil/gitemployed/releases/latest", "--jq", ".tag_name"],
       { env },
     );
     const tag = stdout.trim();
@@ -742,7 +746,7 @@ async function downloadTarball(
   destPath: string,
   token?: string,
 ): Promise<void> {
-  const codeloadUrl = `https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/${tag}`;
+  const codeloadUrl = `https://codeload.github.com/menil/gitemployed/tar.gz/refs/tags/${tag}`;
   const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
 
   try {
@@ -773,13 +777,13 @@ async function downloadTarball(
   try {
     const { stdout } = await execa(
       "gh",
-      ["api", `repos/menil/jobgitops/tarball/${tag}`],
+      ["api", `repos/menil/gitemployed/tarball/${tag}`],
       { env, encoding: "buffer" },
     );
     await fs.writeFile(destPath, stdout);
   } catch (error: any) {
     throw new Error(
-      `Failed to download JobGitOps tarball for '${tag}': ${error.message || error}`,
+      `Failed to download GitEmployed tarball for '${tag}': ${error.message || error}`,
       { cause: error },
     );
   }

@@ -1,14 +1,14 @@
 #!/bin/sh
-# JobGitOps sync-template (spec: specs/bootstrap-installer.md §7.6).
+# GitEmployed sync-template (spec: specs/bootstrap-installer.md §7.6).
 #
 # Pulls the shell-plane files (.github/labels.yml + the runtime-core
-# workflows) from the latest JobGitOps release into a target repo and opens a
+# workflows) from the latest GitEmployed release into a target repo and opens a
 # PR. Manual and optional: workflow files are the one thing a user can't tune
 # in their config, but pulling them is a decision, not a background job.
 # Never auto-merges and never touches config/, resumes/, status/, or README.md.
 # Every mutating step is echoed and aborts on failure; --dry-run prints the
 # commands without running them. The pinned release tag is resolved from the
-# latest release (override with $JOBGITOPS_TAG for pre-release testing).
+# latest release (override with $GITEMPLOYED_TAG for pre-release testing).
 
 set -u
 
@@ -37,7 +37,7 @@ Usage: sync-template.sh <OWNER>/<REPO> [options]
   -h, --help       show this help
 
 Pulls .github/labels.yml + the runtime-core workflows from the latest
-JobGitOps release onto sync/upstream-template and opens a PR (changed files +
+GitEmployed release onto sync/upstream-template and opens a PR (changed files +
 release link). No diff -> exit 0 with no PR. Never auto-merges.
 EOF
     exit 1
@@ -163,42 +163,42 @@ fi
 # Resolve tag + fetch the shell plane (§7.6.1-2)
 # ---------------------------------------------------------------------------
 
-TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/jobgitops-sync.XXXXXX")" ||
+TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/gitemployed-sync.XXXXXX")" ||
     die "could not create a temp working directory."
 # Interrupts exit immediately; the EXIT trap then removes the temp tree.
 trap 'cleanup' EXIT
 trap 'exit 1' HUP INT TERM
 
-if [ -n "${JOBGITOPS_TAG:-}" ]; then
-    TAG="${JOBGITOPS_TAG}"
+if [ -n "${GITEMPLOYED_TAG:-}" ]; then
+    TAG="${GITEMPLOYED_TAG}"
 else
-    TAG="$(gh api repos/menil/jobgitops/releases/latest --jq .tag_name 2>/dev/null)"
+    TAG="$(gh api repos/menil/gitemployed/releases/latest --jq .tag_name 2>/dev/null)"
     [ -n "$TAG" ] ||
-        die "could not resolve the latest JobGitOps release (none published yet). Set JOBGITOPS_TAG=<tag-or-branch> to test a specific ref."
+        die "could not resolve the latest GitEmployed release (none published yet). Set GITEMPLOYED_TAG=<tag-or-branch> to test a specific ref."
 fi
 
-TARBALL="$TMPDIR/jobgitops-$TAG.tgz"
+TARBALL="$TMPDIR/gitemployed-$TAG.tgz"
 download_tarball() {
-    log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG -o $TARBALL"
+    log "> curl -fsSL https://codeload.github.com/menil/gitemployed/tar.gz/refs/tags/$TAG -o $TARBALL"
     [ "$DRY_RUN" = "1" ] && return 0
     # Anonymous codeload first — the public-release path. Its 404 noise is
     # suppressed (2>/dev/null) so the fallbacks below own the messaging.
-    if curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/tags/$TAG" -o "$TARBALL" 2>/dev/null; then
+    if curl -fsSL "https://codeload.github.com/menil/gitemployed/tar.gz/refs/tags/$TAG" -o "$TARBALL" 2>/dev/null; then
         return 0
     fi
     # No such tag (pre-release, before the first release exists) — retry the
-    # ref as a branch so JOBGITOPS_TAG=main works on a public repo. Inert once
+    # ref as a branch so GITEMPLOYED_TAG=main works on a public repo. Inert once
     # releases exist: a release tag is always a real git tag.
-    log "> curl -fsSL https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG -o $TARBALL"
-    if curl -fsSL "https://codeload.github.com/menil/jobgitops/tar.gz/refs/heads/$TAG" -o "$TARBALL" 2>/dev/null; then
+    log "> curl -fsSL https://codeload.github.com/menil/gitemployed/tar.gz/refs/heads/$TAG -o $TARBALL"
+    if curl -fsSL "https://codeload.github.com/menil/gitemployed/tar.gz/refs/heads/$TAG" -o "$TARBALL" 2>/dev/null; then
         return 0
     fi
     # Private-source fallback (owner dogfooding before the repo goes public):
     # the authenticated API tarball endpoint accepts tags and branches and
     # follows a signed redirect using the already-verified gh auth / $GH_TOKEN.
-    log "> gh api repos/menil/jobgitops/tarball/$TAG > $TARBALL"
-    gh api "repos/menil/jobgitops/tarball/$TAG" > "$TARBALL" ||
-        die "failed to download the JobGitOps tarball for '$TAG' — use a valid tag or branch, and ensure your gh auth has read access to the source repo."
+    log "> gh api repos/menil/gitemployed/tarball/$TAG > $TARBALL"
+    gh api "repos/menil/gitemployed/tarball/$TAG" > "$TARBALL" ||
+        die "failed to download the GitEmployed tarball for '$TAG' — use a valid tag or branch, and ensure your gh auth has read access to the source repo."
 }
 download_tarball
 run mkdir -p "$TMPDIR/tree"
@@ -265,7 +265,7 @@ done
 CHANGES="$(git -C "$REPO" status --porcelain -- .github/ 2>/dev/null || true)"
 if [ "$DRY_RUN" = "1" ]; then
     cat >&2 <<EOF
-(dry-run) would sync .github/ in $TARGET from JobGitOps $TAG; a diff would
+(dry-run) would sync .github/ in $TARGET from GitEmployed $TAG; a diff would
 be committed on sync/upstream-template and opened as a PR against $DEFAULT.
 EOF
     exit 0
@@ -290,7 +290,7 @@ run git -C "$REPO" checkout -B sync/upstream-template
 # word-split: it is a space-separated path list, not a single quoted path.
 # shellcheck disable=SC2086
 run git -C "$REPO" add -- $SHELL_PLANE
-run git -C "$REPO" commit -m "chore: sync .github/ from JobGitOps $TAG"
+run git -C "$REPO" commit -m "chore: sync .github/ from GitEmployed $TAG"
 
 # When a PAT is in play, git cannot rely on gh's credential helper (there is
 # no gh auth); feed it the token via an askpass shim that reads $JGO_GIT_TOKEN
@@ -338,10 +338,10 @@ push_branch
 
 # Changed files for the PR body — always exactly the last (sync) commit.
 CHANGED="$(git -C "$REPO" diff --name-status HEAD~1..HEAD)"
-RELEASE_URL="https://github.com/menil/jobgitops/releases/tag/$TAG"
+RELEASE_URL="https://github.com/menil/gitemployed/releases/tag/$TAG"
 BODYFILE="$TMPDIR/pr-body.md"
 {
-    printf 'Pulled from [JobGitOps %s](%s):\n\n' "$TAG" "$RELEASE_URL"
+    printf 'Pulled from [GitEmployed %s](%s):\n\n' "$TAG" "$RELEASE_URL"
     printf '%s\n' "$CHANGED"
     printf '\nOpened by scripts/sync-template.sh (§7.6) — review and merge; never auto-merged.\n'
 } >"$BODYFILE"
@@ -355,7 +355,7 @@ open_pr() {
     log "> gh pr create --repo $TARGET --base $DEFAULT --head sync/upstream-template"
     [ "$DRY_RUN" = "1" ] && return 0
     gh pr create --repo "$TARGET" --base "$DEFAULT" --head sync/upstream-template \
-        --title "chore: sync .github/ from JobGitOps $TAG" \
+        --title "chore: sync .github/ from GitEmployed $TAG" \
         --body-file "$BODYFILE"
     rc=$?
     [ "$rc" -eq 0 ] || die "PR creation failed (exit $rc)."
@@ -365,7 +365,7 @@ open_pr
 PR_URL="$(gh pr list --repo "$TARGET" --head sync/upstream-template --state open --json url --jq '.[0].url' 2>/dev/null)"
 cat >&2 <<EOF
 
-Synced .github/ in $TARGET from JobGitOps $TAG.
+Synced .github/ in $TARGET from GitEmployed $TAG.
 Branch: sync/upstream-template${PR_URL:+" — $PR_URL"}
 Never auto-merged — review and merge manually.
 EOF

@@ -1,10 +1,10 @@
-"""Ensure the committed resume fixture stays in the canonical JobGitOps format."""
+"""Ensure the committed resume fixture stays in the canonical GitEmployed format."""
 
 import pathlib
 
 import scripts.format_resume as format_resume
-from jobgitops.loader import load_resume, render_resume_yaml, resume_yaml_is_canonical
-from jobgitops.schema import Resume
+from gitemployed.loader import load_resume, render_resume_yaml, resume_yaml_is_canonical
+from gitemployed.schema import Resume
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 RESUME_PATH = REPO_ROOT / "tests" / "fixtures" / "resume.yaml"
@@ -121,9 +121,10 @@ def test_format_rewrite_normalizes(tmp_path) -> None:
 
 
 def test_format_skips_if_setup_pending(tmp_path) -> None:
-    """Formatting is skipped when the __JOBGITOPS_SETUP_PENDING__ marker is present."""
+    """Formatting is skipped when the __GITEMPLOYED_SETUP_PENDING__ marker is
+    present."""
     resume_file = tmp_path / "resume.yaml"
-    content = "# __JOBGITOPS_SETUP_PENDING__\nbasics:\n  name: Test\n"
+    content = "# __GITEMPLOYED_SETUP_PENDING__\nbasics:\n  name: Test\n"
     resume_file.write_text(content, encoding="utf-8")
 
     assert format_resume.main([str(resume_file)]) == 0

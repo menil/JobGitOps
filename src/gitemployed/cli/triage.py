@@ -1,4 +1,4 @@
-"""Job triage and tailoring coordinator for JobGitOps.
+"""Job triage and tailoring coordinator for GitEmployed.
 
 Parses issue details, triages the job description against the base resume,
 and either rejects/closes the issue or tailors the resume on a Git branch.
@@ -15,9 +15,13 @@ import sys
 import tempfile
 from typing import Any
 
-from jobgitops.cli import add_repo_path_argument, resolve_repo_path, setup_logging
-from jobgitops.fit_grades import FIT_GRADE_A_MIN, FIT_GRADE_A_PLUS_MIN, FIT_GRADE_B_MIN
-from jobgitops.git_ops import (
+from gitemployed.cli import add_repo_path_argument, resolve_repo_path, setup_logging
+from gitemployed.fit_grades import (
+    FIT_GRADE_A_MIN,
+    FIT_GRADE_A_PLUS_MIN,
+    FIT_GRADE_B_MIN,
+)
+from gitemployed.git_ops import (
     GitOpsError,
     commit_changes,
     create_or_checkout_branch,
@@ -27,15 +31,19 @@ from jobgitops.git_ops import (
     run_git,
     slugify,
 )
-from jobgitops.github_client import GitHubClient, extract_label_names
-from jobgitops.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
-from jobgitops.loader import load_resume, load_settings, render_resume_yaml
-from jobgitops.renderer import compile_resume, ensure_theme_installed, generate_pdf_diff
-from jobgitops.schema import Resume, Settings
-from jobgitops.status_model import FIT_CATEGORY_MISMATCH_LABELS, LABEL_TO_STATUS
-from jobgitops.web import WebClient
+from gitemployed.github_client import GitHubClient, extract_label_names
+from gitemployed.llm import LLMClient, QuotaExceededError, TriageResult, get_llm_client
+from gitemployed.loader import load_resume, load_settings, render_resume_yaml
+from gitemployed.renderer import (
+    compile_resume,
+    ensure_theme_installed,
+    generate_pdf_diff,
+)
+from gitemployed.schema import Resume, Settings
+from gitemployed.status_model import FIT_CATEGORY_MISMATCH_LABELS, LABEL_TO_STATUS
+from gitemployed.web import WebClient
 
-logger = logging.getLogger("jobgitops.triage")
+logger = logging.getLogger("gitemployed.triage")
 
 EXIT_SUCCESS = 0
 EXIT_ERROR = 1

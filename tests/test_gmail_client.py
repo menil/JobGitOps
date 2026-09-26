@@ -7,7 +7,7 @@ import httplib2
 import pytest
 from googleapiclient.errors import HttpError
 
-from jobgitops.gmail_client import (
+from gitemployed.gmail_client import (
     GmailClient,
     GmailClientError,
     GmailMessageNotFoundError,
@@ -49,8 +49,8 @@ def gmail_client() -> tuple[GmailClient, mock.MagicMock]:
     """A `GmailClient` with `Credentials`/`build` mocked out, plus the
     resulting mocked service object for request-shape assertions."""
     with (
-        mock.patch("jobgitops.gmail_client.Credentials") as mock_credentials,
-        mock.patch("jobgitops.gmail_client.build") as mock_build,
+        mock.patch("gitemployed.gmail_client.Credentials") as mock_credentials,
+        mock.patch("gitemployed.gmail_client.build") as mock_build,
     ):
         mock_service = mock.MagicMock()
         mock_build.return_value = mock_service

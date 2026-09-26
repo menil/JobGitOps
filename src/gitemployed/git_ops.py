@@ -1,4 +1,4 @@
-"""Git repository operations wrapper for JobGitOps."""
+"""Git repository operations wrapper for GitEmployed."""
 
 import hashlib
 import logging
@@ -6,7 +6,7 @@ import pathlib
 import re
 import subprocess
 
-logger = logging.getLogger("jobgitops.git_ops")
+logger = logging.getLogger("gitemployed.git_ops")
 
 # Pre-compiled regex for slugify to optimize performance in loops.
 SLUG_REGEX = re.compile(r"[^a-z0-9]+")

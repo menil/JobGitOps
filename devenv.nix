@@ -39,7 +39,7 @@ in
     # Automatically configure local git hooks directory path.
     git config core.hooksPath .githooks
 
-    echo "❄️ Welcome to the JobGitOps devenv shell!"
+    echo "❄️ Welcome to the GitEmployed devenv shell!"
     echo "Python version: $(python --version)"
     echo "Just version: $(just --version)"
   '';

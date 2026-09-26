@@ -21,8 +21,8 @@ import { LLMProvider, getProviderLabel } from "./constants.js";
 const program = new Command();
 
 program
-  .name("jobgitops-installer")
-  .description("Interactive bootstrap installer for JobGitOps repositories")
+  .name("gitemployed-installer")
+  .description("Interactive bootstrap installer for GitEmployed repositories")
   .argument("[repo-name]", "Name of the repository to create (e.g. job-search)")
   .option("-y, --yes", "Skip interactive questions and accept defaults", false)
   .option(
@@ -59,7 +59,7 @@ program
   )
   .option(
     "--gmail-label <label>",
-    "Gmail label to scope Gmail Sync to (default: JobGitOps)",
+    "Gmail label to scope Gmail Sync to (default: GitEmployed)",
   )
   .addOption(
     new Option(
@@ -71,7 +71,7 @@ program
   )
   .option(
     "--tag <ref>",
-    "Specify a tag, branch, or commit of JobGitOps to install",
+    "Specify a tag, branch, or commit of GitEmployed to install",
   )
   .option("--token <token>", "GitHub Personal Access Token (PAT)")
   .action(async (repoNameArg, options) => {
@@ -153,7 +153,7 @@ program
       }
 
       // 5. LLM Provider and Keys resolution
-      let provider = options.provider || process.env.JOBGITOPS_PROVIDER;
+      let provider = options.provider || process.env.GITEMPLOYED_PROVIDER;
       if (!provider && interactive) {
         provider = await promptProvider();
       } else if (!provider) {

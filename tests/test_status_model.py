@@ -1,6 +1,6 @@
 """Unit tests for the canonical status/label model."""
 
-from jobgitops.status_model import (
+from gitemployed.status_model import (
     ACTIVITY_LABELS,
     CLOSURE_LABELS,
     LABEL_TO_STATUS,

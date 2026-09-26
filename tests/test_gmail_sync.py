@@ -13,18 +13,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobgitops.assistant import (
+from gitemployed.assistant import (
     GMAIL_NOTICE_MARKER,
     STATUS_CONFIRMATION_MARKER,
     STATUS_LABELS,
 )
-from jobgitops.cli import gmail_sync
-from jobgitops.git_ops import GitOpsError
-from jobgitops.github_client import GitHubClientError
-from jobgitops.gmail_client import GmailMessageNotFoundError, Message
-from jobgitops.gmail_match import Candidate, PreFilterResult
-from jobgitops.llm import EmailMatchResult, QuotaExceededError, ValidationError
-from jobgitops.schema import GmailConfig, Settings
+from gitemployed.cli import gmail_sync
+from gitemployed.git_ops import GitOpsError
+from gitemployed.github_client import GitHubClientError
+from gitemployed.gmail_client import GmailMessageNotFoundError, Message
+from gitemployed.gmail_match import Candidate, PreFilterResult
+from gitemployed.llm import EmailMatchResult, QuotaExceededError, ValidationError
+from gitemployed.schema import GmailConfig, Settings
 from tests.test_respond import (
     DEFAULT_ENV,
     FakeGitHubClient,
@@ -43,7 +43,7 @@ GMAIL_ENV = {
 def gmail_settings(**overrides: object) -> Settings:
     """`sample_settings()` extended with an enabled Gmail config."""
     settings = sample_settings()
-    config_kwargs = {"enabled": True, "label": "JobGitOps", "days_back": 7}
+    config_kwargs = {"enabled": True, "label": "GitEmployed", "days_back": 7}
     config_kwargs.update(overrides)
     settings.gmail = GmailConfig(**config_kwargs)
     return settings
@@ -167,7 +167,9 @@ def test_main_exits_0_when_gmail_section_absent(tmp_path: Path) -> None:
     """No `settings.gmail` at all is a clean, silent no-op."""
     with (
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=sample_settings()),
+        patch(
+            "gitemployed.cli.gmail_sync.load_settings", return_value=sample_settings()
+        ),
         pytest.raises(SystemExit) as exc_info,
     ):
         gmail_sync.main()
@@ -179,7 +181,7 @@ def test_main_exits_0_when_gmail_disabled(tmp_path: Path) -> None:
     settings = gmail_settings(enabled=False)
     with (
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
         pytest.raises(SystemExit) as exc_info,
     ):
         gmail_sync.main()
@@ -204,7 +206,7 @@ def test_main_exits_1_when_enabled_with_missing_secrets(
     with (
         patch.dict(os.environ, env, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
         pytest.raises(SystemExit) as exc_info,
     ):
         gmail_sync.main()
@@ -216,7 +218,7 @@ def test_main_exits_1_when_settings_fail_to_load(tmp_path: Path) -> None:
     with (
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
         patch(
-            "jobgitops.cli.gmail_sync.load_settings",
+            "gitemployed.cli.gmail_sync.load_settings",
             side_effect=RuntimeError("bad yaml"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -232,8 +234,8 @@ def test_main_exits_1_when_github_token_missing(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, env, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
-        patch("jobgitops.cli.gmail_sync.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_resume", return_value=sample_resume()),
         pytest.raises(SystemExit) as exc_info,
     ):
         gmail_sync.main()
@@ -248,8 +250,8 @@ def test_main_exits_1_when_github_repository_missing(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, env, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
-        patch("jobgitops.cli.gmail_sync.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_resume", return_value=sample_resume()),
         pytest.raises(SystemExit) as exc_info,
     ):
         gmail_sync.main()
@@ -262,16 +264,16 @@ def test_main_quota_exceeded_exits_75(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, GMAIL_ENV, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
-        patch("jobgitops.cli.gmail_sync.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_resume", return_value=sample_resume()),
         patch(
-            "jobgitops.cli.gmail_sync.GitHubClient",
+            "gitemployed.cli.gmail_sync.GitHubClient",
             return_value=FakeGmailGitHubClient(),
         ),
-        patch("jobgitops.cli.gmail_sync.GmailClient", return_value=FakeGmailClient()),
-        patch("jobgitops.cli.gmail_sync.get_llm_client", return_value=MagicMock()),
+        patch("gitemployed.cli.gmail_sync.GmailClient", return_value=FakeGmailClient()),
+        patch("gitemployed.cli.gmail_sync.get_llm_client", return_value=MagicMock()),
         patch(
-            "jobgitops.cli.gmail_sync.run_sync",
+            "gitemployed.cli.gmail_sync.run_sync",
             side_effect=QuotaExceededError("quota"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -286,16 +288,16 @@ def test_main_fatal_label_error_exits_1(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, GMAIL_ENV, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
-        patch("jobgitops.cli.gmail_sync.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_resume", return_value=sample_resume()),
         patch(
-            "jobgitops.cli.gmail_sync.GitHubClient",
+            "gitemployed.cli.gmail_sync.GitHubClient",
             return_value=FakeGmailGitHubClient(),
         ),
-        patch("jobgitops.cli.gmail_sync.GmailClient", return_value=FakeGmailClient()),
-        patch("jobgitops.cli.gmail_sync.get_llm_client", return_value=MagicMock()),
+        patch("gitemployed.cli.gmail_sync.GmailClient", return_value=FakeGmailClient()),
+        patch("gitemployed.cli.gmail_sync.get_llm_client", return_value=MagicMock()),
         patch(
-            "jobgitops.cli.gmail_sync.run_sync",
+            "gitemployed.cli.gmail_sync.run_sync",
             side_effect=gmail_sync.GmailSyncFatalError("no such label"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -451,7 +453,7 @@ def test_process_message_dmarc_failure_makes_zero_llm_calls() -> None:
     gmail_client = FakeGmailClient(messages={"msg-1": make_message(authentic=False)})
     gh = FakeGmailGitHubClient()
 
-    with patch("jobgitops.cli.gmail_sync.match_email_to_candidate") as mocked_match:
+    with patch("gitemployed.cli.gmail_sync.match_email_to_candidate") as mocked_match:
         gmail_sync.process_message(
             message_id="msg-1",
             gmail_client=gmail_client,
@@ -512,11 +514,11 @@ def _run_process_message(
     gmail_client = FakeGmailClient(messages={"msg-1": make_message()})
     with (
         patch(
-            "jobgitops.cli.gmail_sync.prefilter_candidates",
+            "gitemployed.cli.gmail_sync.prefilter_candidates",
             return_value=prefilter_result,
         ),
         patch(
-            "jobgitops.cli.gmail_sync.match_email_to_candidate",
+            "gitemployed.cli.gmail_sync.match_email_to_candidate",
             return_value=match_result,
         ) as match_mock,
     ):
@@ -762,11 +764,11 @@ def test_process_message_llm_validation_error_leaves_message_unprocessed() -> No
     gmail_client = FakeGmailClient(messages={"msg-1": make_message()})
     with (
         patch(
-            "jobgitops.cli.gmail_sync.prefilter_candidates",
+            "gitemployed.cli.gmail_sync.prefilter_candidates",
             return_value=PreFilterResult(tier="zero_hit", candidates=[]),
         ),
         patch(
-            "jobgitops.cli.gmail_sync.match_email_to_candidate",
+            "gitemployed.cli.gmail_sync.match_email_to_candidate",
             side_effect=ValidationError("bad json"),
         ),
     ):
@@ -790,11 +792,11 @@ def test_process_message_quota_exceeded_propagates() -> None:
     gmail_client = FakeGmailClient(messages={"msg-1": make_message()})
     with (
         patch(
-            "jobgitops.cli.gmail_sync.prefilter_candidates",
+            "gitemployed.cli.gmail_sync.prefilter_candidates",
             return_value=PreFilterResult(tier="zero_hit", candidates=[]),
         ),
         patch(
-            "jobgitops.cli.gmail_sync.match_email_to_candidate",
+            "gitemployed.cli.gmail_sync.match_email_to_candidate",
             side_effect=QuotaExceededError("quota"),
         ),
         pytest.raises(QuotaExceededError),
@@ -825,7 +827,7 @@ def test_checkout_state_branch_fetches_before_checkout(tmp_path: Path) -> None:
         calls.append(args)
         return ""
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         gmail_sync._checkout_state_branch(tmp_path)
 
     fetch_index = next(i for i, c in enumerate(calls) if c[0] == "fetch")
@@ -852,7 +854,7 @@ def test_checkout_state_branch_creates_orphan_on_first_run(tmp_path: Path) -> No
             raise GitOpsError("couldn't find remote ref")
         return ""
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         gmail_sync._checkout_state_branch(tmp_path)
 
     assert calls[0] == ["fetch", "origin", gmail_sync.STATE_BRANCH]
@@ -865,7 +867,7 @@ def test_checkout_state_branch_creates_orphan_on_first_run(tmp_path: Path) -> No
 
 def test_load_cursor_returns_empty_when_branch_absent(tmp_path: Path) -> None:
     with patch(
-        "jobgitops.cli.gmail_sync.run_git", side_effect=GitOpsError("no such branch")
+        "gitemployed.cli.gmail_sync.run_git", side_effect=GitOpsError("no such branch")
     ):
         cursor = gmail_sync.load_cursor(tmp_path)
     assert cursor == {"processed": {}, "last_synced_at": None}
@@ -884,7 +886,7 @@ def test_load_cursor_parses_existing_state(tmp_path: Path) -> None:
             return raw_json
         raise AssertionError(f"unexpected git call: {args}")
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         cursor = gmail_sync.load_cursor(tmp_path)
 
     assert cursor == {
@@ -903,7 +905,7 @@ def test_load_cursor_does_not_checkout(tmp_path: Path) -> None:
             return '{"processed": {}, "last_synced_at": null}'
         return ""
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         gmail_sync.load_cursor(tmp_path)
 
     assert not any(c[0] == "checkout" for c in calls)
@@ -913,7 +915,7 @@ def test_load_cursor_does_not_checkout(tmp_path: Path) -> None:
 
 
 def test_push_state_branch_succeeds_on_first_try(tmp_path: Path) -> None:
-    with patch("jobgitops.cli.gmail_sync.run_git", return_value=""):
+    with patch("gitemployed.cli.gmail_sync.run_git", return_value=""):
         assert gmail_sync._push_state_branch(tmp_path) is True
 
 
@@ -926,7 +928,7 @@ def test_push_state_branch_retries_once_then_succeeds(tmp_path: Path) -> None:
             raise GitOpsError("rejected: non-fast-forward")
         return ""
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         result = gmail_sync._push_state_branch(tmp_path)
 
     assert result is True
@@ -941,7 +943,7 @@ def test_push_state_branch_gives_up_after_one_retry(tmp_path: Path) -> None:
     False), without raising -- side effects already applied must not be
     rolled back."""
     with patch(
-        "jobgitops.cli.gmail_sync.run_git",
+        "gitemployed.cli.gmail_sync.run_git",
         side_effect=GitOpsError("still rejected"),
     ):
         result = gmail_sync._push_state_branch(tmp_path)
@@ -951,10 +953,10 @@ def test_push_state_branch_gives_up_after_one_retry(tmp_path: Path) -> None:
 def test_finalize_cursor_push_failure_does_not_raise(tmp_path: Path) -> None:
     """A total push failure in _finalize_cursor is logged, not raised."""
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", return_value="deadbeef"),
-        patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
-        patch("jobgitops.cli.gmail_sync._commit_cursor", return_value=True),
-        patch("jobgitops.cli.gmail_sync._push_state_branch", return_value=False),
+        patch("gitemployed.cli.gmail_sync.run_git", return_value="deadbeef"),
+        patch("gitemployed.cli.gmail_sync._checkout_state_branch"),
+        patch("gitemployed.cli.gmail_sync._commit_cursor", return_value=True),
+        patch("gitemployed.cli.gmail_sync._push_state_branch", return_value=False),
     ):
         # Must not raise.
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
@@ -977,10 +979,10 @@ def test_finalize_cursor_restores_original_ref_after_state_branch_work(
         return ""
 
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
-        patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
-        patch("jobgitops.cli.gmail_sync._commit_cursor", return_value=True),
-        patch("jobgitops.cli.gmail_sync._push_state_branch", return_value=True),
+        patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch("gitemployed.cli.gmail_sync._checkout_state_branch"),
+        patch("gitemployed.cli.gmail_sync._commit_cursor", return_value=True),
+        patch("gitemployed.cli.gmail_sync._push_state_branch", return_value=True),
     ):
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
 
@@ -1003,9 +1005,9 @@ def test_finalize_cursor_restores_original_ref_even_on_checkout_failure(
         return ""
 
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git),
         patch(
-            "jobgitops.cli.gmail_sync._checkout_state_branch",
+            "gitemployed.cli.gmail_sync._checkout_state_branch",
             side_effect=GitOpsError("boom"),
         ),
     ):
@@ -1033,10 +1035,10 @@ def test_finalize_cursor_logs_restore_failure_without_raising(
         return ""
 
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
-        patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
-        patch("jobgitops.cli.gmail_sync._commit_cursor", return_value=True),
-        patch("jobgitops.cli.gmail_sync._push_state_branch", return_value=True),
+        patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch("gitemployed.cli.gmail_sync._checkout_state_branch"),
+        patch("gitemployed.cli.gmail_sync._commit_cursor", return_value=True),
+        patch("gitemployed.cli.gmail_sync._push_state_branch", return_value=True),
     ):
         # Must not raise.
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
@@ -1072,13 +1074,13 @@ def _run_full_sync(
         return ""
 
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
-        patch("jobgitops.cli.gmail_sync.get_candidate_pool", return_value=[]),
+        patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch("gitemployed.cli.gmail_sync.get_candidate_pool", return_value=[]),
         patch("subprocess.run", return_value=MagicMock(returncode=1)),
     ):
         gmail_sync.run_sync(
             repo_path=tmp_path,
-            gmail_config=GmailConfig(enabled=True, label="JobGitOps", days_back=7),
+            gmail_config=GmailConfig(enabled=True, label="GitEmployed", days_back=7),
             gh_client=gh,
             gmail_client=gmail_client,
             llm_client=MagicMock(),
@@ -1134,15 +1136,15 @@ def test_run_sync_resolves_label_and_lists_messages_with_configured_params(
         return ""
 
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
-        patch("jobgitops.cli.gmail_sync.get_candidate_pool", return_value=[]),
+        patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch("gitemployed.cli.gmail_sync.get_candidate_pool", return_value=[]),
         patch("subprocess.run", return_value=MagicMock(returncode=1)),
     ):
         gmail_sync.run_sync(
             repo_path=tmp_path,
             gmail_config=GmailConfig(
                 enabled=True,
-                label="JobGitOps",
+                label="GitEmployed",
                 query="from:ats.example.com",
                 days_back=5,
             ),
@@ -1153,7 +1155,7 @@ def test_run_sync_resolves_label_and_lists_messages_with_configured_params(
             resume=sample_resume(),
         )
 
-    assert gmail_client.resolve_calls == ["JobGitOps"]
+    assert gmail_client.resolve_calls == ["GitEmployed"]
     assert gmail_client.list_calls == [("Label_42", "from:ats.example.com", 5)]
 
 
@@ -1189,13 +1191,13 @@ def test_run_sync_already_processed_message_has_zero_side_effects(
         return ""
 
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git),
-        patch("jobgitops.cli.gmail_sync.get_candidate_pool", return_value=[]),
+        patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git),
+        patch("gitemployed.cli.gmail_sync.get_candidate_pool", return_value=[]),
         patch("subprocess.run", return_value=MagicMock(returncode=1)),
     ):
         gmail_sync.run_sync(
             repo_path=tmp_path,
-            gmail_config=GmailConfig(enabled=True, label="JobGitOps", days_back=7),
+            gmail_config=GmailConfig(enabled=True, label="GitEmployed", days_back=7),
             gh_client=gh,
             gmail_client=gmail_client,
             llm_client=MagicMock(),
@@ -1237,7 +1239,7 @@ def test_load_cursor_handles_malformed_json(tmp_path: Path) -> None:
             return "{not valid json"
         raise AssertionError(f"unexpected git call: {args}")
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         cursor = gmail_sync.load_cursor(tmp_path)
     assert cursor == {"processed": {}, "last_synced_at": None}
 
@@ -1250,7 +1252,7 @@ def test_load_cursor_defaults_processed_when_not_a_dict(tmp_path: Path) -> None:
             return '{"processed": "not-a-dict", "last_synced_at": null}'
         raise AssertionError(f"unexpected git call: {args}")
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         cursor = gmail_sync.load_cursor(tmp_path)
     assert cursor == {"processed": {}, "last_synced_at": None}
 
@@ -1283,7 +1285,7 @@ def test_ensure_git_identity_sets_when_unset(tmp_path: Path) -> None:
             raise GitOpsError("not set")
         return ""
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         gmail_sync._ensure_git_identity(tmp_path)
 
     assert ["config", "user.name", "github-actions[bot]"] in calls
@@ -1301,7 +1303,7 @@ def test_ensure_git_identity_leaves_existing_identity_alone(tmp_path: Path) -> N
         calls.append(args)
         return "Existing Name"
 
-    with patch("jobgitops.cli.gmail_sync.run_git", side_effect=fake_run_git):
+    with patch("gitemployed.cli.gmail_sync.run_git", side_effect=fake_run_git):
         gmail_sync._ensure_git_identity(tmp_path)
 
     assert all(len(c) == 2 for c in calls)  # only the read-only "config x" calls
@@ -1309,7 +1311,7 @@ def test_ensure_git_identity_leaves_existing_identity_alone(tmp_path: Path) -> N
 
 def test_commit_cursor_returns_false_when_nothing_staged(tmp_path: Path) -> None:
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", return_value=""),
+        patch("gitemployed.cli.gmail_sync.run_git", return_value=""),
         patch("subprocess.run", return_value=MagicMock(returncode=0)),
     ):
         assert gmail_sync._commit_cursor(tmp_path) is False
@@ -1317,9 +1319,9 @@ def test_commit_cursor_returns_false_when_nothing_staged(tmp_path: Path) -> None
 
 def test_finalize_cursor_checkout_failure_is_logged_not_raised(tmp_path: Path) -> None:
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", return_value="deadbeef"),
+        patch("gitemployed.cli.gmail_sync.run_git", return_value="deadbeef"),
         patch(
-            "jobgitops.cli.gmail_sync._checkout_state_branch",
+            "gitemployed.cli.gmail_sync._checkout_state_branch",
             side_effect=GitOpsError("boom"),
         ),
     ):
@@ -1333,13 +1335,13 @@ def test_finalize_cursor_write_failure_is_logged_not_raised(tmp_path: Path) -> N
     failure paths, so the caller's already-applied issue side effects are
     never at risk from a cursor-write problem either."""
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", return_value="deadbeef"),
-        patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
+        patch("gitemployed.cli.gmail_sync.run_git", return_value="deadbeef"),
+        patch("gitemployed.cli.gmail_sync._checkout_state_branch"),
         patch(
-            "jobgitops.cli.gmail_sync._write_cursor_file",
+            "gitemployed.cli.gmail_sync._write_cursor_file",
             side_effect=OSError("disk full"),
         ),
-        patch("jobgitops.cli.gmail_sync._push_state_branch") as mocked_push,
+        patch("gitemployed.cli.gmail_sync._push_state_branch") as mocked_push,
     ):
         # Must not raise.
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
@@ -1348,12 +1350,12 @@ def test_finalize_cursor_write_failure_is_logged_not_raised(tmp_path: Path) -> N
 
 def test_finalize_cursor_no_changes_skips_push(tmp_path: Path) -> None:
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", return_value="deadbeef"),
-        patch("jobgitops.cli.gmail_sync._checkout_state_branch"),
+        patch("gitemployed.cli.gmail_sync.run_git", return_value="deadbeef"),
+        patch("gitemployed.cli.gmail_sync._checkout_state_branch"),
         patch(
-            "jobgitops.cli.gmail_sync._commit_cursor", return_value=False
+            "gitemployed.cli.gmail_sync._commit_cursor", return_value=False
         ) as mocked_commit,
-        patch("jobgitops.cli.gmail_sync._push_state_branch") as mocked_push,
+        patch("gitemployed.cli.gmail_sync._push_state_branch") as mocked_push,
     ):
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
     mocked_commit.assert_called_once()
@@ -1368,10 +1370,10 @@ def test_finalize_cursor_rev_parse_failure_skips_state_branch_entirely(
     original ref afterward would strand the working tree."""
     with (
         patch(
-            "jobgitops.cli.gmail_sync.run_git",
+            "gitemployed.cli.gmail_sync.run_git",
             side_effect=GitOpsError("not a git repo"),
         ),
-        patch("jobgitops.cli.gmail_sync._checkout_state_branch") as mocked_checkout,
+        patch("gitemployed.cli.gmail_sync._checkout_state_branch") as mocked_checkout,
     ):
         # Must not raise.
         gmail_sync._finalize_cursor(tmp_path, {"processed": {}, "last_synced_at": "x"})
@@ -1386,10 +1388,10 @@ def test_main_exits_1_when_github_client_init_fails(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, GMAIL_ENV, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
-        patch("jobgitops.cli.gmail_sync.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_resume", return_value=sample_resume()),
         patch(
-            "jobgitops.cli.gmail_sync.GitHubClient",
+            "gitemployed.cli.gmail_sync.GitHubClient",
             side_effect=RuntimeError("bad token"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -1403,14 +1405,14 @@ def test_main_exits_1_when_gmail_client_init_fails(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, GMAIL_ENV, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
-        patch("jobgitops.cli.gmail_sync.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_resume", return_value=sample_resume()),
         patch(
-            "jobgitops.cli.gmail_sync.GitHubClient",
+            "gitemployed.cli.gmail_sync.GitHubClient",
             return_value=FakeGmailGitHubClient(),
         ),
         patch(
-            "jobgitops.cli.gmail_sync.GmailClient",
+            "gitemployed.cli.gmail_sync.GmailClient",
             side_effect=RuntimeError("bad creds"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -1424,15 +1426,15 @@ def test_main_exits_1_when_llm_client_init_fails(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, GMAIL_ENV, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
-        patch("jobgitops.cli.gmail_sync.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_resume", return_value=sample_resume()),
         patch(
-            "jobgitops.cli.gmail_sync.GitHubClient",
+            "gitemployed.cli.gmail_sync.GitHubClient",
             return_value=FakeGmailGitHubClient(),
         ),
-        patch("jobgitops.cli.gmail_sync.GmailClient", return_value=FakeGmailClient()),
+        patch("gitemployed.cli.gmail_sync.GmailClient", return_value=FakeGmailClient()),
         patch(
-            "jobgitops.cli.gmail_sync.get_llm_client",
+            "gitemployed.cli.gmail_sync.get_llm_client",
             side_effect=RuntimeError("no key"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -1446,9 +1448,9 @@ def test_main_exits_1_when_resume_fails_to_load(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, GMAIL_ENV, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
         patch(
-            "jobgitops.cli.gmail_sync.load_resume",
+            "gitemployed.cli.gmail_sync.load_resume",
             side_effect=FileNotFoundError("no resume"),
         ),
         pytest.raises(SystemExit) as exc_info,
@@ -1462,16 +1464,17 @@ def test_main_exits_1_on_unexpected_run_sync_failure(tmp_path: Path) -> None:
     with (
         patch.dict(os.environ, GMAIL_ENV, clear=True),
         patch("sys.argv", ["gmail_sync.py", "--repo-path", str(tmp_path)]),
-        patch("jobgitops.cli.gmail_sync.load_settings", return_value=settings),
-        patch("jobgitops.cli.gmail_sync.load_resume", return_value=sample_resume()),
+        patch("gitemployed.cli.gmail_sync.load_settings", return_value=settings),
+        patch("gitemployed.cli.gmail_sync.load_resume", return_value=sample_resume()),
         patch(
-            "jobgitops.cli.gmail_sync.GitHubClient",
+            "gitemployed.cli.gmail_sync.GitHubClient",
             return_value=FakeGmailGitHubClient(),
         ),
-        patch("jobgitops.cli.gmail_sync.GmailClient", return_value=FakeGmailClient()),
-        patch("jobgitops.cli.gmail_sync.get_llm_client", return_value=MagicMock()),
+        patch("gitemployed.cli.gmail_sync.GmailClient", return_value=FakeGmailClient()),
+        patch("gitemployed.cli.gmail_sync.get_llm_client", return_value=MagicMock()),
         patch(
-            "jobgitops.cli.gmail_sync.run_sync", side_effect=RuntimeError("unexpected")
+            "gitemployed.cli.gmail_sync.run_sync",
+            side_effect=RuntimeError("unexpected"),
         ),
         pytest.raises(SystemExit) as exc_info,
     ):
@@ -1482,7 +1485,9 @@ def test_main_exits_1_on_unexpected_run_sync_failure(tmp_path: Path) -> None:
 def test_run_sync_raises_fatal_error_when_label_missing(tmp_path: Path) -> None:
     gmail_client = FakeGmailClient(label_id=None)
     with (
-        patch("jobgitops.cli.gmail_sync.run_git", side_effect=GitOpsError("no branch")),
+        patch(
+            "gitemployed.cli.gmail_sync.run_git", side_effect=GitOpsError("no branch")
+        ),
         pytest.raises(gmail_sync.GmailSyncFatalError),
     ):
         gmail_sync.run_sync(

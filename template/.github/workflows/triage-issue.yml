@@ -46,7 +46,7 @@ jobs:
       - name: Block Triage While Setup is Pending
         id: setup-check
         run: |
-          if [ -f resumes/resume.yaml ] && grep -q '__JOBGITOPS_SETUP_PENDING__' resumes/resume.yaml; then
+          if [ -f resumes/resume.yaml ] && grep -q '__GITEMPLOYED_SETUP_PENDING__' resumes/resume.yaml; then
             echo "sentinel=present" >> "$GITHUB_OUTPUT"
             if [ "${{ github.event_name }}" = "issues" ]; then
               curl -fsSL -X POST \
@@ -75,7 +75,7 @@ jobs:
         id: verify
         run: |
           if [ -f resumes/resume.yaml ]; then
-            if python -m jobgitops.cli.validate_resume --check-canonical resumes/resume.yaml; then
+            if python -m gitemployed.cli.validate_resume --check-canonical resumes/resume.yaml; then
               echo "valid=true" >> "$GITHUB_OUTPUT"
             else
               echo "Resume is not canonically formatted or valid. Skipping triage and keeping status pending."
@@ -97,9 +97,9 @@ jobs:
         if: steps.verify.outputs.valid == 'true'
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            python -m jobgitops.cli.triage --all-pending
+            python -m gitemployed.cli.triage --all-pending
           else
-            python -m jobgitops.cli.triage --event-path "$GITHUB_EVENT_PATH"
+            python -m gitemployed.cli.triage --event-path "$GITHUB_EVENT_PATH"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

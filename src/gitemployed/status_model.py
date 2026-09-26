@@ -103,7 +103,7 @@ def sync_lifecycle_label(
 
     Args:
         gh_client: Object exposing ``get_labels``, ``remove_label``, and
-            ``add_labels`` (a ``jobgitops.github_client.GitHubClient`` or test
+            ``add_labels`` (a ``gitemployed.github_client.GitHubClient`` or test
             double).
         issue_number: GitHub issue number to update.
         target_label: The lifecycle label that should remain.

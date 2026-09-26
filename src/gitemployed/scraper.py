@@ -1,4 +1,4 @@
-"""Job scraper module containing core logic and helper functions for JobGitOps.
+"""Job scraper module containing core logic and helper functions for GitEmployed.
 
 Uses python-jobspy to search LinkedIn, Indeed, and ZipRecruiter for roles
 based on skills/titles in resume.yaml, or custom queries in settings.yaml.
@@ -16,13 +16,13 @@ from typing import Any
 
 import pandas as pd
 
-from jobgitops import (
+from gitemployed import (
     GitHubClient,
     Resume,
     load_resume,
     load_settings,
 )
-from jobgitops.status_model import LABEL_TO_STATUS
+from gitemployed.status_model import LABEL_TO_STATUS
 
 logger = logging.getLogger("job_scraper")
 

@@ -33,7 +33,7 @@ jobs:
       - name: Run Gmail Sync
         run: |
           set -e
-          python -m jobgitops.cli.gmail_sync
+          python -m gitemployed.cli.gmail_sync
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}

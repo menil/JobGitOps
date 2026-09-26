@@ -26,7 +26,7 @@ jobs:
       - name: Check Setup Status
         id: setup_check
         run: |
-          if [ ! -f resumes/resume.yaml ] || grep -q "__JOBGITOPS_SETUP_PENDING__" resumes/resume.yaml; then
+          if [ ! -f resumes/resume.yaml ] || grep -q "__GITEMPLOYED_SETUP_PENDING__" resumes/resume.yaml; then
             echo "pending=true" >> "$GITHUB_OUTPUT"
           else
             echo "pending=false" >> "$GITHUB_OUTPUT"
@@ -43,7 +43,7 @@ jobs:
         if: steps.setup_check.outputs.pending == 'false'
         run: |
           python -c "
-          from jobgitops.loader import load_resume, render_resume_yaml
+          from gitemployed.loader import load_resume, render_resume_yaml
           import pathlib
           p = pathlib.Path('resumes/resume.yaml')
           p.write_text(render_resume_yaml(load_resume(p)), encoding='utf-8')

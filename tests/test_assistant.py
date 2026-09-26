@@ -5,10 +5,10 @@ import logging
 
 import pytest
 
-import jobgitops.assistant as assistant
-from jobgitops.llm import ChatMessage, ToolCall, ValidationError
-from jobgitops.schema import ResearchConfig, Resume
-from jobgitops.web import PageContent, SearchResult
+import gitemployed.assistant as assistant
+from gitemployed.llm import ChatMessage, ToolCall, ValidationError
+from gitemployed.schema import ResearchConfig, Resume
+from gitemployed.web import PageContent, SearchResult
 
 
 def sample_resume() -> Resume:
@@ -634,7 +634,7 @@ def test_build_system_prompt_contains_context() -> None:
         resume=sample_resume(),
     )
 
-    assert "JobGitOps Issue Assistant" in prompt
+    assert "GitEmployed Issue Assistant" in prompt
     assert "Backend Engineer at Acme" in prompt
     assert "Do Python things." in prompt
     assert "triage-pending" in prompt

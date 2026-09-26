@@ -145,7 +145,7 @@ async function exchangeCodeForRefreshToken(
 
 /**
  * Runs the full interactive Gmail OAuth consent flow for a user-owned
- * Desktop-app OAuth client (never a JobGitOps-shared client -- see
+ * Desktop-app OAuth client (never a GitEmployed-shared client -- see
  * DEVELOPMENT.md's "Gmail Sync Setup" section for why) and returns the
  * resulting refresh token.
  *

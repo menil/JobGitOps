@@ -1,17 +1,17 @@
 {
-  "name": "jobgitops-installer",
+  "name": "gitemployed-installer",
   "version": "0.0.0",
-  "description": "Interactive bootstrap installer for JobGitOps repositories",
+  "description": "Interactive bootstrap installer for GitEmployed repositories",
   "main": "dist/index.js",
   "bin": {
-    "jobgitops-installer": "dist/index.js"
+    "gitemployed-installer": "dist/index.js"
   },
   "files": [
     "dist"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/menil/JobGitOps.git",
+    "url": "git+https://github.com/menil/GitEmployed.git",
     "directory": "installer"
   },
   "type": "module",

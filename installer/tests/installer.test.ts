@@ -45,7 +45,7 @@ vi.mock("fs-extra", async (importOriginal) => {
             '# projects_v2:\n#   project_id: ""\n#   status_field_name: ""\n\n' +
             "# gmail:\n" +
             "#   enabled: true\n" +
-            '#   label: "JobGitOps"        # required when enabled\n' +
+            '#   label: "GitEmployed"        # required when enabled\n' +
             "#                              # continuation comment line\n" +
             '#   query: ""                 # optional\n' +
             "#   days_back: 7               # lookback window\n" +
@@ -58,7 +58,7 @@ vi.mock("fs-extra", async (importOriginal) => {
       writeFileSync: vi.fn().mockReturnValue(undefined),
       readdir: vi.fn().mockImplementation(async (dirPath: string) => {
         if (dirPath.endsWith("extracted")) {
-          return ["jobgitops-v0.6.0"];
+          return ["gitemployed-v0.6.0"];
         }
         return [
           "sync-template.yml",
@@ -538,7 +538,7 @@ describe("runInstallation", () => {
           gmailClientId: "gmail-client-id",
           gmailClientSecret: "gmail-client-secret",
           gmailRefreshToken: "gmail-refresh-token",
-          gmailLabel: "JobGitOps",
+          gmailLabel: "GitEmployed",
           dryRun: true,
         },
         "testowner",
@@ -605,7 +605,7 @@ describe("runInstallation", () => {
         gmailClientId: "gmail-client-id",
         gmailClientSecret: "",
         gmailRefreshToken: "gmail-refresh-token",
-        gmailLabel: "JobGitOps",
+        gmailLabel: "GitEmployed",
         dryRun: false,
       },
       "testowner",
@@ -669,7 +669,7 @@ describe("runInstallation", () => {
         "testowner",
       ),
     ).rejects.toThrow(
-      "Failed to download JobGitOps tarball for 'latest': GH CLI error",
+      "Failed to download GitEmployed tarball for 'latest': GH CLI error",
     );
 
     // Also assert cause is correct
